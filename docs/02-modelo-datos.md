@@ -35,11 +35,17 @@ SKUs distintos y no son intercambiables.
 "Azul Oscuro" / "azul oscuro" / "AZUL OSCURO". **Pendiente de la pregunta 2 del cliente.**
 
 ### `producto`
-Los ~95 SKUs. El `codigo` **se deriva** de sus cuatro componentes y se guarda como columna
-generada, nunca se tipea:
+Los ~95 SKUs. El `codigo` **se deriva** de sus cuatro componentes, nunca se tipea:
 
     numero + proveedorMasterInicial + '-' + tipoCodigo + '-' + colorIniciales
     001      B                            PR              NE           →  001B-PR-NE
+
+No es una columna generada de Postgres porque los componentes (inicial del
+proveedor, iniciales del color) viven en otras tablas — se calcula en
+`construirCodigoProducto()` (`src/lib/data/catalogo.ts`) al insertar o editar.
+La identidad real del SKU la garantiza un índice único sobre
+`(familia, tipo, colorId, proveedorMasterId)`: dos productos con esos cuatro
+valores iguales son, por definición, el mismo producto.
 
 Atributos físicos, todos con valor real de §3.9: `m2PorUnidad`, `kgPorUnidad`, `piezasPorGolpe`,
 `unidadesPorCaja`, `pesoCajaKg`. `minimo` / `maximo` quedan nullable hasta la pregunta 1.
