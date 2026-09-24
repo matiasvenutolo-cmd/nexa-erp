@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f5f7f9;
+  --surface: #ffffff;
+  --surface-muted: #eef2f5;
+  --foreground: #12132c;
+  --foreground-muted: #5b6472;
+  --border: #dde4ea;
+
+  /* Marca NEXA — valores exactos del manual (docs/marca/colores.png).
+     El azul es el interactivo; el naranja se reserva para acentos y alertas
+     de acción, para no competir con el semáforo de estados de stock. */
+  --brand-gris: #cbd6de;
+  --brand-azul: #002cb5;
+  --brand-azul-profundo: #00009f;
+  --brand-azul-oscuro: #12132c;
+  --brand-naranja: #ff6100;
+
+  --accent: var(--brand-azul);
+  --accent-hover: var(--brand-azul-profundo);
+  --accent-foreground: #ffffff;
+  --accent-soft: #e4e9fa;
+
+  /* Semáforo de stock — docs/01-analisis.md §4 */
+  --estado-critico-bg: #fee2e2;
+  --estado-critico-fg: #991b1b;
+  --estado-bajo-bg: #fef3c7;
+  --estado-bajo-fg: #92400e;
+  --estado-ok-bg: #d9f0ea;
+  --estado-ok-fg: #00755d;
+  --estado-exceso-bg: #eef2f5;
+  --estado-exceso-fg: #5b6472;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-brand-gris: var(--brand-gris);
+  --color-brand-naranja: var(--brand-naranja);
+  --color-brand-azul-oscuro: var(--brand-azul-oscuro);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
