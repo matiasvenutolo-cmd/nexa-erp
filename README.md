@@ -8,6 +8,9 @@ Postgres en Neon vía Drizzle), corriendo en la cuenta de Pinaro sobre tiers
 gratuitos. Antes de la puesta en marcha en planta se traspasa a la cuenta de
 CPS — ver [docs/04-runbook-traspaso.md](docs/04-runbook-traspaso.md).
 
+Deploy: URL autogenerada de Vercel por ahora — el dominio propio se define
+antes de la puesta en marcha en planta.
+
 Reemplaza a un encadenamiento de Excel + Google Forms. El análisis completo del
 negocio y de por qué se refundó el mockup previo está en
 [docs/01-analisis.md](docs/01-analisis.md).

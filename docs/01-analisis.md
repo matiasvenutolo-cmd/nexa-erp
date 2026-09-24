@@ -266,12 +266,17 @@ Ordenadas por cuánto frenan. Las que bloquean R1 van primero.
 | 4 | **Master por kg**: el Excel dice 0,015 kg/kg (150 g cada 10 kg); en la reunión se dijo "150 g cada 25 kg" (0,006). ¿Cuál es? | Eduardo / Alejandro (matrices) | R4 |
 | 5 | ¿Las unidades por caja son siempre Rejilla 8 / Ciego 25, o varía por producto? El catálogo no las tiene cargadas. | David | R1 |
 | 6 | ¿Las vendedoras cargan el pedido directo en el sistema, o seguimos importando su Excel? Ignacio quedó en averiguar si ese Excel se alimenta solo desde otro programa. **Es el pendiente explícito de la minuta.** | Alejandra | R1 |
-| 7 | ¿Alguien de CPS cargó datos reales en el prototipo desde el 15/09, o sigue siendo todo el snapshot de los Excel? Define si hay algo que migrar. | Ignacio | R1 |
 | 8 | ¿Hace falta que el pedido esté cobrado antes de despachar? Hoy la facturación va por un sistema aparte. | Alejandra / Gerencia | R5 |
 | 9 | El histórico usa inyectoras 6 y 8, pero NEXA tendría una sola. ¿Cuál es? ¿Puede cambiar? | David | R3 |
 | 10 | La base real de clientes son ~360 y la hoja CLIENTES está vacía. ¿De dónde se exporta? ¿Con CUIT y condición de IVA? | Alejandra | R1 |
 | 11 | ¿El N° de partida NEXA lo sigue asignando una persona o lo genera el sistema? Eduardo se inclinó por automático: *"si fuera automático, que cada vez que yo cambio de…"*. | Eduardo | R3 |
 | 12 | Los 3 primeros dígitos del código de barras de MP identifican "producto inyectado" (§3.2). ¿Qué pasa cuando una misma bolsa se usa para varios productos? | Daniela / Eduardo | R4 |
+
+### 6.1 Preguntas ya respondidas
+
+| Pregunta | Respuesta | Consecuencia |
+|---|---|---|
+| ¿Alguien de CPS cargó datos reales en el prototipo? | **No.** Todo lo que hay en la base del mockup es el snapshot de los Excel. (Ignacio, 24/09/2026) | No hay nada que migrar. Se apaga Supabase y se importa de cero desde `/data` al esquema nuevo. |
 
 ## 7. Arquitectura
 
@@ -282,7 +287,7 @@ Ordenadas por cuánto frenan. Las que bloquean R1 van primero.
 | ORM | Drizzle, con **migraciones versionadas** (`db:generate` + `db:migrate`) desde el día 1 |
 | Auth | Sesión propia firmada con `jose`, igual que REINER. Email+contraseña para administración; **PIN para operarios de planta** |
 | Archivos | Vercel Blob — certificados de calidad (R4), remitos firmados (R5) |
-| Hosting | Vercel, cuenta `matiasvenutolo-cmd`, con **dominio propio** (no el subdominio autogenerado) |
+| Hosting | Vercel, cuenta `matiasvenutolo-cmd`. Por ahora la URL autogenerada de Vercel; el dominio propio se define antes de la puesta en marcha en planta |
 | Importación | `scripts/import-excel.ts` — **idempotente por clave natural, nunca destructivo** |
 
 ### 7.1 Decisiones no negociables del núcleo
@@ -305,4 +310,9 @@ Igual que REINER: durante el desarrollo corre en la cuenta de Pinaro sobre tiers
 (Vercel Hobby + Neon free + Blob free). El traspaso a la cuenta de CPS se documenta en
 `docs/04-runbook-traspaso.md` y se ejecuta antes de la puesta en marcha real en planta.
 
-El dominio propio es el único costo fijo desde el día 1.
+Por ahora se usa la URL autogenerada de Vercel. El dominio propio se define antes de la puesta
+en marcha real en planta — es el único costo fijo que aparece, y conviene resolverlo junto con el
+traspaso de cuenta para no cambiar la URL dos veces.
+
+**Vercel Blob** no se habilita todavía: no hay archivos que guardar hasta R4 (certificados de
+calidad escaneados) y R5 (remitos firmados). Ver `04-runbook-traspaso.md` cuando se escriba.

@@ -18,7 +18,7 @@ todo lo demás.
 
 **0 · Andamiaje**
 Next.js 16 + TS + Tailwind v4 + Drizzle. Repo `matiasvenutolo-cmd/nexa-erp`, proyecto de Vercel
-propio, Postgres en Neon vía la integración de Storage, dominio propio. Migraciones versionadas
+propio, Postgres en Neon vía la integración de Storage. Migraciones versionadas
 (`db:generate` + `db:migrate`) desde el primer commit — no `db:push`.
 
 **1 · Importador idempotente**
@@ -79,7 +79,6 @@ Son las que no se pueden esquivar con una asunción razonable. Detalle completo 
 | 3 | Color multicolor en una celda: ¿varias líneas o producto especial? | Alejandra |
 | 5 | ¿Unidades por caja siempre Rejilla 8 / Ciego 25? | David |
 | 6 | ¿Carga directa en el sistema o seguimos importando el Excel de ventas? | Alejandra |
-| 7 | ¿Hay datos reales cargados en el prototipo desde el 15/09? | Ignacio |
 | 10 | Base real de clientes (~360): ¿de dónde se exporta? ¿con CUIT? | Alejandra |
 
 **Asunciones tomadas mientras no haya respuesta** (todas reversibles, todas a confirmar):
@@ -91,6 +90,9 @@ Son las que no se pueden esquivar con una asunción razonable. Detalle completo 
   default universal** — ese fue el bug del mockup.
 - Clientes: se importan los ~60 que aparecen en el Excel de ventas; el resto se da de alta a
   medida que se usan.
+
+**Confirmado el 24/09/2026:** el cliente no cargó ningún dato real en el prototipo, así que la
+importación arranca de cero desde `/data` sin nada que rescatar de la base anterior.
 
 ## Fuera de alcance de R1
 
