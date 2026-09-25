@@ -1,6 +1,6 @@
-# NEXA — Informe de avance
+# NEXA — Informe de Fase 1
 
-**Primera entrega: Núcleo + Pedidos** · Septiembre 2026
+**Núcleo + Pedidos** · Septiembre 2026
 
 ---
 
@@ -48,6 +48,10 @@ stock que hay en ese momento.
 Al guardar, el pedido queda visible al instante para todo el que lo necesite ver, con el chequeo de
 si hay stock para armarlo o si falta producir.
 
+**Colores a medida.** Cuando el pedido es de un color especial que no está en el catálogo, ahora se
+puede dar de alta ahí mismo — se le asigna código automáticamente, con la misma regla que usa todo
+el catálogo — en vez de dejarlo pendiente para cargar después a mano.
+
 ### Ver el estado de todos los pedidos
 
 El listado de "Pedidos" trae los 65 pedidos reales de los últimos meses, ya importados desde el
@@ -78,17 +82,24 @@ Lo probamos a propósito: cargamos dos pedidos por el mismo color con poco stock
 mostró correctamente uno como "OK para armar" y el otro como "Falta producir" — la diferencia
 exacta que antes no existía.
 
-## Qué queda pendiente de esta etapa
+## Cómo lo validamos
 
-Nada bloquea el uso de lo que ya está. Lo que sigue mejorando semana a semana, sin que haya que
-esperar, son las **definiciones que quedaron pendientes de la reunión** (documento aparte, "NEXA —
-Definiciones pendientes"): la lista oficial de colores, si van a cargar el pedido acá directamente
-o van a seguir con el Excel, y sobre todo los mínimos y máximos reales de cada producto — hoy el
-semáforo de stock está calibrado con los valores del Excel viejo, y por eso casi todo aparece en
-rojo.
+Antes de esta entrega recorrimos el sistema completo con cada uno de los cuatro roles, pantalla por
+pantalla: quién ve qué, quién puede cargar qué, y qué pasa cuando algo sale mal (un pedido que no
+existe, un cliente repetido, un pedido sin ítems). También lo probamos en celular, no sólo en
+computadora, porque va a haber gente en planta usándolo así. Lo que encontramos en el camino se
+corrigió antes de que ustedes lo vieran.
 
-## Próxima entrega
+## Qué queda pendiente
 
-La segunda etapa (Stock) agrega el registro de entradas y salidas con historial, y separa
-claramente cuánto hay disponible, cuánto está comprometido en pedidos abiertos y cuánto falta
-producir — hoy eso se ve sólo pedido por pedido, ahí se va a poder ver de conjunto.
+Nada de esto bloquea el uso de lo que ya está. Lo que sigue abierto son las **definiciones que
+quedaron pendientes de la reunión** (documento aparte, "NEXA — Definiciones pendientes"): la lista
+oficial de colores y, sobre todo, los mínimos y máximos reales de cada producto — hoy el semáforo
+de stock está calibrado con los valores del Excel viejo, y por eso casi todo aparece en rojo.
+
+## Próxima etapa
+
+Vamos a seguir directamente con **Stock y Producción juntos**: el registro de entradas y salidas
+con historial, cuánto hay disponible versus comprometido versus a producir, y el circuito completo
+de la inyectora — desde la cola de producción priorizada hasta la partida y la caja etiquetada.
+Las mejoras que nos hicieron llegar sobre este circuito ya están incorporadas al alcance.
