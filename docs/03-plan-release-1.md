@@ -94,6 +94,20 @@ Son las que no se pueden esquivar con una asunción razonable. Detalle completo 
 **Confirmado el 24/09/2026:** el cliente no cargó ningún dato real en el prototipo, así que la
 importación arranca de cero desde `/data` sin nada que rescatar de la base anterior.
 
+### 1.1 Importador corrido (25/09/2026)
+
+`scripts/import-excel.ts` está escrito y probado contra la base real (Neon), con tres corridas
+sucesivas confirmando que no duplica nada. Resultado, ver el detalle completo y actualizado en
+`docs/migracion-datos.md` (se regenera en cada corrida):
+
+- **94 productos** de 95 filas válidas del catálogo (13 descartadas: encabezados sueltos con stock
+  en cero y dos artículos que no son pisos — "Grampa de unión", "Cajas chicas").
+- **50 materias primas**, todas con código interno válido.
+- **54 clientes** y **69 pedidos** con **106 líneas**, de los cuales **81 sin SKU resuelto**
+  (color multicolor o no reconocido) — quedan para asignación manual desde la pantalla de pedidos,
+  tal como se decidió arriba.
+- **144 movimientos de stock** (uno por producto/materia prima), con su saldo inicial.
+
 ## Fuera de alcance de R1
 
 Producción, partidas, etiquetas, despacho, materia prima y planificación. Cada uno tiene su
