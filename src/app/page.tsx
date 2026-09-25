@@ -2,9 +2,13 @@
  * Página de arranque.
  *
  * El sistema se entrega en 6 releases mensuales (ver README y docs/03-plan-release-1.md).
- * Hasta que R1 tenga sus pantallas, esta página deja visible el estado del
- * proyecto: es la URL que ve el cliente, así que no puede estar vacía.
+ * Es pública (src/proxy.ts la deja pasar sin sesión) porque es la URL que ve
+ * el cliente sin necesidad de cuenta — pero por eso mismo tiene que dejar
+ * clarísimo cómo se entra al sistema de verdad: nada de que alguien llegue
+ * acá y no encuentre el link a /login (bug real, detectado por Matías el
+ * 25/09 al abrir el link recién entregado).
  */
+import Link from "next/link";
 
 const RELEASES = [
   {
@@ -55,12 +59,22 @@ export default function Home() {
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
       <header className="border-b border-border pb-8">
-        <p className="font-mono text-xs uppercase tracking-[0.2em] text-foreground-muted">
-          Conexiones Plásticas Sudamericana
-        </p>
-        <h1 className="mt-3 text-4xl font-bold tracking-tight text-brand-azul-oscuro">
-          NEXA · Producción y stock
-        </h1>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-foreground-muted">
+              Conexiones Plásticas Sudamericana
+            </p>
+            <h1 className="mt-3 text-4xl font-bold tracking-tight text-brand-azul-oscuro">
+              NEXA · Producción y stock
+            </h1>
+          </div>
+          <Link
+            href="/login"
+            className="shrink-0 rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground hover:opacity-90"
+          >
+            Entrar al sistema →
+          </Link>
+        </div>
         <p className="mt-4 text-base leading-relaxed text-foreground-muted">
           Sistema en construcción. Reemplaza el circuito actual de planillas por una
           única aplicación que cubre el recorrido completo del pedido: venta, stock,
