@@ -67,6 +67,12 @@ Filtros por estado, prioridad manual, detalle con las líneas y su avance, edici
    con quién la responde.
 6. **Pantallas de planta a prueba de apuro.** Eduardo: *"los chicos realmente no tienen
    conocimiento… que lo pueda agarrar cualquiera de los operarios"*.
+7. **La UI se mide por lo que NO tiene.** Es un sistema de gestión de uso diario, no una consola de
+   administrador: cada pantalla resuelve una tarea concreta con las mínimas acciones posibles, sin
+   menús anidados ni configuración expuesta "por si sirve". Antes de agregar un botón, un filtro o
+   una sección, la pregunta es si la tarea de hoy la necesita — no si podría ser útil alguna vez.
+   Es fácil que un sistema de gestión derive en un monstruo de mil secciones; la manera de evitarlo
+   es cortar por defecto, no agregar por defecto (pedido explícito de Matías, 25/09/2026).
 
 ## Preguntas que bloquean R1
 
