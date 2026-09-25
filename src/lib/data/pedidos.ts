@@ -7,7 +7,8 @@
  */
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { pedido, pedidoLinea, cliente, producto } from "@/lib/db/schema";
+import { pedido, pedidoLinea, cliente, producto, reserva } from "@/lib/db/schema";
+import { getDepositoNexaId } from "@/lib/data/depositos";
 
 export type FilaPedido = {
   id: number;
@@ -99,6 +100,83 @@ export async function obtenerPedido(id: number): Promise<PedidoConDetalle | null
       productoDescripcion: l.productoDescripcion,
     })),
   };
+}
+
+export type NuevaLineaInput = {
+  productoId: number | null;
+  colorTexto: string | null;
+  unidadesPedidas: number;
+};
+
+export type NuevoPedidoInput = {
+  clienteId: number;
+  fechaPedido: string;
+  numeroOrden: string | null;
+  contacto: string | null;
+  domicilioEntrega: string | null;
+  modoEntrega: string | null;
+  requiereColocacion: boolean;
+  metodoPago: string | null;
+  total: string | null;
+  senia: string | null;
+  observaciones: string | null;
+  usuarioId: number;
+  lineas: NuevaLineaInput[];
+};
+
+/**
+ * Crea el pedido y, por cada línea con SKU resuelto, su reserva de stock —
+ * en la misma transacción. Es la pieza que faltaba para que el bug que
+ * detectó el cliente en el mockup no pueda volver a pasar: a partir de acá,
+ * cargar un pedido reserva stock de verdad (docs/02-modelo-datos.md §3
+ * `reserva`), no sólo lo descuenta al armar.
+ */
+export async function crearPedido(input: NuevoPedidoInput): Promise<{ id: number }> {
+  const depositoId = await getDepositoNexaId();
+
+  return db.transaction(async (tx) => {
+    const [nuevo] = await tx
+      .insert(pedido)
+      .values({
+        clienteId: input.clienteId,
+        fechaPedido: input.fechaPedido,
+        numeroOrden: input.numeroOrden,
+        estado: "PEDIDO",
+        contacto: input.contacto,
+        domicilioEntrega: input.domicilioEntrega,
+        modoEntrega: input.modoEntrega,
+        requiereColocacion: input.requiereColocacion,
+        metodoPago: input.metodoPago,
+        total: input.total,
+        senia: input.senia,
+        observaciones: input.observaciones,
+        usuarioId: input.usuarioId,
+      })
+      .returning();
+
+    for (const l of input.lineas) {
+      const [linea] = await tx
+        .insert(pedidoLinea)
+        .values({
+          pedidoId: nuevo.id,
+          productoId: l.productoId,
+          colorTexto: l.colorTexto,
+          unidadesPedidas: l.unidadesPedidas,
+        })
+        .returning();
+
+      if (l.productoId != null) {
+        await tx.insert(reserva).values({
+          depositoId,
+          productoId: l.productoId,
+          pedidoLineaId: linea.id,
+          cantidad: String(l.unidadesPedidas),
+        });
+      }
+    }
+
+    return { id: nuevo.id };
+  });
 }
 
 export const ESTADO_LABEL: Record<(typeof pedido.$inferSelect)["estado"], string> = {

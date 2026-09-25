@@ -22,7 +22,7 @@ export default async function DetallePedidoPage({ params }: { params: Promise<{ 
   const verPrecios = puedeVerPrecios(usuario.rol);
 
   const productoIds = pedido.lineas.map((l) => l.productoId).filter((id): id is number => id != null);
-  const disponible = await disponiblePorProducto(depositoId, productoIds);
+  const disponible = await disponiblePorProducto(depositoId, productoIds, pedido.id);
 
   return (
     <div className="space-y-6">
