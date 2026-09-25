@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { listarPedidos, contarPedidosPorEstado, ESTADO_LABEL } from "@/lib/data/pedidos";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeVerPrecios } from "@/lib/auth/permisos";
+import { puedeVerPrecios, puedeCrearPedido } from "@/lib/auth/permisos";
 import { EstadoPedido } from "@/components/estado-pedido";
 import { fmtFecha, fmtMoneda } from "@/lib/format";
 
@@ -30,12 +30,14 @@ export default async function PedidosPage({
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-brand-azul-oscuro">Pedidos</h1>
-        <Link
-          href="/pedidos/nuevo"
-          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90"
-        >
-          + Nuevo pedido
-        </Link>
+        {puedeCrearPedido(usuario.rol) && (
+          <Link
+            href="/pedidos/nuevo"
+            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90"
+          >
+            + Nuevo pedido
+          </Link>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -46,6 +48,7 @@ export default async function PedidosPage({
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-surface">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
@@ -84,6 +87,7 @@ export default async function PedidosPage({
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

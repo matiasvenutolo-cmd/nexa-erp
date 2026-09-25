@@ -10,6 +10,7 @@
  * Pedidos — regla 7, no agregar secciones que su tarea de hoy no necesita.
  */
 import type { usuario } from "@/lib/db/schema";
+import { ROLES_GESTION } from "@/lib/auth/permisos";
 
 type Rol = (typeof usuario.$inferSelect)["rol"];
 
@@ -35,27 +36,25 @@ const NAV_GESTION: ItemNav[] = [
   { href: "/clientes", label: "Clientes" },
 ];
 
-export const NAV_POR_ROL: Record<Rol, ItemNav[]> = {
-  GERENCIA: NAV_GESTION,
-  SUPERVISOR: NAV_GESTION,
-  ADMINISTRACION: NAV_GESTION,
-  ENCARGADO: NAV_GESTION,
-  MATERIA_PRIMA: NAV_BASE,
-  RETIROS_MP: NAV_BASE,
-  MATRICES: NAV_BASE,
-  MOLINO: NAV_BASE,
-  DESPACHO: NAV_BASE,
-  OPERARIO: NAV_BASE,
-};
+export const NAV_POR_ROL: Record<Rol, ItemNav[]> = Object.fromEntries(
+  (Object.keys(ROL_LABEL) as Rol[]).map((r) => [r, ROLES_GESTION.includes(r) ? NAV_GESTION : NAV_BASE]),
+) as Record<Rol, ItemNav[]>;
 
 export const HOME_POR_ROL: Record<Rol, string> = Object.fromEntries(
   (Object.keys(NAV_POR_ROL) as Rol[]).map((r) => [r, "/pedidos"]),
 ) as Record<Rol, string>;
 
-/** Rutas accesibles por rol, para el control de acceso real de src/proxy.ts.
- *  Se deriva de NAV_POR_ROL por prefijo, así una sola lista gobierna menú y
- *  autorización — ver el mismo patrón en reiner-erp. */
+/**
+ * Rutas accesibles por rol, para el control de acceso real de src/proxy.ts.
+ * Se deriva de NAV_POR_ROL por prefijo — mismo patrón que reiner-erp — CON
+ * UNA EXCEPCIÓN: "/pedidos/nuevo" no se abre sólo por ser subruta de
+ * "/pedidos". Ver a quién no ve el menú puedeCrearPedido() en
+ * src/lib/auth/permisos.ts.
+ */
 export function rutaPermitida(rol: Rol, pathname: string): boolean {
+  if (pathname === "/pedidos/nuevo" || pathname.startsWith("/pedidos/nuevo/")) {
+    return ROLES_GESTION.includes(rol);
+  }
   return NAV_POR_ROL[rol].some(
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
   );

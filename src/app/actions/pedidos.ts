@@ -6,6 +6,7 @@ import { db } from "@/lib/db/client";
 import { cliente } from "@/lib/db/schema";
 import { crearPedido } from "@/lib/data/pedidos";
 import { getUsuarioActual } from "@/lib/session";
+import { puedeCrearPedido, puedeVerPrecios } from "@/lib/auth/permisos";
 
 export type FormState = { error?: string };
 
@@ -23,6 +24,10 @@ type LineaEntrante = {
  */
 export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise<FormState> {
   const usuario = await getUsuarioActual();
+  // Defensa en profundidad: src/proxy.ts ya bloquea la navegación a esta
+  // ruta para quien no gestiona pedidos, pero una mutación no debe confiar
+  // sólo en el middleware — ver AGENTS.md regla 2 y src/lib/auth/permisos.ts.
+  if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para cargar pedidos." };
 
   const fechaPedido = String(fd.get("fechaPedido") ?? "").trim();
   if (!fechaPedido) return { error: "Falta la fecha del pedido." };
@@ -51,8 +56,12 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
   if (!cid) return { error: "Elegí un cliente o cargá uno nuevo." };
 
   const numeroOrden = String(fd.get("numeroOrden") ?? "").trim() || null;
-  const total = String(fd.get("total") ?? "").trim();
-  const senia = String(fd.get("senia") ?? "").trim();
+  // Igual que arriba: quien no ve precios en la UI tampoco puede fijarlos
+  // mandando el campo a mano.
+  const verPrecios = puedeVerPrecios(usuario.rol);
+  const total = verPrecios ? String(fd.get("total") ?? "").trim() : "";
+  const senia = verPrecios ? String(fd.get("senia") ?? "").trim() : "";
+  const metodoPago = verPrecios ? String(fd.get("metodoPago") ?? "").trim() || null : null;
 
   const { id } = await crearPedido({
     clienteId: cid,
@@ -62,7 +71,7 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
     domicilioEntrega: String(fd.get("domicilio") ?? "").trim() || null,
     modoEntrega: String(fd.get("modoEntrega") ?? "").trim() || null,
     requiereColocacion: fd.get("requiereColocacion") === "1",
-    metodoPago: String(fd.get("metodoPago") ?? "").trim() || null,
+    metodoPago,
     total: total || null,
     senia: senia || null,
     observaciones: String(fd.get("observaciones") ?? "").trim() || null,

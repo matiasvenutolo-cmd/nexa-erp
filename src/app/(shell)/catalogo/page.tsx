@@ -73,6 +73,7 @@ export default async function CatalogoPage({
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-surface">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
@@ -106,6 +107,7 @@ export default async function CatalogoPage({
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       <p className="text-xs text-foreground-muted">

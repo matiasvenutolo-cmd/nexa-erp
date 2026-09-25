@@ -20,3 +20,21 @@ const ROLES_CON_PRECIOS: readonly Rol[] = ["GERENCIA", "ADMINISTRACION"];
 export function puedeVerPrecios(rol: Rol): boolean {
   return ROLES_CON_PRECIOS.includes(rol);
 }
+
+/**
+ * Quién puede armar/coordinar pedidos — no sólo verlos. Es la misma lista
+ * que gobierna el menú de Catálogo y Clientes en src/lib/nav.ts (single
+ * source of truth: `rol.ts` compone su navegación a partir de esto).
+ *
+ * Ver "Pedidos" es de todos los roles (así lo decidió el propio cliente en
+ * el mockup); CREAR uno es una tarea de venta/coordinación. Sin esta
+ * distinción, /pedidos/nuevo quedaba alcanzable por URL directa para
+ * cualquier rol, sólo por ser una subruta de "/pedidos" — el mismo tipo de
+ * hueco de acceso que REINER documentó y cerró (docs/01-analisis.md
+ * hallazgo 1: ninguna URL debe quedar sin protección real).
+ */
+export const ROLES_GESTION: readonly Rol[] = ["GERENCIA", "SUPERVISOR", "ADMINISTRACION", "ENCARGADO"];
+
+export function puedeCrearPedido(rol: Rol): boolean {
+  return ROLES_GESTION.includes(rol);
+}
