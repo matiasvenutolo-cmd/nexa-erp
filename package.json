@@ -11,7 +11,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed-db.ts",
-    "db:import-excel": "tsx scripts/import-excel.ts"
+    "db:import-excel": "tsx scripts/import-excel.ts",
+    "db:seed-usuarios": "tsx scripts/seed-usuarios.ts"
   },
   "dependencies": {
     "@vercel/blob": "^2.8.0",

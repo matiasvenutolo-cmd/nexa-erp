@@ -95,6 +95,7 @@ const reporte = {
     lineasSinSku: 0,
     accesoriosFamiliaAmbigua: 0,
     bordesConCantidadTexto: 0,
+    sinFecha: [] as string[],
     estadosNoReconocidos: new Set<string>(),
     metodosPagoOriginales: new Set<string>(),
   },
@@ -358,6 +359,15 @@ async function main() {
     if (!nombreCliente) continue;
     reporte.pedidos.total++;
 
+    // Filas sin fecha son totales al pie de la planilla ("UNIDADES TOTALES",
+    // "Metros totales"), no pedidos — se descartan antes de crear nada, ni
+    // siquiera el cliente. Ver docs/migracion-datos.md.
+    const fechaPedido = fecha(r[2]);
+    if (!fechaPedido) {
+      reporte.pedidos.sinFecha.push(nombreCliente);
+      continue;
+    }
+
     // Cliente
     let clienteId = clienteIdPorNombre.get(normalizarTexto(nombreCliente));
     if (!clienteId) {
@@ -401,7 +411,7 @@ async function main() {
       .values({
         numeroOrden,
         clienteId,
-        fechaPedido: fecha(r[2]) ?? "2026-01-01",
+        fechaPedido,
         estado,
         contacto: texto(r[3]),
         domicilioEntrega: texto(r[4]),
@@ -540,6 +550,9 @@ ${reporte.clientes.importados} clientes nuevos (docs/01-analisis.md §6 pregunta
 - ${reporte.pedidos.lineas} líneas de pedido generadas, **${reporte.pedidos.lineasSinSku} sin SKU resuelto** (color multicolor o no reconocido — quedan para asignación manual, docs/01-analisis.md §6 pregunta 5).
 - ${reporte.pedidos.accesoriosFamiliaAmbigua} filas con accesorio (borde/esquinero) donde la familia se asumió por default (REJILLA) al haber más de una familia de piso en la misma fila, o ninguna — docs/01-analisis.md §6 pregunta 8.
 - ${reporte.pedidos.bordesConCantidadTexto} filas con "Si" en la columna de bordes (cantidad sin especificar) — se cargaron con cantidad 1 para revisar.
+
+**Filas sin fecha, no importadas** (${reporte.pedidos.sinFecha.length}) — en la planilla real son los totales al pie ("UNIDADES TOTALES", "Metros totales") o pedidos con la fecha ilegible en origen; ninguna se guardó con una fecha inventada:
+${reporte.pedidos.sinFecha.length ? reporte.pedidos.sinFecha.map((n) => `- ${n}`).join("\n") : "Ninguna."}
 
 **Estados no reconocidos** (se importaron como ENTREGADO):
 ${reporte.pedidos.estadosNoReconocidos.size ? [...reporte.pedidos.estadosNoReconocidos].map((e) => `- "${e}"`).join("\n") : "Ninguno."}

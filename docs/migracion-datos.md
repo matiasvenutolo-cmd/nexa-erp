@@ -36,7 +36,7 @@
 
 ## Clientes
 
-54 clientes nuevos (docs/01-analisis.md §6 pregunta 10 — falta la base real de ~360).
+50 clientes nuevos (docs/01-analisis.md §6 pregunta 10 — falta la base real de ~360).
 
 ## Pedidos
 
@@ -44,6 +44,12 @@
 - 0 líneas de pedido generadas, **0 sin SKU resuelto** (color multicolor o no reconocido — quedan para asignación manual, docs/01-analisis.md §6 pregunta 5).
 - 0 filas con accesorio (borde/esquinero) donde la familia se asumió por default (REJILLA) al haber más de una familia de piso en la misma fila, o ninguna — docs/01-analisis.md §6 pregunta 8.
 - 0 filas con "Si" en la columna de bordes (cantidad sin especificar) — se cargaron con cantidad 1 para revisar.
+
+**Filas sin fecha, no importadas** (4) — en la planilla real son los totales al pie ("UNIDADES TOTALES", "Metros totales") o pedidos con la fecha ilegible en origen; ninguna se guardó con una fecha inventada:
+- EDUARDO RICA
+- ROBERTO JORGE FUENTE
+- UNIDADES TOTALES
+- Metros totales
 
 **Estados no reconocidos** (se importaron como ENTREGADO):
 Ninguno.
