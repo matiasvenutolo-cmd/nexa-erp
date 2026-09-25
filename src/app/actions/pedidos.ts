@@ -5,8 +5,10 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import { cliente } from "@/lib/db/schema";
 import { crearPedido } from "@/lib/data/pedidos";
+import { crearProductoNuevo } from "@/lib/data/catalogo";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeCrearPedido, puedeVerPrecios } from "@/lib/auth/permisos";
+import { puedeCrearPedido, puedeCrearProducto, puedeVerPrecios } from "@/lib/auth/permisos";
+import type { FamiliaProducto, TipoProducto } from "@/lib/catalogo-normalizacion";
 
 export type FormState = { error?: string };
 
@@ -14,6 +16,12 @@ type LineaEntrante = {
   productoId: number | null;
   colorTexto: string | null;
   cantidad: number;
+  // Presentes sólo cuando la línea pide dar de alta el color como producto
+  // nuevo (docs/06-comentarios-produccion.md §5).
+  crearProducto?: boolean;
+  familia?: FamiliaProducto;
+  tipo?: TipoProducto;
+  proveedorMasterId?: number;
 };
 
 /**
@@ -43,6 +51,29 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
   }
   const lineasValidas = lineas.filter((l) => l.cantidad > 0 && (l.productoId || l.colorTexto));
   if (lineasValidas.length === 0) return { error: "Agregá al menos un ítem con cantidad." };
+
+  const algunaCreaProducto = lineasValidas.some((l) => l.crearProducto);
+  if (algunaCreaProducto && !puedeCrearProducto(usuario.rol)) {
+    return { error: "No tenés permiso para dar de alta productos nuevos." };
+  }
+
+  // Antes de crear el pedido: resolver los colores a medida en productos
+  // reales del catálogo. Si alguno falla, se corta acá — no queda un pedido
+  // a medio crear con una línea rota.
+  for (const l of lineasValidas) {
+    if (!l.crearProducto || l.productoId) continue;
+    if (!l.familia || !l.tipo || !l.proveedorMasterId || !l.colorTexto) {
+      return { error: "Falta familia, tipo, color o proveedor de master para dar de alta el producto." };
+    }
+    const resultado = await crearProductoNuevo({
+      familia: l.familia,
+      tipo: l.tipo,
+      colorNombre: l.colorTexto,
+      proveedorMasterId: l.proveedorMasterId,
+    });
+    if (!resultado.ok) return { error: resultado.error };
+    l.productoId = resultado.id;
+  }
 
   let cid = clienteId || undefined;
   if (!cid && clienteNuevo) {

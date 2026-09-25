@@ -38,3 +38,13 @@ export const ROLES_GESTION: readonly Rol[] = ["GERENCIA", "SUPERVISOR", "ADMINIS
 export function puedeCrearPedido(rol: Rol): boolean {
   return ROLES_GESTION.includes(rol);
 }
+
+/**
+ * Dar de alta un producto/color nuevo desde la carga de un pedido (docs/06-
+ * comentarios-produccion.md §5 — "colores a medida"). El procedimiento
+ * firmado dice que la codificación de productos nuevos se hace "bajo la
+ * autorización del supervisor" — mismo criterio que quién gestiona pedidos.
+ */
+export function puedeCrearProducto(rol: Rol): boolean {
+  return ROLES_GESTION.includes(rol);
+}

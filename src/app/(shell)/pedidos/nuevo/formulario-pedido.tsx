@@ -16,26 +16,46 @@ const METODOS_PAGO = [
   "Mercado Pago",
 ];
 
-type Fila = { key: number; grupo: string; productoId: string; colorLibre: string; cantidad: string };
+type Fila = {
+  key: number;
+  grupo: string;
+  productoId: string;
+  colorLibre: string;
+  cantidad: string;
+  crearProducto: boolean;
+  proveedorMasterId: string;
+};
+
+const filaVacia = (): Fila => ({
+  key: siguienteKey++,
+  grupo: GRUPOS[0].key,
+  productoId: "",
+  colorLibre: "",
+  cantidad: "",
+  crearProducto: false,
+  proveedorMasterId: "",
+});
 
 let siguienteKey = 1;
 
 export function FormularioPedido({
   clientes,
   productos,
+  proveedores,
   puedeVerPrecios,
+  puedeCrearProducto,
 }: {
   clientes: { id: number; nombre: string }[];
   productos: FilaProducto[];
+  proveedores: { id: number; nombre: string }[];
   puedeVerPrecios: boolean;
+  puedeCrearProducto: boolean;
 }) {
   const [state, formAction] = useActionState<FormState, FormData>(crearPedidoAction, {});
   const hoy = new Date().toISOString().slice(0, 10);
 
   const [clienteModo, setClienteModo] = useState<"existente" | "nuevo">("existente");
-  const [filas, setFilas] = useState<Fila[]>([
-    { key: siguienteKey++, grupo: GRUPOS[0].key, productoId: "", colorLibre: "", cantidad: "" },
-  ]);
+  const [filas, setFilas] = useState<Fila[]>([filaVacia()]);
   const [requiereColocacion, setRequiereColocacion] = useState(false);
 
   const upd = (key: number, patch: Partial<Fila>) =>
@@ -60,6 +80,14 @@ export function FormularioPedido({
         productoId: r.prod?.id ?? null,
         colorTexto: r.prod?.colorNombre ?? r.fila.colorLibre.trim(),
         cantidad: r.cantidad,
+        ...(r.fila.crearProducto && !r.prod
+          ? {
+              crearProducto: true,
+              familia: r.grupo.familia,
+              tipo: r.grupo.tipo,
+              proveedorMasterId: r.fila.proveedorMasterId ? Number(r.fila.proveedorMasterId) : undefined,
+            }
+          : {}),
       })),
   );
 
@@ -193,6 +221,33 @@ export function FormularioPedido({
                   />
                 )}
 
+                {puedeCrearProducto && f.productoId === LIBRE && f.colorLibre.trim() && (
+                  <>
+                    <label className="flex items-center gap-1.5 text-xs text-foreground-muted">
+                      <input
+                        type="checkbox"
+                        checked={f.crearProducto}
+                        onChange={(e) => upd(f.key, { crearProducto: e.target.checked })}
+                      />
+                      Dar de alta en el catálogo
+                    </label>
+                    {f.crearProducto && (
+                      <select
+                        value={f.proveedorMasterId}
+                        onChange={(e) => upd(f.key, { proveedorMasterId: e.target.value })}
+                        className="input w-auto min-w-[140px]"
+                      >
+                        <option value="">Proveedor de master…</option>
+                        {proveedores.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </>
+                )}
+
                 <input
                   type="number"
                   min={1}
@@ -222,12 +277,7 @@ export function FormularioPedido({
           </div>
           <button
             type="button"
-            onClick={() =>
-              setFilas((xs) => [
-                ...xs,
-                { key: siguienteKey++, grupo: GRUPOS[0].key, productoId: "", colorLibre: "", cantidad: "" },
-              ])
-            }
+            onClick={() => setFilas((xs) => [...xs, filaVacia()])}
             className="mt-3 text-sm font-medium text-accent hover:underline"
           >
             + Agregar ítem
