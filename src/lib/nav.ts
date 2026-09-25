@@ -1,12 +1,13 @@
 /**
  * Navegación y control de acceso por rol.
  *
- * En R1 el único módulo construido es Pedidos, y el mockup del cliente ya
- * había decidido algo que se mantiene: "Pedidos lo siguen viendo todos los
- * roles". Por eso el menú es el mismo para los 10 roles por ahora — regla 7
- * de docs/03-plan-release-1.md, no agregar secciones que ningún release
- * todavía resuelve. Cuando entre R2 (Stock) este archivo va a diferenciar
- * de verdad por rol.
+ * El mockup del cliente ya había decidido algo que se mantiene: "Pedidos lo
+ * siguen viendo todos los roles". Catálogo y Clientes son las pantallas de
+ * apoyo para armar un pedido (docs/03-plan-release-1.md pasos 3 y 5) — las ve
+ * quien puede cargar o coordinar pedidos: gerencia, supervisión,
+ * administración (ventas) y el encargado. El resto de los roles (materia
+ * prima, retiros, matrices, molino, despacho, operario) todavía sólo tiene
+ * Pedidos — regla 7, no agregar secciones que su tarea de hoy no necesita.
  */
 import type { usuario } from "@/lib/db/schema";
 
@@ -28,12 +29,17 @@ export const ROL_LABEL: Record<Rol, string> = {
 export type ItemNav = { href: string; label: string };
 
 const NAV_BASE: ItemNav[] = [{ href: "/pedidos", label: "Pedidos" }];
+const NAV_GESTION: ItemNav[] = [
+  { href: "/pedidos", label: "Pedidos" },
+  { href: "/catalogo", label: "Catálogo" },
+  { href: "/clientes", label: "Clientes" },
+];
 
 export const NAV_POR_ROL: Record<Rol, ItemNav[]> = {
-  GERENCIA: NAV_BASE,
-  SUPERVISOR: NAV_BASE,
-  ADMINISTRACION: NAV_BASE,
-  ENCARGADO: NAV_BASE,
+  GERENCIA: NAV_GESTION,
+  SUPERVISOR: NAV_GESTION,
+  ADMINISTRACION: NAV_GESTION,
+  ENCARGADO: NAV_GESTION,
   MATERIA_PRIMA: NAV_BASE,
   RETIROS_MP: NAV_BASE,
   MATRICES: NAV_BASE,
