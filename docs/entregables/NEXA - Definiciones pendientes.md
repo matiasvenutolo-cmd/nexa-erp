@@ -62,22 +62,24 @@ reunión se planteó automatizarlo.
 *Por qué importa:* es la pieza central de la trazabilidad. Si se tipea a mano, tarde o temprano se
 repite o se saltea un número, y se pierde el rastro.
 
+### 🔴 12. La carga de producción, ¿por día o por ciclo libre?
+
+En la reunión del 16/09 se había definido que el operario carga **inicio y fin de un ciclo de
+inyección**, sin importar si eso abarca uno o varios días — así se puede saber exactamente cuánto
+se produjo entre dos cambios de matriz o de color.
+
+Ahora nos llegó, a través de Ignacio, un pedido distinto: que la colada, las piezas producidas y
+las descartadas se carguen **día por día**, como indicadores diarios.
+
+> **¿Cuál de los dos formatos prefieren: seguir por ciclo libre (inicio/fin sin atarlo al día) o
+> pasar a una carga diaria? Son dos diseños distintos, no se pueden mezclar a medias.**
+
+*Por qué importa:* de esto depende cómo se construye toda la pantalla de carga de producción
+(Etapa 3), así que conviene cerrarlo antes de empezar esa parte.
+
 ---
 
 ## Alejandra Antón — Administración y ventas
-
-### 🔴 4. ¿Cargar el pedido en el sistema o seguir con el Excel?
-
-Es la definición más importante de esta primera etapa, y quedó pendiente de la reunión anterior.
-
-> **¿El Excel de ventas que usan hoy lo llenan a mano, o se alimenta solo desde otro programa?**
->
-> **Y si lo llenan a mano: ¿prefieren cargar el pedido directamente en el sistema nuevo, o que el
-> sistema importe el Excel que ya generan?**
-
-*Por qué importa:* si cargan directo en el sistema, el pedido chequea stock al instante y dispara
-la producción solo. Si seguimos con el Excel, eso llega con demora y hay doble carga. Nuestra
-recomendación es carga directa, pero la decisión es de ustedes y la respetamos.
 
 ### 🔴 5. Pedidos con varios colores en un mismo renglón
 
@@ -202,6 +204,8 @@ confirmen:
 
 No hace falta discutirlo de nuevo, pero lo dejamos asentado:
 
+- **Carga directa en el sistema.** Ya confirmado: las vendedoras van a cargar el pedido acá,
+  no seguimos con el Excel. Así está construido desde ahora.
 - **Estados del pedido y despacho parcial.** Tomamos el pedido de poder despachar una parte
   (por ejemplo, que se lleven los pisos y queden las rampas para la semana siguiente). El pedido
   queda abierto con lo que falta.

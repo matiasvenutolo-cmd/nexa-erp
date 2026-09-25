@@ -265,7 +265,6 @@ Ordenadas por cuánto frenan. Las que bloquean R1 van primero.
 | 3 | En los pedidos el color viene como texto libre y muchas veces **multicolor en una sola celda** ("Gris oscuro y amarillo"). ¿Eso es una línea de pedido con varios productos, o un producto especial? De 100 líneas importadas sólo 22 se pudieron vincular a un SKU. | Alejandra | R1 |
 | 4 | **Master por kg**: el Excel dice 0,015 kg/kg (150 g cada 10 kg); en la reunión se dijo "150 g cada 25 kg" (0,006). ¿Cuál es? | Eduardo / Alejandro (matrices) | R4 |
 | 5 | ¿Las unidades por caja son siempre Rejilla 8 / Ciego 25, o varía por producto? El catálogo no las tiene cargadas. | David | R1 |
-| 6 | ¿Las vendedoras cargan el pedido directo en el sistema, o seguimos importando su Excel? Ignacio quedó en averiguar si ese Excel se alimenta solo desde otro programa. **Es el pendiente explícito de la minuta.** | Alejandra | R1 |
 | 8 | ¿Hace falta que el pedido esté cobrado antes de despachar? Hoy la facturación va por un sistema aparte. | Alejandra / Gerencia | R5 |
 | 9 | El histórico usa inyectoras 6 y 8, pero NEXA tendría una sola. ¿Cuál es? ¿Puede cambiar? | David | R3 |
 | 10 | La base real de clientes son ~360 y la hoja CLIENTES está vacía. ¿De dónde se exporta? ¿Con CUIT y condición de IVA? | Alejandra | R1 |
@@ -277,6 +276,7 @@ Ordenadas por cuánto frenan. Las que bloquean R1 van primero.
 | Pregunta | Respuesta | Consecuencia |
 |---|---|---|
 | ¿Alguien de CPS cargó datos reales en el prototipo? | **No.** Todo lo que hay en la base del mockup es el snapshot de los Excel. (Ignacio, 24/09/2026) | No hay nada que migrar. Se apaga Supabase y se importa de cero desde `/data` al esquema nuevo. |
+| ¿Las vendedoras cargan el pedido directo en el sistema, o se importa su Excel? | **Carga directa en el sistema.** El cliente lo confirmó a Ignacio. (Ignacio, 26/09/2026) | Ya construido así en R1 — no hace falta el importador de Excel de ventas como circuito permanente (sólo sirvió para la carga inicial). |
 
 ## 7. Arquitectura
 
