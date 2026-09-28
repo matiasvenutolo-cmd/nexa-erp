@@ -4,9 +4,10 @@
  * mockup: dos pedidos del mismo producto no pueden decir ambos "OK para
  * armar" habiendo stock para uno solo.
  */
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { saldo, reserva, pedidoLinea } from "@/lib/db/schema";
+import { saldo, reserva, pedidoLinea, movimiento, producto } from "@/lib/db/schema";
+import { getDepositoNexaId } from "@/lib/data/depositos";
 
 export type EstadoSemaforo = "critico" | "bajo" | "ok" | "exceso" | "sin-datos";
 
@@ -73,4 +74,96 @@ export async function disponiblePorProducto(
     disponible.set(s.productoId, Number(s.cantidad) - res);
   }
   return disponible;
+}
+
+export type FilaMovimiento = {
+  id: number;
+  fecha: Date;
+  tipo: (typeof movimiento.$inferSelect)["tipo"];
+  cantidad: string;
+  motivo: string | null;
+  productoCodigo: string | null;
+  productoDescripcion: string | null;
+};
+
+/** Historial de movimientos de PRODUCTOS terminados — la materia prima tiene
+ *  el suyo en R4, cuando exista `retiroMp`/`loteMp`. */
+export async function listarMovimientosProducto(filtro?: {
+  tipo?: (typeof movimiento.$inferSelect)["tipo"];
+  productoId?: number;
+}): Promise<FilaMovimiento[]> {
+  const depositoId = await getDepositoNexaId();
+  const condiciones = [eq(movimiento.depositoId, depositoId), sql`${movimiento.productoId} is not null`];
+  if (filtro?.tipo) condiciones.push(eq(movimiento.tipo, filtro.tipo));
+  if (filtro?.productoId) condiciones.push(eq(movimiento.productoId, filtro.productoId));
+
+  const filas = await db
+    .select({
+      id: movimiento.id,
+      fecha: movimiento.fecha,
+      tipo: movimiento.tipo,
+      cantidad: movimiento.cantidad,
+      motivo: movimiento.motivo,
+      productoCodigo: producto.codigo,
+      productoDescripcion: producto.descripcion,
+    })
+    .from(movimiento)
+    .leftJoin(producto, eq(movimiento.productoId, producto.id))
+    .where(and(...condiciones))
+    .orderBy(desc(movimiento.fecha), desc(movimiento.id))
+    .limit(200);
+
+  return filas;
+}
+
+/**
+ * Corrección manual de stock — el recuento físico de los viernes
+ * (docs/01-analisis.md §3.6) hasta que exista la pantalla dedicada de
+ * inventario (R2 completo la deja como ajuste puntual; `inventarioFisico`
+ * como evento recurrente queda para cuando se calibren los mínimos reales).
+ * Genera su propio movimiento AJUSTE — nunca se toca `saldo` sin él.
+ *
+ * A diferencia de ENTRADA/SALIDA (donde `cantidad` siempre se guarda en
+ * positivo y el signo lo da el tipo), un AJUSTE puede ir en cualquier
+ * dirección, así que acá `cantidad` guarda el delta CON signo — ver
+ * `signoCantidad()` para mostrarlo bien en pantalla.
+ */
+export async function corregirStockManual(input: {
+  productoId: number;
+  delta: number;
+  motivo: string;
+  usuarioId: number;
+}): Promise<{ error?: string }> {
+  if (input.delta === 0) return { error: "El ajuste no puede ser cero." };
+  if (!input.motivo.trim()) return { error: "El motivo es obligatorio." };
+
+  const depositoId = await getDepositoNexaId();
+  await db.transaction(async (tx) => {
+    await tx.insert(movimiento).values({
+      tipo: "AJUSTE",
+      depositoId,
+      productoId: input.productoId,
+      cantidad: String(input.delta),
+      origen: "MANUAL",
+      motivo: input.motivo.trim(),
+      usuarioId: input.usuarioId,
+    });
+    await tx
+      .insert(saldo)
+      .values({ depositoId, productoId: input.productoId, cantidad: String(input.delta) })
+      .onConflictDoUpdate({
+        target: [saldo.depositoId, saldo.productoId],
+        set: { cantidad: sql`${saldo.cantidad} + ${input.delta}` },
+      });
+  });
+  return {};
+}
+
+/** Con qué signo mostrar la cantidad de un movimiento — ENTRADA siempre +,
+ *  SALIDA siempre −, AJUSTE ya viene con su propio signo guardado. */
+export function signoCantidad(tipo: (typeof movimiento.$inferSelect)["tipo"], cantidad: string): number {
+  const n = Number(cantidad);
+  if (tipo === "SALIDA") return -Math.abs(n);
+  if (tipo === "AJUSTE" || tipo === "TRANSFORMACION") return n;
+  return Math.abs(n);
 }
