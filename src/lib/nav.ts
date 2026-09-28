@@ -29,8 +29,14 @@ export const ROL_LABEL: Record<Rol, string> = {
 
 export type ItemNav = { href: string; label: string };
 
-const NAV_BASE: ItemNav[] = [{ href: "/pedidos", label: "Pedidos" }];
+// El tablero es la puerta de entrada para todos los roles (minuta 26-28/09:
+// "el tablero debería ser la primera pantalla que aparece al ingresar").
+const NAV_BASE: ItemNav[] = [
+  { href: "/tablero", label: "Tablero" },
+  { href: "/pedidos", label: "Pedidos" },
+];
 const NAV_GESTION: ItemNav[] = [
+  { href: "/tablero", label: "Tablero" },
   { href: "/pedidos", label: "Pedidos" },
   { href: "/catalogo", label: "Catálogo" },
   { href: "/clientes", label: "Clientes" },
@@ -41,7 +47,7 @@ export const NAV_POR_ROL: Record<Rol, ItemNav[]> = Object.fromEntries(
 ) as Record<Rol, ItemNav[]>;
 
 export const HOME_POR_ROL: Record<Rol, string> = Object.fromEntries(
-  (Object.keys(NAV_POR_ROL) as Rol[]).map((r) => [r, "/pedidos"]),
+  (Object.keys(NAV_POR_ROL) as Rol[]).map((r) => [r, "/tablero"]),
 ) as Record<Rol, string>;
 
 /**
