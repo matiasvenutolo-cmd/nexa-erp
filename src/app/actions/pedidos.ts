@@ -4,7 +4,13 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import { cliente } from "@/lib/db/schema";
-import { crearPedido } from "@/lib/data/pedidos";
+import {
+  crearPedido,
+  avanzarEstadoPedido,
+  marcarEntregado,
+  cancelarPedido,
+  editarPedido,
+} from "@/lib/data/pedidos";
 import { crearProductoNuevo } from "@/lib/data/catalogo";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeCrearPedido, puedeCrearProducto, puedeVerPrecios } from "@/lib/auth/permisos";
@@ -93,6 +99,7 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
   const total = verPrecios ? String(fd.get("total") ?? "").trim() : "";
   const senia = verPrecios ? String(fd.get("senia") ?? "").trim() : "";
   const metodoPago = verPrecios ? String(fd.get("metodoPago") ?? "").trim() || null : null;
+  const numeroComprobante = verPrecios ? String(fd.get("numeroComprobante") ?? "").trim() || null : null;
 
   const { id } = await crearPedido({
     clienteId: cid,
@@ -105,6 +112,7 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
     metodoPago,
     total: total || null,
     senia: senia || null,
+    numeroComprobante,
     observaciones: String(fd.get("observaciones") ?? "").trim() || null,
     usuarioId: usuario.id,
     lineas: lineasValidas.map((l) => ({
@@ -116,4 +124,67 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
 
   revalidatePath("/pedidos");
   redirect(`/pedidos/${id}`);
+}
+
+function revalidarPedido(id: number) {
+  revalidatePath("/pedidos");
+  revalidatePath(`/pedidos/${id}`);
+}
+
+export async function pasarAArmadoAction(pedidoId: number) {
+  const usuario = await getUsuarioActual();
+  if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para modificar pedidos." };
+  const r = await avanzarEstadoPedido(pedidoId, "EN_ARMADO");
+  revalidarPedido(pedidoId);
+  return r;
+}
+
+export async function marcarListoAction(pedidoId: number) {
+  const usuario = await getUsuarioActual();
+  if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para modificar pedidos." };
+  const r = await avanzarEstadoPedido(pedidoId, "LISTO_PARA_DESPACHAR");
+  revalidarPedido(pedidoId);
+  return r;
+}
+
+export async function marcarEntregadoAction(_prev: FormState, fd: FormData): Promise<FormState> {
+  const usuario = await getUsuarioActual();
+  if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para modificar pedidos." };
+  const pedidoId = Number(fd.get("pedidoId"));
+  const numeroRemito = String(fd.get("numeroRemito") ?? "").trim() || null;
+  const r = await marcarEntregado(pedidoId, { numeroRemito, usuarioId: usuario.id });
+  revalidarPedido(pedidoId);
+  return r;
+}
+
+export async function cancelarPedidoAction(pedidoId: number) {
+  const usuario = await getUsuarioActual();
+  if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para modificar pedidos." };
+  const r = await cancelarPedido(pedidoId);
+  revalidarPedido(pedidoId);
+  return r;
+}
+
+export async function editarPedidoAction(_prev: FormState, fd: FormData): Promise<FormState> {
+  const usuario = await getUsuarioActual();
+  if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para modificar pedidos." };
+
+  const pedidoId = Number(fd.get("pedidoId"));
+  const verPrecios = puedeVerPrecios(usuario.rol);
+
+  const r = await editarPedido(pedidoId, {
+    contacto: String(fd.get("contacto") ?? "").trim() || null,
+    domicilioEntrega: String(fd.get("domicilio") ?? "").trim() || null,
+    modoEntrega: String(fd.get("modoEntrega") ?? "").trim() || null,
+    requiereColocacion: fd.get("requiereColocacion") === "1",
+    metodoPago: verPrecios ? String(fd.get("metodoPago") ?? "").trim() || null : undefined,
+    total: verPrecios ? String(fd.get("total") ?? "").trim() || null : undefined,
+    senia: verPrecios ? String(fd.get("senia") ?? "").trim() || null : undefined,
+    numeroComprobante: verPrecios ? String(fd.get("numeroComprobante") ?? "").trim() || null : undefined,
+    observaciones: String(fd.get("observaciones") ?? "").trim() || null,
+  });
+  if (r.error) return r;
+
+  revalidarPedido(pedidoId);
+  redirect(`/pedidos/${pedidoId}`);
 }

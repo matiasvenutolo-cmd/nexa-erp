@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { listarPedidos, contarPedidosPorEstado, ESTADO_LABEL } from "@/lib/data/pedidos";
+import { listarPedidos, contarPedidosPorEstado, materialComprometido, ESTADO_LABEL } from "@/lib/data/pedidos";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeVerPrecios, puedeCrearPedido } from "@/lib/auth/permisos";
 import { EstadoPedido } from "@/components/estado-pedido";
-import { fmtFecha, fmtMoneda } from "@/lib/format";
+import { fmtFecha, fmtMoneda, fmtNumero } from "@/lib/format";
 
 // Estados que importan para el trabajo diario — Cancelado no se muestra acá
 // por default (regla 7: no agregar lo que la tarea de hoy no necesita).
@@ -25,6 +25,8 @@ export default async function PedidosPage({
     contarPedidosPorEstado(),
   ]);
   const verPrecios = puedeVerPrecios(usuario.rol);
+  const gestion = puedeCrearPedido(usuario.rol);
+  const comprometido = gestion ? await materialComprometido() : [];
 
   return (
     <div className="space-y-5">
@@ -39,6 +41,51 @@ export default async function PedidosPage({
           </Link>
         )}
       </div>
+
+      {gestion && comprometido.length > 0 && (
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold text-foreground">Material comprometido a entregar</h2>
+            <span className="text-xs text-foreground-muted">
+              {comprometido.length} productos · {comprometido.filter((c) => c.faltaProducir > 0).length} sin stock
+              suficiente
+            </span>
+          </div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
+                  <th className="py-1.5 pr-4">Producto</th>
+                  <th className="py-1.5 pr-4 text-right">Comprometido</th>
+                  <th className="py-1.5 pr-4 text-right">Stock</th>
+                  <th className="py-1.5 text-right">Falta producir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comprometido.map((c) => (
+                  <tr key={c.productoId} className="border-t border-border">
+                    <td className="py-1.5 pr-4">
+                      <span className="font-mono text-xs text-foreground-muted">{c.codigo}</span>{" "}
+                      <span className="text-foreground">{c.descripcion}</span>
+                    </td>
+                    <td className="py-1.5 pr-4 text-right">{fmtNumero(c.comprometido, 0)}</td>
+                    <td className="py-1.5 pr-4 text-right text-foreground-muted">{fmtNumero(c.stock, 0)}</td>
+                    <td className="py-1.5 text-right">
+                      {c.faltaProducir > 0 ? (
+                        <span className="font-medium text-[var(--estado-critico-fg)]">
+                          {fmtNumero(c.faltaProducir, 0)}
+                        </span>
+                      ) : (
+                        <span className="text-foreground-muted">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <FiltroTab href="/pedidos" activo={!estadoValido} label="Todos" />

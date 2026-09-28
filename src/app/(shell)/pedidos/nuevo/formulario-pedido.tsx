@@ -303,6 +303,9 @@ export function FormularioPedido({
               <Campo label="Seña">
                 <input name="senia" type="number" min={0} step="0.01" className="input" />
               </Campo>
+              <Campo label="N° de comprobante de pago">
+                <input name="numeroComprobante" className="input" />
+              </Campo>
             </div>
           </Bloque>
         )}

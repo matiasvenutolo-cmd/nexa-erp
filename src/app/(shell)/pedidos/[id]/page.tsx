@@ -4,8 +4,9 @@ import { obtenerPedido } from "@/lib/data/pedidos";
 import { disponiblePorProducto } from "@/lib/data/stock";
 import { getDepositoNexaId } from "@/lib/data/depositos";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeVerPrecios } from "@/lib/auth/permisos";
+import { puedeVerPrecios, puedeCrearPedido } from "@/lib/auth/permisos";
 import { EstadoPedido } from "@/components/estado-pedido";
+import { AccionesPedido } from "./acciones-pedido";
 import { fmtFecha, fmtMoneda, fmtNumero } from "@/lib/format";
 
 export default async function DetallePedidoPage({ params }: { params: Promise<{ id: string }> }) {
@@ -30,9 +31,21 @@ export default async function DetallePedidoPage({ params }: { params: Promise<{ 
         <Link href="/pedidos" className="text-sm text-foreground-muted hover:text-foreground">
           ← Pedidos
         </Link>
-        <div className="mt-1 flex items-center gap-3">
-          <h1 className="text-xl font-semibold text-brand-azul-oscuro">{pedido.clienteNombre}</h1>
-          <EstadoPedido estado={pedido.estado} />
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold text-brand-azul-oscuro">{pedido.clienteNombre}</h1>
+            <EstadoPedido estado={pedido.estado} />
+          </div>
+          {puedeCrearPedido(usuario.rol) && (
+            <div className="flex items-center gap-3">
+              {pedido.estado !== "ENTREGADO" && pedido.estado !== "CANCELADO" && (
+                <Link href={`/pedidos/${pedido.id}/editar`} className="text-sm font-medium text-accent hover:underline">
+                  Editar
+                </Link>
+              )}
+              <AccionesPedido pedidoId={pedido.id} estado={pedido.estado} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -41,6 +54,11 @@ export default async function DetallePedidoPage({ params }: { params: Promise<{ 
         <Dato label="Contacto" valor={pedido.contacto ?? "—"} />
         <Dato label="Entrega" valor={pedido.modoEntrega ?? "—"} />
         {verPrecios && <Dato label="Total" valor={fmtMoneda(pedido.total)} />}
+        {verPrecios && pedido.senia != null && <Dato label="Seña" valor={fmtMoneda(pedido.senia)} />}
+        {verPrecios && pedido.metodoPago && <Dato label="Método de pago" valor={pedido.metodoPago} />}
+        {verPrecios && pedido.numeroComprobante && (
+          <Dato label="N° de comprobante" valor={pedido.numeroComprobante} />
+        )}
         {pedido.domicilioEntrega && (
           <div className="col-span-2 sm:col-span-4">
             <Dato label="Domicilio" valor={pedido.domicilioEntrega} />
