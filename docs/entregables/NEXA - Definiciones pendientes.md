@@ -5,7 +5,7 @@
 ---
 
 Arrancamos la construcción del sistema definitivo de NEXA. Para avanzar sin trabarnos ni tomar
-decisiones por ustedes, necesitamos cerrar diez definiciones.
+decisiones por ustedes, necesitamos cerrar nueve definiciones.
 
 Están agrupadas **por persona**, porque cada una la puede responder quien conoce ese sector.
 Ninguna requiere preparación: son preguntas de cómo trabajan hoy.
@@ -50,17 +50,6 @@ Son dos veces y media de diferencia.
 
 *Por qué importa:* de este número sale el cálculo automático de cuánto master comprar por semana.
 Si está mal, el sistema pide de más o de menos.
-
-### 🟡 3. El número de partida NEXA, ¿lo pone una persona o lo genera el sistema?
-
-Hoy lo asigna a mano el encargado de producción, cuando cambia el material o la inyección. En la
-reunión se planteó automatizarlo.
-
-> **¿Puede el sistema generar el número de partida solo, cada vez que arranca una producción con
-> una combinación nueva de material y color? ¿O hay casos en que tiene que poder forzarse a mano?**
-
-*Por qué importa:* es la pieza central de la trazabilidad. Si se tipea a mano, tarde o temprano se
-repite o se saltea un número, y se pierde el rastro.
 
 ---
 
@@ -189,6 +178,8 @@ confirmen:
 
 No hace falta discutirlo de nuevo, pero lo dejamos asentado:
 
+- **Número de partida.** El sistema lo genera solo, correlativo, cada vez que arranca una
+  producción con una combinación nueva de material y color — nunca se tipea a mano.
 - **Carga directa en el sistema.** Ya confirmado: las vendedoras van a cargar el pedido acá,
   no seguimos con el Excel. Así está construido desde ahora.
 - **Estados del pedido y despacho parcial.** Tomamos el pedido de poder despachar una parte
