@@ -579,7 +579,6 @@ export const cicloProduccion = pgTable(
     id: serial("id").primaryKey(),
     partidaId: integer("partida_id").references(() => partida.id),
     productoId: integer("producto_id").references(() => producto.id),
-    pedidoId: integer("pedido_id"), // producción contra pedido, o para stock
     inyectora: text("inyectora").notNull(),
 
     // Inicio
@@ -611,6 +610,32 @@ export const cicloProduccion = pgTable(
     index("ciclo_partida_idx").on(t.partidaId),
     index("ciclo_fecha_idx").on(t.fechaInicio),
   ],
+);
+
+/**
+ * Qué pedidos cubre un ciclo — N:M, no un solo FK. Pedido explícito del
+ * cliente (docs/06-comentarios-produccion.md §3.1): "en pedido asociado
+ * debería poder asociarse varios de ellos, seleccionando prioridades de
+ * inyección", y "desplegar la lista de todos los pedidos a inyectar que
+ * contengan ese producto para generar la suma total a inyectar". Reemplaza
+ * el primer diseño (un `pedidoId` simple en `cicloProduccion`), que no
+ * llegó a usarse — sin datos que migrar.
+ */
+export const cicloPedido = pgTable(
+  "ciclo_pedido",
+  {
+    id: serial("id").primaryKey(),
+    cicloId: integer("ciclo_id")
+      .notNull()
+      .references(() => cicloProduccion.id, { onDelete: "cascade" }),
+    pedidoId: integer("pedido_id")
+      .notNull()
+      .references(() => pedido.id),
+    /** Cuánto de este ciclo se destina a este pedido — orientativo para
+     *  planificar, no mueve stock (eso sigue pasando al entregar el pedido). */
+    cantidadAsignada: integer("cantidad_asignada").notNull(),
+  },
+  (t) => [index("ciclo_pedido_ciclo_idx").on(t.cicloId), index("ciclo_pedido_pedido_idx").on(t.pedidoId)],
 );
 
 /**

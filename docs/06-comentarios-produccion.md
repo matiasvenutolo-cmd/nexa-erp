@@ -64,14 +64,14 @@ sin cerrarla.
 
 Ahora el cliente pide explícitamente indicadores **por día**.
 
-**Decisión de Matías (29/09/2026): ciclo libre.** Se mantiene el diseño original del 16/09 —
-inicio y fin sin atarlo al corte del día. Los indicadores diarios que pidió el cliente (colada,
-descarte, consumo de material) no salen automáticamente de este modelo cuando un ciclo abarca
-varios días; se resuelven con lo que ya está pensado para eso — la partida agrupa la continuidad
-entre ciclos del mismo material/color, y el tablero puede mostrar el corte por período (como ya
-hace hoy) en vez de por día calendario. Si en la próxima reunión el cliente insiste en el corte
-diario estricto, se reabre — es una decisión interna, no del cliente, y queda documentada como tal
-en "NEXA — Definiciones pendientes" en vez de darla por cerrada de su lado.
+**Decisión de Matías (29/09/2026): por día.** Cambia el diseño del 16/09 — el operario cierra el
+ciclo al final de cada jornada, aunque siga con el mismo color al día siguiente. La continuidad
+entre días no se pierde: el ciclo del día 2 abre con `golpesInicio` = `golpesFin` del día 1 (ya
+estaba pensado así — "los golpes al inicio se sugieren = golpes finales del último ciclo") y los
+dos quedan bajo la misma partida. Con esto la colada, el descarte y el consumo de material salen
+directamente por día, que es lo que pidió el cliente, sin tener que esperar a que cierre una
+tirada que podría durar varios días. Es una decisión interna — no se le devuelve al cliente como
+pregunta, pero queda anotada en "NEXA — Definiciones pendientes" para que sepan cómo quedó.
 
 ## 4. Confirma el alcance ya previsto — sin cambios de diseño
 
@@ -104,6 +104,6 @@ por Pedidos/Producción queda para cuando Producción tenga más de una pantalla
 
 ## 7. Día vs ciclo libre — resuelto internamente
 
-**Decisión de Matías (29/09/2026): ciclo libre.** Se mantiene el diseño del 16/09. Ver el
-detalle y el porqué en §3.2 más arriba — no se le devolvió como pregunta al cliente, queda
-registrado ahí para revisar si en la próxima reunión insisten en el corte diario.
+**Decisión de Matías (29/09/2026): por día.** Cambia el diseño del 16/09. Ver el detalle y el
+porqué en §3.2 más arriba — no se le devuelve como pregunta al cliente, queda registrado como
+decisión interna.

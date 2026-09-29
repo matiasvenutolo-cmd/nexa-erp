@@ -202,8 +202,7 @@ No hace falta discutirlo de nuevo, pero lo dejamos asentado:
   fallado, qué cajas salieron y a qué clientes.
 - **Roles.** Se respetan los del procedimiento firmado, con la regla de que de supervisor para
   abajo nadie ve precios.
-- **Carga de producción por ciclo, no por día.** El operario sigue cargando inicio y fin de cada
-  ciclo de inyección sin atarlo al corte del día, como se había definido con Eduardo — un color
-  que sigue tres días es un solo ciclo. Los indicadores diarios de material y descarte que
-  pidieron se resuelven con la partida, que agrupa la continuidad entre ciclos del mismo color, y
-  con el tablero por período. Si prefieren el corte diario estricto, avísennos y lo revisamos.
+- **Carga de producción por día.** El operario cierra el ciclo al final de cada jornada, aunque
+  siga con el mismo color al día siguiente — así la colada, el descarte y el consumo de material
+  salen por día, como pidieron. No se pierde la continuidad: el día siguiente arranca desde donde
+  quedó el anterior, y los dos quedan bajo la misma partida.
