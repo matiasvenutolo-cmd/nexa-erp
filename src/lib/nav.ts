@@ -10,7 +10,7 @@
  * Pedidos — regla 7, no agregar secciones que su tarea de hoy no necesita.
  */
 import type { usuario } from "@/lib/db/schema";
-import { ROLES_GESTION } from "@/lib/auth/permisos";
+import { ROLES_GESTION, puedeCargarProduccion } from "@/lib/auth/permisos";
 
 type Rol = (typeof usuario.$inferSelect)["rol"];
 
@@ -43,7 +43,10 @@ const NAV_GESTION: ItemNav[] = [
 ];
 
 export const NAV_POR_ROL: Record<Rol, ItemNav[]> = Object.fromEntries(
-  (Object.keys(ROL_LABEL) as Rol[]).map((r) => [r, ROLES_GESTION.includes(r) ? NAV_GESTION : NAV_BASE]),
+  (Object.keys(ROL_LABEL) as Rol[]).map((r) => {
+    const base = ROLES_GESTION.includes(r) ? NAV_GESTION : NAV_BASE;
+    return [r, puedeCargarProduccion(r) ? [...base, { href: "/produccion", label: "Producción" }] : base];
+  }),
 ) as Record<Rol, ItemNav[]>;
 
 export const HOME_POR_ROL: Record<Rol, string> = Object.fromEntries(

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, ClipboardList, Boxes, Users } from "lucide-react";
+import { LayoutDashboard, ClipboardList, Boxes, Users, Factory } from "lucide-react";
 import type { ItemNav } from "@/lib/nav";
 
 const ICONO: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -10,6 +10,7 @@ const ICONO: Record<string, React.ComponentType<{ size?: number; className?: str
   "/pedidos": ClipboardList,
   "/catalogo": Boxes,
   "/clientes": Users,
+  "/produccion": Factory,
 };
 
 /** Menú lateral — "siempre es más cómodo el menú al costado" (el cliente lo

@@ -48,3 +48,15 @@ export function puedeCrearPedido(rol: Rol): boolean {
 export function puedeCrearProducto(rol: Rol): boolean {
   return ROLES_GESTION.includes(rol);
 }
+
+/**
+ * Cargar/cerrar ciclos de producción — tarea de piso (Encargado) y de
+ * supervisión, no de ventas. Administración queda en ROLES_GESTION por
+ * Catálogo/Clientes (apoyo para armar pedidos) pero no tiene motivo para
+ * entrar a Producción — regla 7, no agregar secciones que su tarea no usa.
+ */
+const ROLES_PRODUCCION: readonly Rol[] = ["GERENCIA", "SUPERVISOR", "ENCARGADO"];
+
+export function puedeCargarProduccion(rol: Rol): boolean {
+  return ROLES_PRODUCCION.includes(rol);
+}
