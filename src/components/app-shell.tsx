@@ -1,37 +1,52 @@
-import Link from "next/link";
 import Image from "next/image";
+import Link from "next/link";
 import { getUsuarioActual } from "@/lib/session";
 import { NAV_POR_ROL, ROL_LABEL } from "@/lib/nav";
 import { cerrarSesionAction } from "@/app/actions/sesion";
+import { SidebarNav } from "@/components/sidebar-nav";
 
+/**
+ * Menú lateral en desktop — "siempre es más cómodo el menú al costado, como
+ * tenía el sistema viejo" (el cliente lo valoró explícitamente, minuta
+ * 26-28/09). En mobile el sidebar no entra sin comerse media pantalla, así
+ * que ahí se mantiene una barra superior simple con los mismos ítems.
+ */
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const usuario = await getUsuarioActual();
   const nav = NAV_POR_ROL[usuario.rol];
 
+  const usuarioInfo = (
+    <>
+      <span className="badge-estado bg-surface-muted text-foreground-muted">{ROL_LABEL[usuario.rol]}</span>
+      <span className="text-sm font-medium">{usuario.nombre}</span>
+      <form action={cerrarSesionAction}>
+        <button
+          type="submit"
+          className="rounded-md border border-border px-2.5 py-1.5 text-sm text-foreground-muted hover:text-foreground"
+        >
+          Cerrar sesión
+        </button>
+      </form>
+    </>
+  );
+
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-border bg-surface print:hidden">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Image src="/nexa-logo.png" alt="NEXA" width={84} height={55} priority />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="badge-estado hidden bg-surface-muted text-foreground-muted sm:inline-flex">
-              {ROL_LABEL[usuario.rol]}
-            </span>
-            <span className="hidden text-sm font-medium sm:inline">{usuario.nombre}</span>
-            <form action={cerrarSesionAction}>
-              <button
-                type="submit"
-                className="rounded-md border border-border px-2.5 py-1.5 text-sm text-foreground-muted hover:text-foreground"
-              >
-                Cerrar sesión
-              </button>
-            </form>
-          </div>
+    <div className="flex min-h-screen flex-col md:flex-row">
+      {/* Sidebar — desktop */}
+      <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-surface p-4 print:hidden md:flex">
+        <Image src="/nexa-logo.png" alt="NEXA" width={112} height={73} priority className="mb-6" />
+        <SidebarNav nav={nav} />
+        <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">{usuarioInfo}</div>
+      </aside>
+
+      {/* Barra superior — mobile */}
+      <header className="border-b border-border bg-surface print:hidden md:hidden">
+        <div className="flex items-center justify-between gap-4 px-4 py-3">
+          <Image src="/nexa-logo.png" alt="NEXA" width={72} height={47} priority />
+          <div className="flex items-center gap-2">{usuarioInfo}</div>
         </div>
         {nav.length > 1 && (
-          <nav className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-4">
+          <nav className="flex gap-1 overflow-x-auto px-4">
             {nav.map((item) => (
               <Link
                 key={item.href}
@@ -44,7 +59,10 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
         )}
       </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
+
+      <main className="w-full flex-1 overflow-x-auto px-4 py-6 md:px-8">
+        <div className="mx-auto max-w-5xl">{children}</div>
+      </main>
     </div>
   );
 }
