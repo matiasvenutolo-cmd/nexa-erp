@@ -5,7 +5,7 @@
 ---
 
 Arrancamos la construcción del sistema definitivo de NEXA. Para avanzar sin trabarnos ni tomar
-decisiones por ustedes, necesitamos cerrar once definiciones.
+decisiones por ustedes, necesitamos cerrar diez definiciones.
 
 Están agrupadas **por persona**, porque cada una la puede responder quien conoce ese sector.
 Ninguna requiere preparación: son preguntas de cómo trabajan hoy.
@@ -61,21 +61,6 @@ reunión se planteó automatizarlo.
 
 *Por qué importa:* es la pieza central de la trazabilidad. Si se tipea a mano, tarde o temprano se
 repite o se saltea un número, y se pierde el rastro.
-
-### 🔴 12. La carga de producción, ¿por día o por ciclo libre?
-
-En la reunión del 16/09 se había definido que el operario carga **inicio y fin de un ciclo de
-inyección**, sin importar si eso abarca uno o varios días — así se puede saber exactamente cuánto
-se produjo entre dos cambios de matriz o de color.
-
-Ahora nos llegó, a través de Ignacio, un pedido distinto: que la colada, las piezas producidas y
-las descartadas se carguen **día por día**, como indicadores diarios.
-
-> **¿Cuál de los dos formatos prefieren: seguir por ciclo libre (inicio/fin sin atarlo al día) o
-> pasar a una carga diaria? Son dos diseños distintos, no se pueden mezclar a medias.**
-
-*Por qué importa:* de esto depende cómo se construye toda la pantalla de carga de producción
-(Etapa 3), así que conviene cerrarlo antes de empezar esa parte.
 
 ---
 
@@ -217,3 +202,8 @@ No hace falta discutirlo de nuevo, pero lo dejamos asentado:
   fallado, qué cajas salieron y a qué clientes.
 - **Roles.** Se respetan los del procedimiento firmado, con la regla de que de supervisor para
   abajo nadie ve precios.
+- **Carga de producción por ciclo, no por día.** El operario sigue cargando inicio y fin de cada
+  ciclo de inyección sin atarlo al corte del día, como se había definido con Eduardo — un color
+  que sigue tres días es un solo ciclo. Los indicadores diarios de material y descarte que
+  pidieron se resuelven con la partida, que agrupa la continuidad entre ciclos del mismo color, y
+  con el tablero por período. Si prefieren el corte diario estricto, avísennos y lo revisamos.

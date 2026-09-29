@@ -62,8 +62,16 @@ pueda cargar libre — inicio y fin sin atarlo a un corte de día, porque "podr�
 días después y podrías haber estado produciendo 3 días" — y Eduardo dudaba entre las dos opciones
 sin cerrarla.
 
-Ahora el cliente pide explícitamente indicadores **por día**. No lo resuelvo por mi cuenta: queda
-como pregunta abierta para R3, no como asunción. Ver pregunta nueva más abajo.
+Ahora el cliente pide explícitamente indicadores **por día**.
+
+**Decisión de Matías (29/09/2026): ciclo libre.** Se mantiene el diseño original del 16/09 —
+inicio y fin sin atarlo al corte del día. Los indicadores diarios que pidió el cliente (colada,
+descarte, consumo de material) no salen automáticamente de este modelo cuando un ciclo abarca
+varios días; se resuelven con lo que ya está pensado para eso — la partida agrupa la continuidad
+entre ciclos del mismo material/color, y el tablero puede mostrar el corte por período (como ya
+hace hoy) en vez de por día calendario. Si en la próxima reunión el cliente insiste en el corte
+diario estricto, se reabre — es una decisión interna, no del cliente, y queda documentada como tal
+en "NEXA — Definiciones pendientes" en vez de darla por cerrada de su lado.
 
 ## 4. Confirma el alcance ya previsto — sin cambios de diseño
 
@@ -75,31 +83,27 @@ como pregunta abierta para R3, no como asunción. Ver pregunta nueva más abajo.
 | Evaluar carga de MP habilitada todos los días, no sólo al cierre | R4 |
 | Fórmula que compare material/master utilizado contra material/master inyectado | R4 — mismo tema que la pregunta 4 de `01-analisis.md` (la contradicción del 0,015 vs 0,006) |
 
-## 5. Candidato para hacer ya — pendiente decisión
+## 5. Alta de producto/color desde Pedidos — hecho
 
 > "Que en la sección Pedidos se pueda crear un nuevo producto asignando código y un nuevo color
 > (a veces hacen colores a medida)."
 
-Hoy el formulario de carga de pedido, cuando el color no está en catálogo, guarda la línea como
-"sin producto asignado" con el color a mano (nunca inventa un SKU — ver README de R1). Lo que pide
-el cliente es un paso más: que desde ahí mismo se pueda **dar de alta el producto nuevo** (código +
-color), resolviendo el SKU en el momento en vez de dejarlo pendiente.
+Implementado el 28/09 (`crearProductoNuevo`, `src/lib/data/catalogo.ts`): cuando el color no está
+en catálogo, ahora se puede tildar "Dar de alta en el catálogo" + elegir proveedor de master, y el
+producto se crea con el código derivado en el momento — ya no queda como "sin producto asignado".
 
-Es un agregado chico sobre lo que ya existe, no toca el modelo de datos. Lo dejo para que Matías
-decida si entra ahora o se prioriza con el resto — ver la pregunta en el chat.
-
-## 6. Preferencia de navegación (sin acción por ahora)
+## 6. Preferencia de navegación — hecho
 
 > "Siempre es más cómodo el menú al costado, quizás dividir en Pedidos y Producción, cada uno con
 > sus sub-rubros."
 
-Anotado para cuando exista Producción (R3): hoy el menú de NEXA es horizontal y con un solo nivel
-porque sólo hay tres módulos construidos (regla 7 de `03-plan-release-1.md` — no armar una
-estructura de menú para secciones que todavía no existen). Cuando entre Producción con sus propias
-subpantallas, se revisa si conviene pasar a un menú lateral con sub-rubros.
+Implementado el 29/09 (`src/components/sidebar-nav.tsx`, `src/components/app-shell.tsx`): menú
+lateral fijo en desktop, con el ítem activo resaltado; en mobile se mantiene una barra superior
+simple porque un sidebar de ancho fijo se come media pantalla en 375px. La división en sub-rubros
+por Pedidos/Producción queda para cuando Producción tenga más de una pantalla propia.
 
-## 7. Nueva pregunta para la próxima reunión
+## 7. Día vs ciclo libre — resuelto internamente
 
-| # | Pregunta | Para |
-|---|---|---|
-| 13 | La carga de producción, ¿tiene que ser por día (como pide el cliente ahora) o libre por ciclo de inyección (como se decidió en la reunión del 16/09)? Son dos diseños distintos y no se pueden mezclar a medias. | Eduardo |
+**Decisión de Matías (29/09/2026): ciclo libre.** Se mantiene el diseño del 16/09. Ver el
+detalle y el porqué en §3.2 más arriba — no se le devolvió como pregunta al cliente, queda
+registrado ahí para revisar si en la próxima reunión insisten en el corte diario.
