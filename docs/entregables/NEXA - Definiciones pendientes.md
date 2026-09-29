@@ -119,10 +119,11 @@ El catálogo no tiene cargada la cantidad por caja. Del Excel de cálculo sacamo
 *Por qué importa:* la etiqueta de la caja lleva la cantidad, y esa cantidad es la que descuenta
 del stock cuando se piquea. Si está mal, el stock queda mal.
 
-### 🟡 10. La inyectora de NEXA
+### 🔴 10. La inyectora de NEXA
 
 En el histórico de producción aparecen las inyectoras 6 y 8, pero entendemos que NEXA trabaja con
-una sola.
+una sola. Pasa a ser urgente porque ya está en uso: la pantalla de alta de ciclo de producción
+pide indicarla en cada carga, y hoy se escribe a mano por no tener una lista fija.
 
 > **¿Cuál es la inyectora de NEXA? ¿Puede cambiar según el producto o la matriz?**
 
