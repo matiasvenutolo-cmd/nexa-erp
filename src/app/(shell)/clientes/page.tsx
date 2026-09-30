@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { listarClientes } from "@/lib/data/clientes";
+import { getUsuarioActual } from "@/lib/session";
+import { puedeCrearPedido } from "@/lib/auth/permisos";
 
 export default async function ClientesPage({
   searchParams,
@@ -7,7 +9,8 @@ export default async function ClientesPage({
   searchParams: Promise<{ texto?: string }>;
 }) {
   const { texto } = await searchParams;
-  const clientes = await listarClientes(texto);
+  const [clientes, usuario] = await Promise.all([listarClientes(texto), getUsuarioActual()]);
+  const puedeEditar = puedeCrearPedido(usuario.rol);
 
   return (
     <div className="space-y-5">
@@ -40,6 +43,7 @@ export default async function ClientesPage({
               <th className="px-4 py-2.5">CUIT</th>
               <th className="px-4 py-2.5">Teléfono</th>
               <th className="px-4 py-2.5">Domicilio</th>
+              {puedeEditar && <th className="px-4 py-2.5" />}
             </tr>
           </thead>
           <tbody>
@@ -51,11 +55,18 @@ export default async function ClientesPage({
                 <td className="px-4 py-3 text-foreground-muted">
                   {[c.domicilio, c.localidad].filter(Boolean).join(", ") || "—"}
                 </td>
+                {puedeEditar && (
+                  <td className="px-4 py-3 text-right">
+                    <Link href={`/clientes/${c.id}/editar`} className="text-sm font-medium text-accent hover:underline">
+                      Editar
+                    </Link>
+                  </td>
+                )}
               </tr>
             ))}
             {clientes.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-foreground-muted">
+                <td colSpan={puedeEditar ? 5 : 4} className="px-4 py-8 text-center text-foreground-muted">
                   No hay clientes que coincidan.
                 </td>
               </tr>

@@ -38,7 +38,7 @@ const NAV_BASE: ItemNav[] = [
 const NAV_GESTION: ItemNav[] = [
   { href: "/tablero", label: "Tablero" },
   { href: "/pedidos", label: "Pedidos" },
-  { href: "/catalogo", label: "Catálogo" },
+  { href: "/catalogo", label: "Stock - Productos" },
   { href: "/clientes", label: "Clientes" },
 ];
 

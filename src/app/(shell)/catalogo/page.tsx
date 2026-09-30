@@ -34,7 +34,7 @@ export default async function CatalogoPage({
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-brand-azul-oscuro">Catálogo</h1>
+        <h1 className="text-xl font-semibold text-brand-azul-oscuro">Stock - Productos</h1>
         <Link href="/catalogo/movimientos" className="text-sm font-medium text-accent hover:underline">
           Ver movimientos →
         </Link>
