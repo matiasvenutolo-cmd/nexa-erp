@@ -18,3 +18,14 @@ export function fmtNumero(v: string | number | null | undefined, maxDecimals = 2
   const n = typeof v === "string" ? Number(v) : v;
   return new Intl.NumberFormat("es-AR", { maximumFractionDigits: maxDecimals }).format(n);
 }
+
+export function fmtFechaHora(d: Date | string): string {
+  return new Date(d).toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Argentina/Buenos_Aires",
+  });
+}

@@ -5,6 +5,7 @@ import { crearPedidoAction, type FormState } from "@/app/actions/pedidos";
 import { GRUPOS, coloresDeGrupo } from "@/lib/pedido-grupos";
 import type { FilaProducto } from "@/lib/data/catalogo";
 import { fmtNumero } from "@/lib/format";
+import { claveColor } from "@/lib/catalogo-normalizacion";
 
 const LIBRE = "LIBRE";
 const METODOS_PAGO = [
@@ -22,8 +23,20 @@ type Fila = {
   productoId: string;
   colorLibre: string;
   cantidad: string;
-  crearProducto: boolean;
   proveedorMasterId: string;
+  masterNombre: string;
+  masterCodigo: string;
+};
+
+type ColorRegistrado = {
+  id: number;
+  nombre: string;
+  especial: boolean;
+  oficial: boolean;
+  proveedorMasterId: number | null;
+  clienteNombre: string | null;
+  masterNombre: string | null;
+  masterCodigo: string | null;
 };
 
 const filaVacia = (): Fila => ({
@@ -32,20 +45,25 @@ const filaVacia = (): Fila => ({
   productoId: "",
   colorLibre: "",
   cantidad: "",
-  crearProducto: false,
   proveedorMasterId: "",
+  masterNombre: "",
+  masterCodigo: "",
 });
+
+const clave = claveColor;
 
 let siguienteKey = 1;
 
 export function FormularioPedido({
   clientes,
+  colores: coloresRegistrados,
   productos,
   proveedores,
   puedeVerPrecios,
   puedeCrearProducto,
 }: {
-  clientes: { id: number; nombre: string }[];
+  clientes: { id: number; nombre: string; telefono: string | null; domicilio: string | null }[];
+  colores: ColorRegistrado[];
   productos: FilaProducto[];
   proveedores: { id: number; nombre: string }[];
   puedeVerPrecios: boolean;
@@ -55,6 +73,22 @@ export function FormularioPedido({
   const hoy = new Date().toISOString().slice(0, 10);
 
   const [clienteModo, setClienteModo] = useState<"existente" | "nuevo">("existente");
+  const [contacto, setContacto] = useState("");
+  const [domicilio, setDomicilio] = useState("");
+  // Sólo grupos con productos reales: un renglón tiene que ser un producto
+  // del catálogo (Definiciones pendientes, respuesta 6).
+  const grupos = useMemo(() => GRUPOS.filter((g) => coloresDeGrupo(productos, g).length > 0), [productos]);
+  const especialPorClave = useMemo(
+    () => new Map(coloresRegistrados.map((c) => [clave(c.nombre), c])),
+    [coloresRegistrados],
+  );
+
+  const elegirCliente = (id: string) => {
+    const c = clientes.find((x) => String(x.id) === id);
+    // Levanta los datos del cliente si ya compró antes; no pisa lo que se tipeó.
+    if (c?.telefono && !contacto) setContacto(c.telefono);
+    if (c?.domicilio && !domicilio) setDomicilio(c.domicilio);
+  };
   const [filas, setFilas] = useState<Fila[]>([filaVacia()]);
   const [requiereColocacion, setRequiereColocacion] = useState(false);
 
@@ -75,17 +109,19 @@ export function FormularioPedido({
 
   const lineasJson = JSON.stringify(
     filasResueltas
-      .filter((r) => r.cantidad > 0 && (r.prod || (r.fila.productoId === LIBRE && r.fila.colorLibre.trim())))
+      .filter((r) => r.cantidad > 0)
       .map((r) => ({
         productoId: r.prod?.id ?? null,
         colorTexto: r.prod?.colorNombre ?? r.fila.colorLibre.trim(),
         cantidad: r.cantidad,
-        ...(r.fila.crearProducto && !r.prod
+        ...(!r.prod && r.fila.productoId === LIBRE
           ? {
               crearProducto: true,
               familia: r.grupo.familia,
               tipo: r.grupo.tipo,
               proveedorMasterId: r.fila.proveedorMasterId ? Number(r.fila.proveedorMasterId) : undefined,
+              masterNombre: r.fila.masterNombre.trim() || undefined,
+              masterCodigo: r.fila.masterCodigo.trim() || undefined,
             }
           : {}),
       })),
@@ -115,7 +151,7 @@ export function FormularioPedido({
             ))}
           </div>
           {clienteModo === "existente" ? (
-            <select name="clienteId" className="input" defaultValue="">
+            <select name="clienteId" className="input" defaultValue="" onChange={(e) => elegirCliente(e.target.value)}>
               <option value="">Elegí un cliente…</option>
               {clientes.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -126,12 +162,18 @@ export function FormularioPedido({
           ) : (
             <input name="clienteNuevo" placeholder="Nombre del cliente nuevo" className="input" />
           )}
+          {clienteModo === "nuevo" && (
+            <p className="mt-1 text-xs text-foreground-muted">
+              Si ya existe un cliente con ese nombre, se usa el existente. El teléfono y el domicilio quedan guardados
+              para la próxima compra.
+            </p>
+          )}
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <Campo label="Contacto (teléfono)">
-              <input name="contacto" className="input" placeholder="11 5555 5555" />
+              <input name="contacto" value={contacto} onChange={(e) => setContacto(e.target.value)} className="input" placeholder="11 5555 5555" />
             </Campo>
             <Campo label="Domicilio de entrega">
-              <input name="domicilio" className="input" placeholder="Calle, localidad, provincia" />
+              <input name="domicilio" value={domicilio} onChange={(e) => setDomicilio(e.target.value)} className="input" placeholder="Calle, localidad, provincia" />
             </Campo>
           </div>
         </Bloque>
@@ -144,7 +186,13 @@ export function FormularioPedido({
             <Campo label="Fecha" requerido>
               <input type="date" name="fechaPedido" defaultValue={hoy} required className="input" />
             </Campo>
+            <Campo label="Fecha de entrega comprometida">
+              <input type="date" name="fechaEntregaPactada" min={hoy} className="input" />
+            </Campo>
           </div>
+          <p className="mt-1 text-xs text-foreground-muted">
+            La fecha de entrega ordena la cola de producción. Sin fecha, cuenta la del pedido.
+          </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <Campo label="Modo de entrega">
               <select name="modoEntrega" className="input" defaultValue="">
@@ -175,14 +223,14 @@ export function FormularioPedido({
                   className="input w-auto min-w-[170px] flex-1"
                 >
                   <optgroup label="Pisos">
-                    {GRUPOS.filter((g) => g.esPiso).map((g) => (
+                    {grupos.filter((g) => g.esPiso).map((g) => (
                       <option key={g.key} value={g.key}>
                         {g.label}
                       </option>
                     ))}
                   </optgroup>
                   <optgroup label="Accesorios">
-                    {GRUPOS.filter((g) => !g.esPiso).map((g) => (
+                    {grupos.filter((g) => !g.esPiso).map((g) => (
                       <option key={g.key} value={g.key}>
                         {g.label}
                       </option>
@@ -190,62 +238,29 @@ export function FormularioPedido({
                   </optgroup>
                 </select>
 
-                {colores.length > 0 ? (
-                  <select
-                    value={f.productoId}
-                    onChange={(e) => upd(f.key, { productoId: e.target.value })}
-                    className="input w-auto min-w-[160px] flex-1"
-                  >
-                    <option value="">Color…</option>
-                    {colores.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.colorNombre} · stock {fmtNumero(p.stock, 0)}
-                      </option>
-                    ))}
-                    <option value={LIBRE}>Otro (color especial)…</option>
-                  </select>
-                ) : (
-                  <input
-                    value={f.colorLibre}
-                    onChange={(e) => upd(f.key, { colorLibre: e.target.value, productoId: LIBRE })}
-                    placeholder="Color — sin catálogo todavía para este grupo"
-                    className="input w-auto min-w-[220px] flex-1"
-                  />
-                )}
-                {colores.length > 0 && f.productoId === LIBRE && (
-                  <input
-                    value={f.colorLibre}
-                    onChange={(e) => upd(f.key, { colorLibre: e.target.value })}
-                    placeholder="Color a pedido del cliente"
-                    className="input w-auto min-w-[160px] flex-1"
-                  />
-                )}
+                <select
+                  value={f.productoId}
+                  onChange={(e) => upd(f.key, { productoId: e.target.value })}
+                  className="input w-auto min-w-[160px] flex-1"
+                >
+                  <option value="">Color…</option>
+                  {colores.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.colorNombre}
+                      {p.colorEspecial ? " (especial)" : ""} · stock {fmtNumero(p.stock, 0)}
+                    </option>
+                  ))}
+                  {puedeCrearProducto && <option value={LIBRE}>Otro (color especial)…</option>}
+                </select>
 
-                {puedeCrearProducto && f.productoId === LIBRE && f.colorLibre.trim() && (
-                  <>
-                    <label className="flex items-center gap-1.5 text-xs text-foreground-muted">
-                      <input
-                        type="checkbox"
-                        checked={f.crearProducto}
-                        onChange={(e) => upd(f.key, { crearProducto: e.target.checked })}
-                      />
-                      Dar de alta en el catálogo
-                    </label>
-                    {f.crearProducto && (
-                      <select
-                        value={f.proveedorMasterId}
-                        onChange={(e) => upd(f.key, { proveedorMasterId: e.target.value })}
-                        className="input w-auto min-w-[140px]"
-                      >
-                        <option value="">Proveedor de master…</option>
-                        {proveedores.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </>
+                {f.productoId === LIBRE && (
+                  <ColorEspecial
+                    fila={f}
+                    proveedores={proveedores}
+                    registrados={coloresRegistrados}
+                    especialPorClave={especialPorClave}
+                    onChange={(patch) => upd(f.key, patch)}
+                  />
                 )}
 
                 <input
@@ -334,6 +349,91 @@ export function FormularioPedido({
         </div>
       </aside>
     </form>
+  );
+}
+
+/**
+ * Color especial: se elige uno ya registrado (para repetirlo) o se registra
+ * uno nuevo con su proveedor y master. Nunca queda como texto suelto.
+ */
+function ColorEspecial({
+  fila,
+  proveedores,
+  registrados,
+  especialPorClave,
+  onChange,
+}: {
+  fila: Fila;
+  proveedores: { id: number; nombre: string }[];
+  registrados: ColorRegistrado[];
+  especialPorClave: Map<string, ColorRegistrado>;
+  onChange: (patch: Partial<Fila>) => void;
+}) {
+  const existente = fila.colorLibre.trim() ? especialPorClave.get(clave(fila.colorLibre)) : undefined;
+  const listaId = `colores-registrados-${fila.key}`;
+  return (
+    <div className="flex w-full flex-wrap items-center gap-2 rounded-md bg-surface-muted p-2">
+      <input
+        value={fila.colorLibre}
+        list={listaId}
+        onChange={(e) => {
+          const nombre = e.target.value;
+          const reg = especialPorClave.get(clave(nombre));
+          onChange({
+            colorLibre: nombre,
+            ...(reg?.proveedorMasterId ? { proveedorMasterId: String(reg.proveedorMasterId) } : {}),
+          });
+        }}
+        placeholder="Nombre del color (uno solo)"
+        className="input w-auto min-w-[180px] flex-1"
+      />
+      <datalist id={listaId}>
+        {registrados
+          .filter((c) => c.especial || !c.oficial)
+          .map((c) => (
+            <option key={c.id} value={c.nombre}>
+              {[c.clienteNombre, c.masterCodigo].filter(Boolean).join(" · ")}
+            </option>
+          ))}
+      </datalist>
+      <select
+        value={fila.proveedorMasterId}
+        onChange={(e) => onChange({ proveedorMasterId: e.target.value })}
+        className="input w-auto min-w-[150px]"
+        required
+      >
+        <option value="">Proveedor de master…</option>
+        {proveedores.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.nombre}
+          </option>
+        ))}
+      </select>
+      {existente ? (
+        <span className="text-xs text-foreground-muted">
+          Color ya registrado{existente.clienteNombre ? ` (pedido por ${existente.clienteNombre})` : ""}
+          {existente.masterNombre || existente.masterCodigo
+            ? ` · master ${[existente.masterNombre, existente.masterCodigo].filter(Boolean).join(" ")}`
+            : ""}
+          — se reutiliza.
+        </span>
+      ) : (
+        <>
+          <input
+            value={fila.masterNombre}
+            onChange={(e) => onChange({ masterNombre: e.target.value })}
+            placeholder="Nombre del master (opcional)"
+            className="input w-auto min-w-[170px]"
+          />
+          <input
+            value={fila.masterCodigo}
+            onChange={(e) => onChange({ masterCodigo: e.target.value })}
+            placeholder="Código del master (opcional)"
+            className="input w-auto min-w-[150px]"
+          />
+        </>
+      )}
+    </div>
   );
 }
 

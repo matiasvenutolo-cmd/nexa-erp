@@ -19,6 +19,8 @@ import {
   despachoLinea,
 } from "@/lib/db/schema";
 import { getDepositoNexaId } from "@/lib/data/depositos";
+import { puedeCambiarPrioridad } from "@/lib/auth/permisos";
+import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
 
 type EstadoPedido = (typeof pedido.$inferSelect)["estado"];
 
@@ -78,11 +80,21 @@ export async function contarPedidosPorEstado(): Promise<
 export type LineaPedidoConProducto = typeof pedidoLinea.$inferSelect & {
   productoCodigo: string | null;
   productoDescripcion: string | null;
+  productoEsAccesorio: boolean | null;
+  productoUnidadesPorCaja: number | null;
+};
+
+export type DespachoResumen = {
+  id: number;
+  numeroInterno: number;
+  numeroRemito: string | null;
+  fecha: string;
 };
 
 export type PedidoConDetalle = typeof pedido.$inferSelect & {
   clienteNombre: string;
   lineas: LineaPedidoConProducto[];
+  despachos: DespachoResumen[];
 };
 
 export async function obtenerPedido(id: number): Promise<PedidoConDetalle | null> {
@@ -98,10 +110,23 @@ export async function obtenerPedido(id: number): Promise<PedidoConDetalle | null
       linea: pedidoLinea,
       productoCodigo: producto.codigo,
       productoDescripcion: producto.descripcion,
+      productoEsAccesorio: producto.esAccesorio,
+      productoUnidadesPorCaja: producto.unidadesPorCaja,
     })
     .from(pedidoLinea)
     .leftJoin(producto, eq(pedidoLinea.productoId, producto.id))
     .where(eq(pedidoLinea.pedidoId, id));
+
+  const despachos = await db
+    .select({
+      id: despacho.id,
+      numeroInterno: despacho.numeroInterno,
+      numeroRemito: despacho.numeroRemito,
+      fecha: despacho.fecha,
+    })
+    .from(despacho)
+    .where(eq(despacho.pedidoId, id))
+    .orderBy(despacho.numeroInterno);
 
   return {
     ...cabecera.pedido,
@@ -110,7 +135,10 @@ export async function obtenerPedido(id: number): Promise<PedidoConDetalle | null
       ...l.linea,
       productoCodigo: l.productoCodigo,
       productoDescripcion: l.productoDescripcion,
+      productoEsAccesorio: l.productoEsAccesorio,
+      productoUnidadesPorCaja: l.productoUnidadesPorCaja,
     })),
+    despachos,
   };
 }
 
@@ -123,6 +151,7 @@ export type NuevaLineaInput = {
 export type NuevoPedidoInput = {
   clienteId: number;
   fechaPedido: string;
+  fechaEntregaPactada: string | null;
   numeroOrden: string | null;
   contacto: string | null;
   domicilioEntrega: string | null;
@@ -144,7 +173,17 @@ export type NuevoPedidoInput = {
  * cargar un pedido reserva stock de verdad (docs/02-modelo-datos.md §3
  * `reserva`), no sólo lo descuenta al armar.
  */
-export async function crearPedido(input: NuevoPedidoInput): Promise<{ id: number }> {
+export async function crearPedido(input: NuevoPedidoInput): Promise<{ id: number } | { error: string }> {
+  // Cada renglón es un producto concreto: nunca un texto libre del tipo
+  // "Negro, blanco y rojo" (Definiciones pendientes, respuesta 6). Las líneas
+  // históricas sin producto vienen sólo del importador del Excel viejo.
+  if (input.lineas.length === 0) return { error: "El pedido no tiene ítems." };
+  if (input.lineas.some((l) => l.productoId == null)) {
+    return { error: "Cada ítem tiene que ser un producto del catálogo, con su color y su cantidad." };
+  }
+  if (input.lineas.some((l) => !Number.isInteger(l.unidadesPedidas) || l.unidadesPedidas <= 0)) {
+    return { error: "Cada ítem tiene que tener una cantidad mayor que cero." };
+  }
   const depositoId = await getDepositoNexaId();
 
   return db.transaction(async (tx) => {
@@ -153,6 +192,7 @@ export async function crearPedido(input: NuevoPedidoInput): Promise<{ id: number
       .values({
         clienteId: input.clienteId,
         fechaPedido: input.fechaPedido,
+        fechaEntregaPactada: input.fechaEntregaPactada,
         numeroOrden: input.numeroOrden,
         estado: "PEDIDO",
         contacto: input.contacto,
@@ -279,7 +319,7 @@ export async function marcarEntregado(
         cantidad: String(l.unidadesPedidas),
         origen: "PEDIDO",
         origenId: pedidoId,
-        motivo: `Entrega pedido ${pedidoId}${input.numeroRemito ? ` · remito ${input.numeroRemito}` : ""}`,
+        motivo: `Entrega pedido ${pedidoId} · remito interno ${remitoInterno(desp.numeroInterno)}${input.numeroRemito ? ` · remito legal ${input.numeroRemito}` : ""}`,
         usuarioId: input.usuarioId,
       });
       await tx
@@ -329,6 +369,7 @@ export async function cancelarPedido(pedidoId: number): Promise<{ error?: string
 }
 
 export type EdicionPedidoInput = {
+  fechaEntregaPactada: string | null;
   contacto: string | null;
   domicilioEntrega: string | null;
   modoEntrega: string | null;
@@ -427,3 +468,53 @@ export const ESTADO_LABEL: Record<(typeof pedido.$inferSelect)["estado"], string
   ENTREGADO: "Entregado",
   CANCELADO: "Cancelado",
 };
+
+/** "R-000001": formato del remito interno correlativo. */
+export function remitoInterno(n: number): string {
+  return `R-${String(n).padStart(6, "0")}`;
+}
+
+/**
+ * Prioridad de inyección. Definiciones pendientes: "en producción la
+ * prioridad de inyección estaría dada automáticamente por las fechas de los
+ * pedidos, con opción a ser cambiada por el encargado o supervisor".
+ *
+ * Automática = orden por fecha de entrega comprometida (o fecha del pedido
+ * si no tiene). La excepción manual reutiliza `pedido.prioridad`, que ya
+ * existía: 0 = automática, -1 = urgente (pasa adelante de todo). Cada cambio
+ * queda auditado con su motivo.
+ */
+export const PRIORIDAD_URGENTE = -1;
+export const PRIORIDAD_AUTOMATICA = 0;
+
+/** Orden de la cola: urgentes primero, después por fecha efectiva de entrega. */
+export const ordenPrioridad = [
+  pedido.prioridad,
+  sql`coalesce(${pedido.fechaEntregaPactada}, ${pedido.fechaPedido})`,
+  pedido.fechaPedido,
+  pedido.id,
+];
+
+export async function cambiarUrgencia(
+  actor: Actor,
+  pedidoId: number,
+  urgente: boolean,
+  motivo: string | null,
+): Promise<Resultado> {
+  if (!puedeCambiarPrioridad(actor.rol)) return { error: "Sólo Encargado o Supervisor pueden cambiar la prioridad." };
+  if (urgente && !motivo?.trim()) return { error: "Indicá el motivo de la urgencia: queda registrado." };
+
+  return db.transaction(async (tx) => {
+    const [actual] = await tx.select({ prioridad: pedido.prioridad, estado: pedido.estado }).from(pedido).where(eq(pedido.id, pedidoId));
+    if (!actual) return { error: "Pedido no encontrado." };
+    if (actual.estado === "ENTREGADO" || actual.estado === "CANCELADO") {
+      return { error: "Un pedido cerrado no tiene prioridad de inyección." };
+    }
+    const nueva = urgente ? PRIORIDAD_URGENTE : PRIORIDAD_AUTOMATICA;
+    await tx.update(pedido).set({ prioridad: nueva }).where(eq(pedido.id, pedidoId));
+    await registrarCambios(tx, actor.id, [
+      { entidad: "pedido", entidadId: pedidoId, campo: "prioridad", anterior: actual.prioridad, nuevo: nueva, motivo },
+    ]);
+    return {};
+  });
+}

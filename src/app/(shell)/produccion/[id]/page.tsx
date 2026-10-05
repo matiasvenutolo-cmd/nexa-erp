@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { obtenerCiclo } from "@/lib/data/produccion";
+import { resolverDosificacion } from "@/lib/data/dosificacion";
 import { fmtNumero, fmtFecha } from "@/lib/format";
 import { FormularioCierre } from "./formulario-cierre";
 
@@ -7,6 +8,13 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const ciclo = await obtenerCiclo(Number(id));
   if (!ciclo) notFound();
+  const dosificacion = ciclo.productoFamilia
+    ? await resolverDosificacion(ciclo.productoFamilia, ciclo.productoColorId)
+    : null;
+  const kgMp =
+    ciclo.piezasProducidas != null && ciclo.productoKgPorUnidad != null
+      ? ciclo.piezasProducidas * Number(ciclo.productoKgPorUnidad)
+      : null;
 
   return (
     <div className="max-w-3xl space-y-4">
@@ -21,6 +29,32 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
         <Dato label="Operario" valor={ciclo.operarioNombre ?? "—"} />
         <Dato label="Golpes de inicio" valor={ciclo.golpesInicio != null ? fmtNumero(ciclo.golpesInicio, 0) : "—"} />
         <Dato label="Piezas por golpe" valor={ciclo.piezasPorGolpe != null ? fmtNumero(ciclo.piezasPorGolpe, 0) : "—"} />
+      </div>
+
+      <div className="rounded-lg border border-border bg-surface p-4 text-sm">
+        <h2 className="mb-2 text-sm font-semibold text-foreground-muted">Master</h2>
+        {dosificacion ? (
+          <div className="space-y-1">
+            <p>
+              <span className="font-medium">{fmtNumero(dosificacion.kgPorKgMp, 4)} kg de master por kg</span>
+              {dosificacion.materiaPrimaBaseNombre ? ` de ${dosificacion.materiaPrimaBaseNombre}` : " de materia prima"}{" "}
+              <span className="text-foreground-muted">
+                ({fmtNumero(dosificacion.kgPorKgMp * 1000, 1)} g por kg ·{" "}
+                {dosificacion.origen === "excepcion" ? `valor propio del color ${dosificacion.colorNombre}` : "valor general del tipo de producto"})
+              </span>
+            </p>
+            {kgMp != null && (
+              <p className="text-foreground-muted">
+                Para {fmtNumero(ciclo.piezasProducidas, 0)} piezas (≈ {fmtNumero(kgMp, 1)} kg de materia prima con el peso
+                teórico por pieza): ≈ {fmtNumero(kgMp * dosificacion.kgPorKgMp, 2)} kg de master.
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-foreground-muted">
+            Sin dosificación cargada para este tipo de producto — se configura en Panel Admin → Master.
+          </p>
+        )}
       </div>
 
       {ciclo.pedidos.length > 0 && (

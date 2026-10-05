@@ -11,16 +11,35 @@ import { getDepositoNexaId } from "@/lib/data/depositos";
 
 export type EstadoSemaforo = "critico" | "bajo" | "ok" | "exceso" | "sin-datos";
 
+/**
+ * Único cálculo del semáforo del sistema. Mínimo y máximo salen de la base
+ * (Panel Admin) y el margen de "Bajo" del parámetro `semaforo_margen_bajo` —
+ * ningún número fijo acá.
+ *
+ * Un mínimo o máximo en 0 (o vacío) se toma como "no definido": así viene en
+ * la planilla del cliente para los ítems que no controlan (p. ej. "38-Compuesto
+ * PE AD SN" 0/0), y evita que un producto con mínimo 0 y stock 0 figure "Bajo".
+ */
 export function semaforoStock(
-  cantidad: number,
-  minimo: number | null,
-  maximo: number | null,
+  cantidad: number | string | null,
+  minimo: number | string | null,
+  maximo: number | string | null,
+  margenBajo: number,
 ): EstadoSemaforo {
-  if (minimo == null && maximo == null) return "sin-datos";
-  if (minimo != null && cantidad < minimo) return "critico";
-  if (minimo != null && cantidad <= minimo * 1.15) return "bajo";
-  if (maximo != null && cantidad > maximo) return "exceso";
+  const stock = Number(cantidad ?? 0) || 0;
+  const min = definido(minimo);
+  const max = definido(maximo);
+  if (min == null && max == null) return "sin-datos";
+  if (min != null && stock < min) return "critico";
+  if (min != null && stock <= min * (1 + margenBajo)) return "bajo";
+  if (max != null && stock > max) return "exceso";
   return "ok";
+}
+
+function definido(v: number | string | null): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /**

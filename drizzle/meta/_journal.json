@@ -15,6 +15,20 @@
       "when": 1790678087234,
       "tag": "0001_aromatic_the_twelve",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791203513217,
+      "tag": "0002_quita_ratio_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791203562950,
+      "tag": "0003_panel_admin_configuracion",
+      "breakpoints": true
     }
   ]
 }

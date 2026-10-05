@@ -53,6 +53,48 @@ export function normalizarTexto(s: string): string {
     .trim();
 }
 
+const SIN_ACENTO: Record<string, string> = {
+  Á: "A", É: "E", Í: "I", Ó: "O", Ú: "U", Ü: "U",
+  á: "a", é: "e", í: "i", ó: "o", ú: "u", ü: "u",
+};
+
+/**
+ * Clave única de un color: la MISMA expresión que la columna generada
+ * `color.clave` en Postgres (src/lib/db/schema.ts) — translate de vocales
+ * acentuadas, trim, espacios colapsados, minúsculas. Si se cambia una, hay
+ * que cambiar la otra.
+ */
+export function claveColor(nombre: string): string {
+  return nombre
+    .replace(/[ÁÉÍÓÚÜáéíóúü]/g, (c) => SIN_ACENTO[c])
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+/**
+ * Un nombre de color que en realidad describe varios ("Negro, blanco y
+ * rojo"). Definiciones pendientes, respuesta 6: cada color es un producto
+ * distinto y se carga en su propio renglón. Se detecta por separadores de
+ * lista o por mencionar dos o más colores ya conocidos.
+ */
+export function pareceMulticolor(nombre: string, coloresConocidos: string[]): boolean {
+  if (/[,/+;&]/.test(nombre)) return true;
+  let resto = ` ${claveColor(nombre)} `;
+  const claves = [...new Set([...coloresConocidos, ...COLORES.flatMap((c) => [c.nombre, ...c.alias])].map(claveColor))]
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  let encontrados = 0;
+  for (const c of claves) {
+    const patron = ` ${c} `;
+    if (resto.includes(patron)) {
+      encontrados++;
+      resto = resto.split(patron).join(" ");
+    }
+  }
+  return encontrados >= 2;
+}
+
 const ALIAS_A_COLOR = new Map<string, ColorCanonico>();
 for (const c of COLORES) {
   for (const a of c.alias) ALIAS_A_COLOR.set(normalizarTexto(a), c);

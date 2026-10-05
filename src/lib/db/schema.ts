@@ -15,6 +15,7 @@
  * `depositoId` o `usuarioId` después obliga a reescribir el histórico.
  */
 
+import { sql } from "drizzle-orm";
 import {
   boolean,
   date,
@@ -22,6 +23,7 @@ import {
   integer,
   numeric,
   pgEnum,
+  pgSequence,
   pgTable,
   serial,
   text,
@@ -187,16 +189,39 @@ export const proveedorMaster = pgTable("proveedor_master", {
 
 /**
  * Tabla propia, no string. Resuelve de raíz el "Azul Oscuro" / "azul oscuro" /
- * "AZUL OSCURO" de los Excel.
+ * "AZUL OSCURO" de los Excel: `clave` es el nombre normalizado (minúsculas,
+ * sin acentos, espacios colapsados), calculado por Postgres y único. La misma
+ * normalización vive en `claveColor()` (src/lib/catalogo-normalizacion.ts).
  *
- * PENDIENTE pregunta 1 del cliente: la lista oficial con sus iniciales.
+ * `oficial` = está en la lista oficial que mandó el cliente (data/codigos.xlsx,
+ * hoja "colores"). `especial` = color a pedido de un cliente, registrado para
+ * poder repetirlo: guarda solicitante, proveedor y master.
  */
-export const color = pgTable("color", {
-  id: serial("id").primaryKey(),
-  nombre: text("nombre").notNull().unique(),
-  iniciales: text("iniciales").notNull().unique(), // NE, AO, AC, GO, GC...
-  oficial: boolean("oficial").notNull().default(false), // false = deducido del Excel, a confirmar
-});
+export const color = pgTable(
+  "color",
+  {
+    id: serial("id").primaryKey(),
+    nombre: text("nombre").notNull().unique(),
+    clave: text("clave").generatedAlwaysAs(
+      sql`lower(regexp_replace(btrim(translate(nombre, 'ÁÉÍÓÚÜáéíóúü', 'AEIOUUaeiouu')), '\\s+', ' ', 'g'))`,
+    ),
+    iniciales: text("iniciales").notNull().unique(), // NE, AO, AC, GO, GC...
+    oficial: boolean("oficial").notNull().default(false),
+    especial: boolean("especial").notNull().default(false),
+    /** Solicitante del color especial. */
+    clienteId: integer("cliente_id").references(() => cliente.id),
+    proveedorMasterId: integer("proveedor_master_id").references(() => proveedorMaster.id),
+    /** Nombre/código del master tal como lo identifica el proveedor ("24B-Master Negro 951"). */
+    masterNombre: text("master_nombre"),
+    masterCodigo: text("master_codigo"),
+    /** El ítem de materia prima del master, cuando ya existe en el inventario. */
+    masterMateriaPrimaId: integer("master_materia_prima_id").references(() => materiaPrima.id),
+    observaciones: text("observaciones"),
+    creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+    creadoPorId: integer("creado_por_id").references(() => usuario.id),
+  },
+  (t) => [uniqueIndex("color_clave_uq").on(t.clave)],
+);
 
 /**
  * Los ~95 SKUs.
@@ -212,6 +237,10 @@ export const producto = pgTable(
     id: serial("id").primaryKey(),
     numero: text("numero").notNull(), // "001", "075"
     codigo: text("codigo").notNull().unique(), // derivado: "001B-PR-NE"
+    /** Código de barras de la lista oficial del cliente (data/codigos.xlsx:
+     *  "001B-RU-NE"). Usa otra nomenclatura que `codigo` — ver
+     *  docs/08-configuracion-y-panel-admin.md §inconsistencias. */
+    codigoBarras: text("codigo_barras"),
     descripcion: text("descripcion").notNull(),
 
     familia: familiaEnum("familia").notNull(),
@@ -226,10 +255,12 @@ export const producto = pgTable(
     m2PorUnidad: numeric("m2_por_unidad", { precision: 8, scale: 4 }), // 0,16
     kgPorUnidad: numeric("kg_por_unidad", { precision: 8, scale: 4 }), // 0,610
     piezasPorGolpe: integer("piezas_por_golpe"), // piso 1 · rampa 2 · ángulo 4
-    unidadesPorCaja: integer("unidades_por_caja"), // Rejilla 8 · Ciego 25 — pregunta 9
+    /** Excepción por producto. Null = regla general: pisos usan el parámetro
+     *  `unidades_por_caja_pisos`; los accesorios no se embalan hasta la venta. */
+    unidadesPorCaja: integer("unidades_por_caja"),
     pesoCajaKg: numeric("peso_caja_kg", { precision: 8, scale: 3 }),
 
-    // Nullable hasta la pregunta 8: hoy 70 de 94 productos quedarían en rojo.
+    // Configurables desde el Panel Admin (cada cambio queda en auditoria_config).
     minimo: integer("minimo"),
     maximo: integer("maximo"),
 
@@ -284,27 +315,72 @@ export const recetaProducto = pgTable(
 );
 
 /**
- * Master por kg de materia prima, por color.
+ * Dosificación de master: kg de master por kg de materia prima base.
  *
- * ⚠️ CONTRADICCIÓN ABIERTA (pregunta 2): el Excel dice 0,015 kg/kg (150 g cada
- * 10 kg) y en la reunión se dijo "150 g cada 25 kg" (0,006). Son 2,5× distintos.
- * Se carga el valor del Excel marcado como provisorio hasta que confirmen.
+ * Una fila con `colorId` null es el valor base de la familia (REJILLA, CIEGO);
+ * una fila con color es la excepción para ese color (REJILLA + Negro). Se
+ * resuelve con `resolverDosificacion()` (src/lib/data/dosificacion.ts):
+ * excepción del color si existe, si no el valor base. Nada de esto vive en
+ * el código: se edita desde el Panel Admin.
+ *
+ * Unidad: kg/kg, la misma que usaba el modelo desde R1 (`kg_por_kg_mp`). El
+ * Word de definiciones escribe "0.015 gramos por kilo" — ver
+ * docs/08-configuracion-y-panel-admin.md §inconsistencias.
  */
-export const ratioMaster = pgTable(
-  "ratio_master",
+export const dosificacionMaster = pgTable(
+  "dosificacion_master",
   {
     id: serial("id").primaryKey(),
-    colorId: integer("color_id")
-      .notNull()
-      .references(() => color.id),
-    proveedorMasterId: integer("proveedor_master_id").references(() => proveedorMaster.id),
-    materiaPrimaId: integer("materia_prima_id")
-      .notNull()
-      .references(() => materiaPrima.id), // el master concreto
+    familia: familiaEnum("familia").notNull(),
+    colorId: integer("color_id").references(() => color.id),
+    /** La materia prima base sobre la que se dosifica (Copolímero 2240P en rejilla). */
+    materiaPrimaBaseId: integer("materia_prima_base_id").references(() => materiaPrima.id),
     kgPorKgMp: numeric("kg_por_kg_mp", { precision: 8, scale: 5 }).notNull(),
-    provisorio: boolean("provisorio").notNull().default(true),
+    observaciones: text("observaciones"),
+    actualizadoEn: timestamp("actualizado_en", { withTimezone: true }).notNull().defaultNow(),
+    actualizadoPorId: integer("actualizado_por_id").references(() => usuario.id),
   },
-  (t) => [unique("ratio_master_uq").on(t.colorId, t.proveedorMasterId)],
+  (t) => [unique("dosificacion_master_uq").on(t.familia, t.colorId).nullsNotDistinct()],
+);
+
+// ---------------------------------------------------------------------------
+// Configuración (Panel Admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parámetros globales que cambian con el negocio y no deben vivir en el
+ * código. Las claves válidas están en `PARAMETROS` (src/lib/data/parametros.ts).
+ */
+export const parametro = pgTable("parametro", {
+  clave: text("clave").primaryKey(),
+  valor: numeric("valor", { precision: 14, scale: 4 }).notNull(),
+  descripcion: text("descripcion").notNull(),
+  unidad: text("unidad"),
+  actualizadoEn: timestamp("actualizado_en", { withTimezone: true }).notNull().defaultNow(),
+  actualizadoPorId: integer("actualizado_por_id").references(() => usuario.id),
+});
+
+/**
+ * Historial de cambios de configuración: mínimos/máximos, master, colores,
+ * parámetros, usuarios y prioridad de pedidos. Una fila por campo cambiado,
+ * con el valor anterior y el nuevo. Nunca se edita ni se borra.
+ */
+export const auditoriaConfig = pgTable(
+  "auditoria_config",
+  {
+    id: serial("id").primaryKey(),
+    entidad: text("entidad").notNull(), // "producto", "materia_prima", "color", ...
+    entidadId: text("entidad_id").notNull(),
+    campo: text("campo").notNull(),
+    valorAnterior: text("valor_anterior"),
+    valorNuevo: text("valor_nuevo"),
+    motivo: text("motivo"),
+    usuarioId: integer("usuario_id")
+      .notNull()
+      .references(() => usuario.id),
+    creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("auditoria_config_entidad_idx").on(t.entidad, t.entidadId, t.creadoEn)],
 );
 
 // ---------------------------------------------------------------------------
@@ -716,7 +792,12 @@ export const cliente = pgTable(
     activo: boolean("activo").notNull().default(true),
     creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("cliente_nombre_uq").on(t.nombre), index("cliente_cuit_idx").on(t.cuit)],
+  (t) => [
+    uniqueIndex("cliente_nombre_uq").on(t.nombre),
+    // "Juan Pérez" y "JUAN PÉREZ " son el mismo cliente: no se duplica.
+    uniqueIndex("cliente_nombre_normalizado_uq").on(sql`lower(btrim(${t.nombre}))`),
+    index("cliente_cuit_idx").on(t.cuit),
+  ],
 );
 
 /**
@@ -803,6 +884,8 @@ export const pedidoLinea = pgTable(
  * Cada despacho tiene su remito, que se imprime sobre los formularios
  * preimpresos de CPS (planilla F.N°12P del procedimiento).
  */
+export const remitoInternoSeq = pgSequence("remito_interno_seq", { startWith: 1 });
+
 export const despacho = pgTable(
   "despacho",
   {
@@ -810,6 +893,12 @@ export const despacho = pgTable(
     pedidoId: integer("pedido_id")
       .notNull()
       .references(() => pedido.id, { onDelete: "cascade" }),
+    /** Remito del sistema: correlativo, lo asigna Postgres, siempre existe. */
+    numeroInterno: integer("numero_interno")
+      .notNull()
+      .unique()
+      .default(sql`nextval('remito_interno_seq')`),
+    /** N° del remito legal preimpreso, si administración imprime ése. */
     numeroRemito: text("numero_remito"),
     fecha: date("fecha").notNull(),
     modoEntrega: text("modo_entrega"),

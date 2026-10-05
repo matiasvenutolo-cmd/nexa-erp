@@ -2,15 +2,15 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { db } from "@/lib/db/client";
-import { cliente } from "@/lib/db/schema";
 import {
   crearPedido,
   avanzarEstadoPedido,
   marcarEntregado,
   cancelarPedido,
   editarPedido,
+  cambiarUrgencia,
 } from "@/lib/data/pedidos";
+import { resolverClienteDelPedido } from "@/lib/data/clientes";
 import { crearProductoNuevo } from "@/lib/data/catalogo";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeCrearPedido, puedeCrearProducto, puedeVerPrecios } from "@/lib/auth/permisos";
@@ -28,6 +28,8 @@ type LineaEntrante = {
   familia?: FamiliaProducto;
   tipo?: TipoProducto;
   proveedorMasterId?: number;
+  masterNombre?: string;
+  masterCodigo?: string;
 };
 
 /**
@@ -46,8 +48,8 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
   const fechaPedido = String(fd.get("fechaPedido") ?? "").trim();
   if (!fechaPedido) return { error: "Falta la fecha del pedido." };
 
-  const clienteId = Number(fd.get("clienteId"));
-  const clienteNuevo = String(fd.get("clienteNuevo") ?? "").trim();
+  const contacto = String(fd.get("contacto") ?? "").trim() || null;
+  const domicilioEntrega = String(fd.get("domicilio") ?? "").trim() || null;
 
   let lineas: LineaEntrante[];
   try {
@@ -55,42 +57,49 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
   } catch {
     return { error: "No se pudieron leer los ítems del pedido." };
   }
-  const lineasValidas = lineas.filter((l) => l.cantidad > 0 && (l.productoId || l.colorTexto));
+  const lineasValidas = lineas.filter((l) => l.cantidad > 0);
   if (lineasValidas.length === 0) return { error: "Agregá al menos un ítem con cantidad." };
 
-  const algunaCreaProducto = lineasValidas.some((l) => l.crearProducto);
+  // Cada renglón es UN producto del catálogo: un color de la lista o un color
+  // especial que se registra (Definiciones pendientes, respuestas 1 y 6).
+  // Nunca un texto libre sin producto.
+  if (lineasValidas.some((l) => !l.productoId && !l.crearProducto)) {
+    return { error: "Cada ítem tiene que ser un color de la lista o un color especial registrado — elegí el color de cada renglón." };
+  }
+  const algunaCreaProducto = lineasValidas.some((l) => l.crearProducto && !l.productoId);
   if (algunaCreaProducto && !puedeCrearProducto(usuario.rol)) {
-    return { error: "No tenés permiso para dar de alta productos nuevos." };
+    return { error: "No tenés permiso para registrar colores especiales." };
   }
 
-  // Antes de crear el pedido: resolver los colores a medida en productos
+  const clienteResuelto = await resolverClienteDelPedido({
+    clienteId: Number(fd.get("clienteId")) || null,
+    nombreNuevo: String(fd.get("clienteNuevo") ?? ""),
+    telefono: contacto,
+    domicilio: domicilioEntrega,
+  });
+  if ("error" in clienteResuelto) return { error: clienteResuelto.error };
+  const cid = clienteResuelto.id;
+
+  // Antes de crear el pedido: resolver los colores especiales en productos
   // reales del catálogo. Si alguno falla, se corta acá — no queda un pedido
   // a medio crear con una línea rota.
   for (const l of lineasValidas) {
     if (!l.crearProducto || l.productoId) continue;
-    if (!l.familia || !l.tipo || !l.proveedorMasterId || !l.colorTexto) {
-      return { error: "Falta familia, tipo, color o proveedor de master para dar de alta el producto." };
+    if (!l.familia || !l.tipo || !l.proveedorMasterId || !l.colorTexto?.trim()) {
+      return { error: "Para un color especial hacen falta el nombre del color y el proveedor del master." };
     }
-    const resultado = await crearProductoNuevo({
+    const resultado = await crearProductoNuevo(usuario, {
       familia: l.familia,
       tipo: l.tipo,
       colorNombre: l.colorTexto,
       proveedorMasterId: l.proveedorMasterId,
+      clienteId: cid,
+      masterNombre: l.masterNombre ?? null,
+      masterCodigo: l.masterCodigo ?? null,
     });
     if (!resultado.ok) return { error: resultado.error };
     l.productoId = resultado.id;
   }
-
-  let cid = clienteId || undefined;
-  if (!cid && clienteNuevo) {
-    const [c] = await db
-      .insert(cliente)
-      .values({ nombre: clienteNuevo })
-      .onConflictDoUpdate({ target: cliente.nombre, set: { nombre: clienteNuevo } })
-      .returning();
-    cid = c.id;
-  }
-  if (!cid) return { error: "Elegí un cliente o cargá uno nuevo." };
 
   const numeroOrden = String(fd.get("numeroOrden") ?? "").trim() || null;
   // Igual que arriba: quien no ve precios en la UI tampoco puede fijarlos
@@ -101,12 +110,13 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
   const metodoPago = verPrecios ? String(fd.get("metodoPago") ?? "").trim() || null : null;
   const numeroComprobante = verPrecios ? String(fd.get("numeroComprobante") ?? "").trim() || null : null;
 
-  const { id } = await crearPedido({
+  const creado = await crearPedido({
     clienteId: cid,
     fechaPedido,
+    fechaEntregaPactada: String(fd.get("fechaEntregaPactada") ?? "").trim() || null,
     numeroOrden,
-    contacto: String(fd.get("contacto") ?? "").trim() || null,
-    domicilioEntrega: String(fd.get("domicilio") ?? "").trim() || null,
+    contacto,
+    domicilioEntrega,
     modoEntrega: String(fd.get("modoEntrega") ?? "").trim() || null,
     requiereColocacion: fd.get("requiereColocacion") === "1",
     metodoPago,
@@ -122,8 +132,10 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
     })),
   });
 
+  if ("error" in creado) return { error: creado.error };
+
   revalidatePath("/pedidos");
-  redirect(`/pedidos/${id}`);
+  redirect(`/pedidos/${creado.id}`);
 }
 
 function revalidarPedido(id: number) {
@@ -173,6 +185,7 @@ export async function editarPedidoAction(_prev: FormState, fd: FormData): Promis
   const verPrecios = puedeVerPrecios(usuario.rol);
 
   const r = await editarPedido(pedidoId, {
+    fechaEntregaPactada: String(fd.get("fechaEntregaPactada") ?? "").trim() || null,
     contacto: String(fd.get("contacto") ?? "").trim() || null,
     domicilioEntrega: String(fd.get("domicilio") ?? "").trim() || null,
     modoEntrega: String(fd.get("modoEntrega") ?? "").trim() || null,
@@ -187,4 +200,15 @@ export async function editarPedidoAction(_prev: FormState, fd: FormData): Promis
 
   revalidarPedido(pedidoId);
   redirect(`/pedidos/${pedidoId}`);
+}
+
+export async function cambiarUrgenciaAction(_prev: FormState, fd: FormData): Promise<FormState> {
+  const usuario = await getUsuarioActual();
+  const pedidoId = Number(fd.get("pedidoId"));
+  const urgente = fd.get("urgente") === "1";
+  const r = await cambiarUrgencia(usuario, pedidoId, urgente, String(fd.get("motivo") ?? "").trim() || null);
+  if (r.error) return r;
+  revalidarPedido(pedidoId);
+  revalidatePath("/produccion");
+  return {};
 }

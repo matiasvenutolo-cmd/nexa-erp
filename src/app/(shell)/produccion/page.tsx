@@ -1,11 +1,9 @@
 import Link from "next/link";
-import { materialComprometido } from "@/lib/data/pedidos";
-import { listarCiclos } from "@/lib/data/produccion";
+import { colaProduccion, listarCiclos } from "@/lib/data/produccion";
 import { fmtNumero, fmtFecha } from "@/lib/format";
 
 export default async function ProduccionPage() {
-  const [cola, ciclos] = await Promise.all([materialComprometido(), listarCiclos(30)]);
-  const faltantes = cola.filter((c) => c.faltaProducir > 0);
+  const [faltantes, ciclos] = await Promise.all([colaProduccion(), listarCiclos(30)]);
 
   return (
     <div className="space-y-6">
@@ -15,6 +13,10 @@ export default async function ProduccionPage() {
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-foreground-muted">
           Cola — falta producir para cubrir pedidos
         </h2>
+        <p className="mb-3 text-sm text-foreground-muted">
+          En orden de prioridad: primero los pedidos marcados urgentes, después la fecha de entrega más próxima (o la
+          del pedido si no tiene fecha comprometida).
+        </p>
         {faltantes.length === 0 ? (
           <p className="text-sm text-foreground-muted">No hay faltantes hoy.</p>
         ) : (
@@ -22,7 +24,9 @@ export default async function ProduccionPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-foreground-muted">
+                  <th className="p-3">#</th>
                   <th className="p-3">Producto</th>
+                  <th className="p-3">Pedidos que espera</th>
                   <th className="p-3">Comprometido</th>
                   <th className="p-3">Stock</th>
                   <th className="p-3">Falta producir</th>
@@ -30,10 +34,27 @@ export default async function ProduccionPage() {
                 </tr>
               </thead>
               <tbody>
-                {faltantes.map((f) => (
-                  <tr key={f.productoId} className="border-b border-border last:border-0">
+                {faltantes.map((f, i) => (
+                  <tr key={f.productoId} className="border-b border-border align-top last:border-0">
+                    <td className="p-3 text-foreground-muted">{i + 1}</td>
                     <td className="p-3">
                       {f.codigo} · {f.descripcion}
+                    </td>
+                    <td className="p-3">
+                      <ul className="space-y-0.5 text-xs">
+                        {f.pedidos.map((p) => (
+                          <li key={p.pedidoId}>
+                            <Link href={`/pedidos/${p.pedidoId}`} className="text-accent hover:underline">
+                              #{p.pedidoId} {p.clienteNombre}
+                            </Link>
+                            <span className="text-foreground-muted">
+                              {" "}
+                              · {fmtNumero(p.cantidad, 0)} u. · {p.tieneFechaEntrega ? "entrega" : "pedido"} {fmtFecha(p.fechaEfectiva)}
+                            </span>
+                            {p.urgente && <span className="ml-1 badge-estado badge-critico">Urgente</span>}
+                          </li>
+                        ))}
+                      </ul>
                     </td>
                     <td className="p-3">{fmtNumero(f.comprometido, 0)}</td>
                     <td className="p-3">{fmtNumero(f.stock, 0)}</td>

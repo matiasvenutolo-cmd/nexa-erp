@@ -43,6 +43,14 @@ export function FormularioEdicion({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
+        <Campo label="Fecha de entrega comprometida">
+          <input
+            type="date"
+            name="fechaEntregaPactada"
+            defaultValue={pedido.fechaEntregaPactada ?? ""}
+            className="input"
+          />
+        </Campo>
         <Campo label="Modo de entrega">
           <select name="modoEntrega" defaultValue={pedido.modoEntrega ?? ""} className="input">
             <option value="">—</option>

@@ -2,16 +2,18 @@ import Link from "next/link";
 import { listarClientes } from "@/lib/data/clientes";
 import { listarProductos } from "@/lib/data/catalogo";
 import { listarProveedoresMaster } from "@/lib/data/proveedores";
+import { coloresParaPedido } from "@/lib/data/colores";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeVerPrecios, puedeCrearProducto } from "@/lib/auth/permisos";
 import { FormularioPedido } from "./formulario-pedido";
 
 export default async function NuevoPedidoPage() {
-  const [usuario, clientes, productos, proveedores] = await Promise.all([
+  const [usuario, clientes, productos, proveedores, colores] = await Promise.all([
     getUsuarioActual(),
     listarClientes(),
     listarProductos(),
     listarProveedoresMaster(),
+    coloresParaPedido(),
   ]);
 
   return (
@@ -23,7 +25,8 @@ export default async function NuevoPedidoPage() {
         <h1 className="mt-1 text-xl font-semibold text-brand-azul-oscuro">Nuevo pedido</h1>
       </div>
       <FormularioPedido
-        clientes={clientes.map((c) => ({ id: c.id, nombre: c.nombre }))}
+        clientes={clientes.map((c) => ({ id: c.id, nombre: c.nombre, telefono: c.telefono, domicilio: c.domicilio }))}
+        colores={colores}
         productos={productos}
         proveedores={proveedores.map((p) => ({ id: p.id, nombre: p.nombre }))}
         puedeVerPrecios={puedeVerPrecios(usuario.rol)}

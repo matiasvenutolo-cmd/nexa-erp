@@ -37,7 +37,7 @@ export function AccionesPedido({ pedidoId, estado }: { pedidoId: number; estado:
         (entregando ? (
           <form action={entregarAction} className="flex items-center gap-2">
             <input type="hidden" name="pedidoId" value={pedidoId} />
-            <input name="numeroRemito" placeholder="N° de remito (opcional)" className="input w-44" />
+            <input name="numeroRemito" placeholder="N° remito legal (si se usa)" className="input w-52" />
             <button
               type="submit"
               disabled={pendiente}

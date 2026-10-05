@@ -60,3 +60,56 @@ const ROLES_PRODUCCION: readonly Rol[] = ["GERENCIA", "SUPERVISOR", "ENCARGADO"]
 export function puedeCargarProduccion(rol: Rol): boolean {
   return ROLES_PRODUCCION.includes(rol);
 }
+
+// ---------------------------------------------------------------------------
+// Panel Admin — docs/08-configuracion-y-panel-admin.md §permisos
+// ---------------------------------------------------------------------------
+
+/**
+ * Mínimos y máximos de stock. Definiciones pendientes, respuesta 3: "tendríamos
+ * que tener la opción (solo para Encargado) de poder cambiarlos"; la tabla de
+ * asunciones del mismo documento agrega "a consideración de gerencia". Se
+ * habilita a los dos — contradicción anotada como pregunta abierta.
+ */
+const ROLES_MIN_MAX: readonly Rol[] = ["ENCARGADO", "GERENCIA"];
+
+export function puedeEditarMinMax(rol: Rol): boolean {
+  return ROLES_MIN_MAX.includes(rol);
+}
+
+/** Dosificación de master y parámetros de producción (cajas, margen del
+ *  semáforo): quien carga producción. Sin definición explícita del cliente. */
+export function puedeEditarParametrosProduccion(rol: Rol): boolean {
+  return ROLES_PRODUCCION.includes(rol);
+}
+
+/** Colores (incluye registrar un color especial): mismo criterio que dar de
+ *  alta un producto desde la carga del pedido. */
+export function puedeGestionarColores(rol: Rol): boolean {
+  return puedeCrearProducto(rol);
+}
+
+/** Alta, rol y baja de usuarios: sólo gerencia. */
+export function puedeAdministrarUsuarios(rol: Rol): boolean {
+  return rol === "GERENCIA";
+}
+
+/**
+ * Cambiar la prioridad de inyección de un pedido. Definiciones pendientes:
+ * "con opción a ser cambiada por el encargado o supervisor en base a
+ * planificación".
+ */
+const ROLES_PRIORIDAD: readonly Rol[] = ["ENCARGADO", "SUPERVISOR"];
+
+export function puedeCambiarPrioridad(rol: Rol): boolean {
+  return ROLES_PRIORIDAD.includes(rol);
+}
+
+export function puedeVerPanelAdmin(rol: Rol): boolean {
+  return (
+    puedeEditarMinMax(rol) ||
+    puedeEditarParametrosProduccion(rol) ||
+    puedeGestionarColores(rol) ||
+    puedeAdministrarUsuarios(rol)
+  );
+}

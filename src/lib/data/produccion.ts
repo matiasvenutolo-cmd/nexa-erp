@@ -8,7 +8,7 @@
  * misma combinación de material/color) y con golpesInicio = golpesFin del
  * día anterior — nunca con un ciclo que abarque varios días.
  */
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   cicloProduccion,
@@ -23,6 +23,7 @@ import {
   saldo,
 } from "@/lib/db/schema";
 import { getDepositoNexaId } from "@/lib/data/depositos";
+import { materialComprometido, ordenPrioridad, PRIORIDAD_URGENTE, type FilaComprometido } from "@/lib/data/pedidos";
 
 /** Lista chica para el select del alta de ciclo — no la del catálogo completo,
  *  que trae stock/semáforo que acá no hace falta. */
@@ -234,6 +235,9 @@ export async function listarCiclos(limite = 100): Promise<FilaCiclo[]> {
 export type CicloConDetalle = typeof cicloProduccion.$inferSelect & {
   productoCodigo: string | null;
   productoDescripcion: string | null;
+  productoFamilia: (typeof producto.$inferSelect)["familia"] | null;
+  productoColorId: number | null;
+  productoKgPorUnidad: string | null;
   partidaNumero: number | null;
   operarioNombre: string | null;
   pedidos: { pedidoId: number; clienteNombre: string; cantidadAsignada: number }[];
@@ -245,6 +249,9 @@ export async function obtenerCiclo(id: number): Promise<CicloConDetalle | null> 
       ciclo: cicloProduccion,
       productoCodigo: producto.codigo,
       productoDescripcion: producto.descripcion,
+      productoFamilia: producto.familia,
+      productoColorId: producto.colorId,
+      productoKgPorUnidad: producto.kgPorUnidad,
       partidaNumero: partida.numero,
       operarioNombre: usuario.nombre,
     })
@@ -262,13 +269,17 @@ export async function obtenerCiclo(id: number): Promise<CicloConDetalle | null> 
     .innerJoin(cliente, eq(pedido.clienteId, cliente.id))
     .where(eq(cicloPedido.cicloId, id));
 
-  return { ...fila.ciclo, productoCodigo: fila.productoCodigo, productoDescripcion: fila.productoDescripcion, partidaNumero: fila.partidaNumero, operarioNombre: fila.operarioNombre, pedidos };
+  return { ...fila.ciclo, productoCodigo: fila.productoCodigo, productoDescripcion: fila.productoDescripcion, productoFamilia: fila.productoFamilia, productoColorId: fila.productoColorId, productoKgPorUnidad: fila.productoKgPorUnidad, partidaNumero: fila.partidaNumero, operarioNombre: fila.operarioNombre, pedidos };
 }
 
 export type PedidoNecesitaProducto = {
   pedidoId: number;
   clienteNombre: string;
   fechaPedido: string;
+  /** Fecha que ordena la cola: la de entrega comprometida, o la del pedido si no tiene. */
+  fechaEfectiva: string;
+  tieneFechaEntrega: boolean;
+  urgente: boolean;
   cantidad: number;
 };
 
@@ -280,6 +291,8 @@ export async function pedidosQueNecesitan(productoId: number): Promise<PedidoNec
       pedidoId: pedido.id,
       clienteNombre: cliente.nombre,
       fechaPedido: pedido.fechaPedido,
+      fechaEntregaPactada: pedido.fechaEntregaPactada,
+      prioridad: pedido.prioridad,
       cantidad: pedidoLinea.unidadesPedidas,
     })
     .from(pedidoLinea)
@@ -291,6 +304,73 @@ export async function pedidosQueNecesitan(productoId: number): Promise<PedidoNec
         sql`${pedido.estado} not in ('ENTREGADO', 'CANCELADO')`,
       ),
     )
-    .orderBy(pedido.prioridad, pedido.fechaPedido);
-  return filas;
+    .orderBy(...ordenPrioridad);
+  return filas.map(aPedidoNecesita);
+}
+
+function aPedidoNecesita(f: {
+  pedidoId: number;
+  clienteNombre: string;
+  fechaPedido: string;
+  fechaEntregaPactada: string | null;
+  prioridad: number;
+  cantidad: number;
+}): PedidoNecesitaProducto {
+  return {
+    pedidoId: f.pedidoId,
+    clienteNombre: f.clienteNombre,
+    fechaPedido: f.fechaPedido,
+    fechaEfectiva: f.fechaEntregaPactada ?? f.fechaPedido,
+    tieneFechaEntrega: f.fechaEntregaPactada != null,
+    urgente: f.prioridad <= PRIORIDAD_URGENTE,
+    cantidad: f.cantidad,
+  };
+}
+
+export type FilaCola = FilaComprometido & { pedidos: PedidoNecesitaProducto[] };
+
+/**
+ * Cola de producción: qué falta producir y en qué orden. El orden lo dan los
+ * pedidos que esperan cada producto — urgentes primero (excepción manual del
+ * Encargado o Supervisor), después la fecha de entrega más próxima — y no el
+ * volumen del faltante. Es la misma regla `ordenPrioridad` que usa el alta
+ * de ciclo para sugerir qué pedidos cubre la tirada.
+ */
+export async function colaProduccion(): Promise<FilaCola[]> {
+  const faltantes = (await materialComprometido()).filter((f) => f.faltaProducir > 0);
+  if (faltantes.length === 0) return [];
+
+  const filas = await db
+    .select({
+      productoId: pedidoLinea.productoId,
+      pedidoId: pedido.id,
+      clienteNombre: cliente.nombre,
+      fechaPedido: pedido.fechaPedido,
+      fechaEntregaPactada: pedido.fechaEntregaPactada,
+      prioridad: pedido.prioridad,
+      cantidad: pedidoLinea.unidadesPedidas,
+    })
+    .from(pedidoLinea)
+    .innerJoin(pedido, eq(pedidoLinea.pedidoId, pedido.id))
+    .innerJoin(cliente, eq(pedido.clienteId, cliente.id))
+    .where(
+      and(
+        inArray(pedidoLinea.productoId, faltantes.map((f) => f.productoId)),
+        sql`${pedido.estado} not in ('ENTREGADO', 'CANCELADO')`,
+      ),
+    )
+    .orderBy(...ordenPrioridad);
+
+  const porProducto = new Map<number, PedidoNecesitaProducto[]>();
+  const posicion = new Map<number, number>();
+  filas.forEach((f, i) => {
+    const lista = porProducto.get(f.productoId!) ?? [];
+    lista.push(aPedidoNecesita(f));
+    porProducto.set(f.productoId!, lista);
+    if (!posicion.has(f.productoId!)) posicion.set(f.productoId!, i);
+  });
+
+  return faltantes
+    .map((f) => ({ ...f, pedidos: porProducto.get(f.productoId) ?? [] }))
+    .sort((a, b) => (posicion.get(a.productoId) ?? Infinity) - (posicion.get(b.productoId) ?? Infinity));
 }

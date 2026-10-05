@@ -87,17 +87,25 @@ export default async function CatalogoPage({
               <th className="px-4 py-2.5">Color</th>
               <th className="px-4 py-2.5 text-right">Stock</th>
               <th className="px-4 py-2.5 text-right">Mínimo</th>
+              <th className="px-4 py-2.5 text-right">Máximo</th>
               <th className="px-4 py-2.5">Estado</th>
             </tr>
           </thead>
           <tbody>
             {visibles.map((p) => (
               <tr key={p.id} className="border-b border-border last:border-0">
-                <td className="px-4 py-3 font-mono text-xs text-foreground-muted">{p.codigo}</td>
+                <td className="px-4 py-3 font-mono text-xs text-foreground-muted">
+                  {p.codigo}
+                  {p.codigoBarras && p.codigoBarras !== p.codigo && <div title="Código de barras de la lista oficial">{p.codigoBarras}</div>}
+                </td>
                 <td className="px-4 py-3 font-medium text-foreground">{p.descripcion}</td>
-                <td className="px-4 py-3 text-foreground-muted">{p.colorNombre}</td>
+                <td className="px-4 py-3 text-foreground-muted">
+                  {p.colorNombre}
+                  {p.colorEspecial && <span className="ml-1 badge-estado badge-bajo">especial</span>}
+                </td>
                 <td className="px-4 py-3 text-right">{fmtNumero(p.stock, 0)}</td>
                 <td className="px-4 py-3 text-right text-foreground-muted">{fmtNumero(p.minimo, 0)}</td>
+                <td className="px-4 py-3 text-right text-foreground-muted">{fmtNumero(p.maximo, 0)}</td>
                 <td className="px-4 py-3">
                   <Semaforo estado={p.estado} />
                 </td>
@@ -105,7 +113,7 @@ export default async function CatalogoPage({
             ))}
             {visibles.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-foreground-muted">
+                <td colSpan={7} className="px-4 py-8 text-center text-foreground-muted">
                   No hay productos que coincidan.
                 </td>
               </tr>
@@ -116,8 +124,8 @@ export default async function CatalogoPage({
       </div>
 
       <p className="text-xs text-foreground-muted">
-        Los mínimos son los importados del Excel — el semáforo se termina de calibrar cuando el
-        cliente confirme los valores reales (docs/01-analisis.md §6, pregunta 1).
+        Mínimos y máximos según la lista del cliente; el Encargado los ajusta en Panel Admin → Stock y el
+        semáforo se recalcula al instante.
       </p>
     </div>
   );

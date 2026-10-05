@@ -1,0 +1,249 @@
+# Carga de configuración desde codigos.xlsx
+
+> Generado por `scripts/cargar-configuracion.ts` el 5/10/2026, 10:03:34.
+> Cada cambio quedó en el historial del Panel Admin con el usuario “Importación (sistema)”.
+
+## Aplicado (216)
+
+- 001B-PR-NE: mínimo 1500 → 1500, máximo — → 2000
+- 001B-PR-NE: código de barras 001B-RU-NE
+- 002B-PR-GO: mínimo 1500 → 1500, máximo — → 2000
+- 002B-PR-GO: código de barras 002B-RU-GO
+- 003B-PR-GC: mínimo 500 → 500, máximo — → 700
+- 003B-PR-GC: código de barras 003B-RU-GC
+- 004A-PR-BL: mínimo 500 → 500, máximo — → 700
+- 004A-PR-BL: código de barras 004A-RU-BL
+- 009B-PR-CE: mínimo 500 → 500, máximo — → 700
+- 005B-PR-AC: mínimo 500 → 500, máximo — → 700
+- 005B-PR-AC: código de barras 005B-RU-AC
+- 075A-PR-AO: mínimo 500 → 500, máximo — → 700
+- 075A-PR-AO: código de barras 075A-RU-AO
+- 006A-PR-AM: mínimo 500 → 500, máximo — → 700
+- 006A-PR-AM: código de barras 006A-RU-AM
+- 007B-PR-VC: mínimo 500 → 500, máximo — → 700
+- 007B-PR-VC: código de barras 007B-RU-VC
+- 072A-PR-VO: mínimo 500 → 500, máximo — → 700
+- 072A-PR-VO: código de barras 072A-RU-VO
+- 008B-PR-RO: mínimo 500 → 500, máximo — → 700
+- 008B-PR-RO: código de barras 008B-RU-RO
+- 078A-PR-YU: mínimo 500 → 500, máximo — → 700
+- 078A-PR-YU: código de barras 078A-RU-YU
+- 010A-PR-NA: mínimo 500 → 500, máximo — → 700
+- 010A-PR-NA: código de barras 010A-RU-NA
+- 011B-ER-NE: mínimo 500 → 500, máximo — → 700
+- 011B-ER-NE: código de barras 011B-RE-NE
+- 012B-ER-GO: mínimo 500 → 500, máximo — → 700
+- 012B-ER-GO: código de barras 012B-RE-GO
+- 013B-ER-GC: mínimo 200 → 200, máximo — → 400
+- 013B-ER-GC: código de barras 013B-RE-GC
+- 014A-ER-BL: mínimo 200 → 200, máximo — → 400
+- 014A-ER-BL: código de barras 014A-RE-BL
+- 019B-ER-CE: mínimo 200 → 200, máximo — → 400
+- 019B-ER-CE: código de barras 019B-RE-C
+- 015B-ER-AC: mínimo 200 → 200, máximo — → 400
+- 015B-ER-AC: código de barras 015B-RE-AC
+- 076A-ER-AO: mínimo 200 → 200, máximo — → 400
+- 076A-ER-AO: código de barras 076A-RE-AO
+- 016-ER-AM: mínimo 200 → 200, máximo — → 400
+- 016-ER-AM: código de barras 016A-RE-AM
+- 017B-ER-VC: mínimo 200 → 200, máximo — → 400
+- 017B-ER-VC: código de barras 017B-RE-VC
+- 073A-ER-VO: mínimo 200 → 200, máximo — → 400
+- 073A-ER-VO: código de barras 073A-RE-VO
+- 018B-ER-RO: mínimo 200 → 200, máximo — → 400
+- 018B-ER-RO: código de barras 018B-RE-RO
+- 079A-ER-YU: mínimo 200 → 200, máximo — → 400
+- 079A-ER-YU: código de barras 079A-RE-YT
+- 020A-ER-NA: mínimo 200 → 200, máximo — → 400
+- 020A-ER-NA: código de barras 020A-RE-NA
+- 021B-RR-NE: mínimo 500 → 500, máximo — → 700
+- 021B-RR-NE: código de barras 021B-RB-NE
+- 022B-RR-GO: mínimo 500 → 500, máximo — → 700
+- 022B-RR-GO: código de barras 022B-RB-GO
+- 023B-RR-GC: mínimo 300 → 300, máximo — → 500
+- 023B-RR-GC: código de barras 023B-RB-GC
+- 024A-RR-BL: mínimo 100 → 100, máximo — → 300
+- 024A-RR-BL: código de barras 024A-RB-BL
+- 029B-RR-CE: mínimo 100 → 100, máximo — → 300
+- 029B-RR-CE: código de barras 029B-RB-C
+- 025B-RR-AC: mínimo 100 → 100, máximo — → 300
+- 025B-RR-AC: código de barras 025B-RB-AC
+- 077A-RR-AO: mínimo 100 → 100, máximo — → 300
+- 077A-RR-AO: código de barras 077A-RB-AO
+- 026-RR-AM: mínimo 100 → 100, máximo — → 300
+- 026-RR-AM: código de barras 026A-RB-AM
+- 027B-RR-VC: mínimo 100 → 100, máximo — → 300
+- 027B-RR-VC: código de barras 027B-RB-VC
+- 074A-RR-VO: mínimo 100 → 100, máximo — → 300
+- 074A-RR-VO: código de barras 074A-RB-VO
+- 028B-RR-RO: mínimo 100 → 100, máximo — → 300
+- 028B-RR-RO: código de barras 028B-RB-RO
+- 080A-RR-YU: mínimo 100 → 100, máximo — → 300
+- 080A-RR-YU: código de barras 080A-RB-YT
+- 030A-RR-NA: mínimo 100 → 100, máximo — → 300
+- 030A-RR-NA: código de barras 030A-RB-NA
+- 031B-PM-NE: mínimo 1500 → 1500, máximo — → 2000
+- 031B-PM-NE: código de barras 031B-CM-NE
+- 032B-PT-NE: mínimo 1500 → 1500, máximo — → 2000
+- 032B-PT-NE: código de barras 032B-CT-NE
+- 033B-PM-GO: mínimo 1500 → 1500, máximo — → 2000
+- 033B-PM-GO: código de barras 033B-CM-GO
+- 034B-PT-GO: mínimo 1500 → 1500, máximo — → 2000
+- 034B-PT-GO: código de barras 034B-CT-GO
+- 035B-PM-GC: mínimo 1500 → 1500, máximo — → 2000
+- 035B-PM-GC: código de barras 035B-CM-GC
+- 036B-PT-GC: mínimo 1500 → 1500, máximo — → 2000
+- 036B-PT-GC: código de barras 036B-CT-GC
+- 083A-PM-BL: mínimo 300 → 300, máximo — → 500
+- 083A-PM-BL: código de barras 083A-CM-BL
+- 084A-PT-BL: mínimo 300 → 300, máximo — → 500
+- 084A-PT-BL: código de barras 084A-CT-BL
+- 081B-PM-CE: mínimo 300 → 300, máximo — → 500
+- 081B-PM-CE: código de barras 081B-CM-C
+- 082B-PT-CE: mínimo 300 → 300, máximo — → 500
+- 082B-PT-CE: código de barras 082B-CT-C
+- 045B-PM-AC: mínimo 500 → 500, máximo — → 500
+- 045B-PM-AC: código de barras 045B-CM-AC
+- 046B-PT-AC: mínimo 500 → 500, máximo — → 500
+- 046B-PT-AC: código de barras 046B-CT-AC
+- 037A-PM-AO: mínimo 500 → 500, máximo — → 500
+- 037A-PM-AO: código de barras 037A-CM-AO
+- 038A-PT-AO: mínimo 500 → 500, máximo — → 500
+- 038A-PT-AO: código de barras 038A-CT-AO
+- 039A-PM-AM: mínimo 300 → 300, máximo — → 500
+- 039A-PM-AM: código de barras 039A-CM-AM
+- 040A-PT-AM: mínimo 300 → 300, máximo — → 500
+- 040A-PT-AM: código de barras 040A-CT-AM
+- 041B-PM-VC: mínimo 300 → 300, máximo — → 500
+- 041B-PM-VC: código de barras 041B-CM-VC
+- 042B-PT-VC: mínimo 300 → 300, máximo — → 500
+- 042B-PT-VC: código de barras 042B-CT-VC
+- 085A-PM-VO: mínimo 300 → 300, máximo — → 500
+- 085A-PM-VO: código de barras 085A-CM-VO
+- 086A-PT-VO: mínimo 300 → 300, máximo — → 500
+- 086A-PT-VO: código de barras 086A-CT-VO
+- 043B-PM-RO: mínimo 300 → 300, máximo — → 500
+- 043B-PM-RO: código de barras 043B-CM-RO
+- 044B-PT-RO: mínimo 300 → 300, máximo — → 500
+- 044B-PT-RO: código de barras 044B-CT-RO
+- 068A-PM-YU: mínimo 300 → 300, máximo — → 500
+- 068A-PM-YU: código de barras 068A-CM-YT
+- 071A-PT-YU: mínimo 300 → 300, máximo — → 500
+- 071A-PT-YU: código de barras 071A-CT-YT
+- 047A-PM-NA: mínimo 300 → 300, máximo — → 500
+- 047A-PM-NA: código de barras 047A-CM-NA
+- 048B-PT-NA: mínimo 300 → 300, máximo — → 500
+- 048B-PT-NA: código de barras 048B-CT-NA
+- 049B-EC-NE: mínimo 500 → 500, máximo — → 700
+- 049B-EC-NE: código de barras 049B-CE-NE
+- 050B-EC-GO: mínimo 500 → 100, máximo — → 300
+- 050B-EC-GO: código de barras 050B-CE-GO
+- 051B-EC-GC: mínimo 100 → 50, máximo — → 80
+- 051B-EC-GC: código de barras 051B-CE-GC
+- 087A-EC-BL: mínimo 50 → 50, máximo — → 80
+- 087A-EC-BL: código de barras 087A-CE-B
+- 088B-EC-CE: mínimo 50 → 50, máximo — → 80
+- 088B-EC-CE: código de barras 088B-CE-C
+- 056B-EC-AC: mínimo 50 → 50, máximo — → 80
+- 056B-EC-AC: código de barras 056B-CE-AC
+- 052B-EC-AO: mínimo 50 → 50, máximo — → 80
+- 052B-EC-AO: código de barras 052B-CE-AO
+- 053B-EC-AM: mínimo 50 → 50, máximo — → 80
+- 053B-EC-AM: código de barras 053A-CE-AM
+- 054B-EC-VC: mínimo 50 → 50, máximo — → 80
+- 054B-EC-VC: código de barras 054B-CE-VC
+- 089A-EC-VO: mínimo 50 → 50, máximo — → 80
+- 089A-EC-VO: código de barras 089A-CE-VO
+- 055B-EC-RO: mínimo 50 → 50, máximo — → 80
+- 055B-EC-RO: código de barras 055B-CE-RO
+- 070A-EC-YU: mínimo 50 → 50, máximo — → 80
+- 070A-EC-YU: código de barras 070A-CE-YT
+- 057A-EC-NA: mínimo 50 → 50, máximo — → 80
+- 057A-EC-NA: código de barras 057A-CE-NA
+- 058B-RC-NE: mínimo 600 → 600, máximo — → 900
+- 058B-RC-NE: código de barras 058B-CB-NE
+- 059B-RC-GO: mínimo 600 → 600, máximo — → 900
+- 059B-RC-GO: código de barras 059B-CB-GO
+- 060B-RC-GC: mínimo 600 → 600, máximo — → 900
+- 060B-RC-GC: código de barras 060B-CB-GC
+- 090A-RC-BL: mínimo 100 → 100, máximo — → 400
+- 090A-RC-BL: código de barras 090A-CB-B
+- 065B-RC-CE: mínimo 100 → 100, máximo — → 400
+- 065B-RC-CE: código de barras 065B-CB-C
+- 091B-RC-AC: mínimo 100 → 100, máximo — → 400
+- 091B-RC-AC: código de barras 091B-CB-AC
+- 061B-RC-AO: mínimo 100 → 100, máximo — → 400
+- 061B-RC-AO: código de barras 061B-CB-AO
+- 062B-RC-AM: mínimo 100 → 100, máximo — → 400
+- 062B-RC-AM: código de barras 062A-CB-AM
+- 063B-RC-VC: mínimo 100 → 100, máximo — → 400
+- 063B-RC-VC: código de barras 063B-CB-VC
+- 092A-RC-VO: mínimo 100 → 100, máximo — → 400
+- 092A-RC-VO: código de barras 092A-CB-VO
+- 064B-RC-RO: mínimo 100 → 100, máximo — → 400
+- 064B-RC-RO: código de barras 064B-CB-RO
+- 069A-RC-YU: mínimo 100 → 100, máximo — → 400
+- 069A-RC-YU: código de barras 069A-CB-YT
+- 066A-RC-NA: mínimo 100 → 100, máximo — → 400
+- 066A-RC-NA: código de barras 066A-CB-NA
+- MP 19- PLASTOMER: mínimo 3000.000 → 2000, máximo 5000.000 → 5000.000
+- MP 38-compuesto PE AD SN: mínimo — → 0, máximo — → 0
+- MP 21-Master Azul: mínimo 25.000 → 40, máximo 75.000 → 75.000
+- MP 24-Master negro 951: mínimo 25.000 → 50, máximo 75.000 → 75.000
+- MP B1-Master Gris Oscuro 105808: mínimo 10.000 → 40, máximo 20.000 → 50
+- MP B3-Master Blanco: mínimo 3.500 → 0, máximo 5.000 → 0
+- MP B4-Master Azul oscuro 100954: mínimo 3.500 → 0, máximo 5.000 → 0
+- MP B5- Master Amarillo 114247: mínimo — → 0, máximo 0.000 → 0.000
+- MP A5- Master Amarillo 7228: mínimo 3.500 → 10, máximo 5.000 → 20
+- MP B6- Master Verde 113227: mínimo 3.500 → 10, máximo 5.000 → 20
+- MP B7-Master Rojo 100319: mínimo 3.500 → 10, máximo 5.000 → 20
+- MP B10-Master Gris Oscuro nor 108900 (gris claro catalogo): mínimo 3.500 → 40, máximo 5.000 → 50
+- MP B11-Master celeste 112228: mínimo 3.500 → 10, máximo 5.000 → 20
+- MP A9-Master naranja 7363: mínimo 3.500 → 10, máximo 5.000 → 20
+- MP A14- Master Yute 4101: mínimo 3.500 → 10, máximo 5.000 → 20
+- MP A3-MASTER BLANCO 7500: mínimo 3.500 → 10, máximo 5.000 → 20
+- MP A4- Master Azul 3351: mínimo — → 40, máximo — → 50
+- MP A6-Master Verde 4170: mínimo — → 10, máximo — → 20
+- Color Negro: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Color Gris Oscuro: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Color Gris Claro: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Color Blanco: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Color Celeste: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Color Azul Claro: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Color Azul Oscuro: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Color Amarillo: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Color Verde Claro: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Color Verde Oscuro: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Color Rojo: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Color Yute: oficial, masterNombre, masterMateriaPrimaId
+- Color Naranja: oficial, proveedorMasterId, masterNombre, masterMateriaPrimaId
+- Master REJILLA (base): 0.015 kg/kg sobre 31-COPOLIMERO 2240 P
+- Master REJILLA · Negro: 0.012 kg/kg sobre 31-COPOLIMERO 2240 P
+- Master CIEGO (base): 0.018 kg/kg sobre 3-Polipropileno COPOLIMERO   COD:2630PC
+- 94 productos dejan de tener unidades por caja propias (8 o 25 de la regla anterior): pisos → parámetro general, accesorios → sin caja.
+
+Valores que ya coincidían (sin cambios): 4.
+
+## Observaciones e inconsistencias (21)
+
+- Producto 009: la hoja “colores” dice 009B-RU-CE y la hoja “minimos en pisos” dice 009B-RU-C. No se eligió: el código de barras queda sin cargar hasta que confirmen.
+- Fila 012B-RE-GO: la columna NUMERO dice “021B-” y el código de barras empieza con 012. Se tomó el número del código de barras (coincide con el artículo).
+- Código de barras “033B- CM-GO” tenía espacios: se guardó como 033B-CM-GO.
+- 045B-CM-AC: mínimo y máximo iguales (500). Se cargó tal cual.
+- 046B-CT-AC: mínimo y máximo iguales (500). Se cargó tal cual.
+- 037A-CM-AO: mínimo y máximo iguales (500). Se cargó tal cual.
+- 038A-CT-AO: mínimo y máximo iguales (500). Se cargó tal cual.
+- Producto 067-grampa (“067 Grampa de union”) no existe en el catálogo del sistema — no se crea.
+- Producto 100-C-CH (“100-CAJAS CHICAS con logo”) no existe en el catálogo del sistema — no se crea.
+- Producto 101-C-GR (“101-CAJAS GRANDE con logo”) no existe en el catálogo del sistema — no se crea.
+- 200A-PR-VI (200A-Rejilla-Unico-Violeta  Obispo-A) está en el sistema pero no en la hoja “minimos en pisos”: mínimo y máximo quedan como estaban.
+- 201A-ER-VI (201A-Rejilla-Esquinero-Violeta  Obispo-A) está en el sistema pero no en la hoja “minimos en pisos”: mínimo y máximo quedan como estaban.
+- 202A-RR-VI (202A-Rejilla-Rampa-Violeta Obispo-A) está en el sistema pero no en la hoja “minimos en pisos”: mínimo y máximo quedan como estaban.
+- MP 38-compuesto PE AD SN: mínimo y máximo en 0 — el semáforo lo toma como “no controlado”.
+- MP B3-Master Blanco: mínimo y máximo en 0 — el semáforo lo toma como “no controlado”.
+- MP B4-Master Azul oscuro 100954: mínimo y máximo en 0 — el semáforo lo toma como “no controlado”.
+- MP B5- Master Amarillo 114247: mínimo y máximo en 0 — el semáforo lo toma como “no controlado”.
+- Color Verde Oscuro: proveedor “ARCOLOR V-O” interpretado como Arcolor.
+- Color Yute: el proveedor de master figura como “YUTE”, que no es un proveedor conocido (Berma/Arcolor/Platsur). Queda sin proveedor en la ficha del color.
+- Color “Violeta Obispo” está en el sistema pero no en la lista oficial (hoja colores). Queda como “sin clasificar”: se puede marcar como especial desde Panel Admin → Colores.
+- La hoja “colores” trae 13 colores; el documento de definiciones habla de “la lista de 12 colores”.
