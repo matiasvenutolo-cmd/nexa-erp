@@ -79,8 +79,8 @@ export async function sembrar(db: Db) {
   const [rejNegro, rejBlanco, rejRojo, ciegoNegro, esqNegro] = await db
     .insert(schema.producto)
     .values([
-      { ...base, numero: "001", codigo: "001B-PR-NE", descripcion: "001B-Rejilla -Unico - Negro", familia: "REJILLA", tipo: "UNICO", colorId: negro.id, proveedorMasterId: berma.id, minimo: 1500, unidadesPorCaja: 8 },
-      { ...base, numero: "004", codigo: "004A-PR-BL", descripcion: "004A-Rejilla -Unico - Blanco", familia: "REJILLA", tipo: "UNICO", colorId: blanco.id, proveedorMasterId: arcolor.id, minimo: 500, unidadesPorCaja: 8 },
+      { ...base, numero: "001", codigo: "001B-PR-NE", descripcion: "001B-Rejilla -Unico - Negro", familia: "REJILLA", tipo: "UNICO", colorId: negro.id, proveedorMasterId: berma.id, minimo: 1500 },
+      { ...base, numero: "004", codigo: "004A-PR-BL", descripcion: "004A-Rejilla -Unico - Blanco", familia: "REJILLA", tipo: "UNICO", colorId: blanco.id, proveedorMasterId: arcolor.id, minimo: 500 },
       { ...base, numero: "008", codigo: "008B-PR-RO", descripcion: "08B-Rejilla -Unico - Rojo", familia: "REJILLA", tipo: "UNICO", colorId: rojo.id, proveedorMasterId: berma.id, minimo: 500 },
       { ...base, tipoCodigo: "PM", numero: "031", codigo: "031B-PM-NE", descripcion: "031B-Ciego - Moneda - Negro", familia: "CIEGO", tipo: "MONEDA", colorId: negro.id, proveedorMasterId: berma.id },
       { tipoCodigo: "ER", piezasPorGolpe: 4, numero: "011", codigo: "011B-ER-NE", descripcion: "011B-Rejilla -Esquinero - Negro", familia: "REJILLA", tipo: "ESQUINERO", colorId: negro.id, proveedorMasterId: berma.id, esAccesorio: true },

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, ClipboardList, Boxes, Users, Factory, Settings } from "lucide-react";
+import { Bell, Boxes, ClipboardList, Factory, LayoutDashboard, MessageSquareWarning, Package, Settings, Users, Waypoints } from "lucide-react";
 import type { ItemNav } from "@/lib/nav";
 
 const ICONO: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -12,12 +12,16 @@ const ICONO: Record<string, React.ComponentType<{ size?: number; className?: str
   "/clientes": Users,
   "/produccion": Factory,
   "/admin": Settings,
+  "/avisos": Bell,
+  "/materia-prima": Package,
+  "/trazabilidad": Waypoints,
+  "/reclamos": MessageSquareWarning,
 };
 
 /** Menú lateral — "siempre es más cómodo el menú al costado" (el cliente lo
  *  valoró en el mockup viejo, docs/07-plan-release-2.md). Client component
  *  sólo para poder resaltar el ítem activo con `usePathname`. */
-export function SidebarNav({ nav }: { nav: ItemNav[] }) {
+export function SidebarNav({ nav, contadores = {} }: { nav: ItemNav[]; contadores?: Record<string, number> }) {
   const pathname = usePathname();
   return (
     <nav className="flex flex-col gap-0.5">
@@ -34,6 +38,11 @@ export function SidebarNav({ nav }: { nav: ItemNav[] }) {
           >
             {Icono && <Icono size={17} className="shrink-0" />}
             {item.label}
+            {(contadores[item.href] ?? 0) > 0 && (
+              <span className="ml-auto rounded-full bg-[var(--estado-critico-bg)] px-1.5 text-xs font-semibold text-[var(--estado-critico-fg)]">
+                {contadores[item.href]}
+              </span>
+            )}
           </Link>
         );
       })}

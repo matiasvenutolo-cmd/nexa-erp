@@ -1,9 +1,9 @@
 /**
  * Dosificación de master (tabla `dosificacion_master`).
  *
- * Definiciones pendientes, respuesta 2: piso rejilla 0,015 sobre el Copolímero
- * 2240P, rejilla negro 0,012 "por ser un color muy intenso", piso ciego 0,018
- * sobre el Copolímero 2630PC, "pudiendo variar según color". Por eso la
+ * Definiciones pendientes, respuesta 2: piso rejilla 0,015 g/kg sobre el
+ * Copolímero 2240P, rejilla negro 0,012 g/kg "por ser un color muy intenso",
+ * piso ciego 0,018 g/kg sobre el Copolímero 2630PC, "pudiendo variar según color". Por eso la
  * estructura es familia + color opcional: una fila sin color es el valor base
  * de la familia; una fila con color es la excepción. Los valores iniciales
  * los carga scripts/cargar-configuracion.ts; acá no hay ninguno.
@@ -24,7 +24,7 @@ export type FilaDosificacion = {
   colorNombre: string | null;
   materiaPrimaBaseId: number | null;
   materiaPrimaBaseNombre: string | null;
-  kgPorKgMp: number;
+  gPorKgMp: number;
   observaciones: string | null;
   actualizadoEn: Date;
   actualizadoPorNombre: string | null;
@@ -39,7 +39,7 @@ export async function listarDosificaciones(): Promise<FilaDosificacion[]> {
       colorNombre: color.nombre,
       materiaPrimaBaseId: dosificacionMaster.materiaPrimaBaseId,
       materiaPrimaBaseNombre: materiaPrima.nombre,
-      kgPorKgMp: dosificacionMaster.kgPorKgMp,
+      gPorKgMp: dosificacionMaster.gPorKgMp,
       observaciones: dosificacionMaster.observaciones,
       actualizadoEn: dosificacionMaster.actualizadoEn,
       actualizadoPorNombre: usuario.nombre,
@@ -49,11 +49,11 @@ export async function listarDosificaciones(): Promise<FilaDosificacion[]> {
     .leftJoin(materiaPrima, eq(dosificacionMaster.materiaPrimaBaseId, materiaPrima.id))
     .leftJoin(usuario, eq(dosificacionMaster.actualizadoPorId, usuario.id))
     .orderBy(asc(dosificacionMaster.familia), sql`${dosificacionMaster.colorId} nulls first`, asc(color.nombre));
-  return filas.map((f) => ({ ...f, kgPorKgMp: Number(f.kgPorKgMp) }));
+  return filas.map((f) => ({ ...f, gPorKgMp: Number(f.gPorKgMp) }));
 }
 
 export type Dosificacion = {
-  kgPorKgMp: number;
+  gPorKgMp: number;
   origen: "excepcion" | "base";
   colorNombre: string | null;
   materiaPrimaBaseNombre: string | null;
@@ -65,7 +65,7 @@ export async function resolverDosificacion(familia: Familia, colorId: number | n
   const filas = await db
     .select({
       colorId: dosificacionMaster.colorId,
-      kgPorKgMp: dosificacionMaster.kgPorKgMp,
+      gPorKgMp: dosificacionMaster.gPorKgMp,
       colorNombre: color.nombre,
       materiaPrimaBaseNombre: base.nombre,
     })
@@ -83,7 +83,7 @@ export async function resolverDosificacion(familia: Familia, colorId: number | n
   const fila = filas.find((f) => f.colorId != null) ?? filas.find((f) => f.colorId == null);
   if (!fila) return null;
   return {
-    kgPorKgMp: Number(fila.kgPorKgMp),
+    gPorKgMp: Number(fila.gPorKgMp),
     origen: fila.colorId != null ? "excepcion" : "base",
     colorNombre: fila.colorNombre,
     materiaPrimaBaseNombre: fila.materiaPrimaBaseNombre,
@@ -94,16 +94,14 @@ export type DosificacionInput = {
   familia: Familia;
   colorId: number | null;
   materiaPrimaBaseId: number | null;
-  kgPorKgMp: number;
+  gPorKgMp: number;
   observaciones?: string | null;
   motivo?: string | null;
 };
 
 function validar(input: DosificacionInput): string | null {
-  // kg de master por kg de materia prima: tiene que ser una fracción (no puede
-  // llevar más master que materia prima).
-  if (!Number.isFinite(input.kgPorKgMp) || input.kgPorKgMp <= 0 || input.kgPorKgMp >= 1) {
-    return "La dosificación tiene que ser mayor que 0 y menor que 1 (kg de master por kg de materia prima).";
+  if (!Number.isFinite(input.gPorKgMp) || input.gPorKgMp <= 0) {
+    return "La dosificación tiene que ser un número mayor que 0 (gramos de master por kg de materia prima).";
   }
   if (input.familia !== "REJILLA" && input.familia !== "CIEGO") return "Familia inválida.";
   return null;
@@ -133,13 +131,13 @@ export async function crearDosificacion(actor: Actor, input: DosificacionInput):
         familia: input.familia,
         colorId: input.colorId,
         materiaPrimaBaseId: input.materiaPrimaBaseId,
-        kgPorKgMp: String(input.kgPorKgMp),
+        gPorKgMp: String(input.gPorKgMp),
         observaciones: input.observaciones?.trim() || null,
         actualizadoPorId: actor.id,
       })
       .returning();
     await registrarCambios(tx, actor.id, [
-      { entidad: "dosificacion_master", entidadId: nueva.id, campo: "kg_por_kg_mp", anterior: null, nuevo: input.kgPorKgMp, motivo: input.motivo },
+      { entidad: "dosificacion_master", entidadId: nueva.id, campo: "g_por_kg_mp", anterior: null, nuevo: input.gPorKgMp, motivo: input.motivo },
     ]);
     return {};
   });
@@ -148,7 +146,7 @@ export async function crearDosificacion(actor: Actor, input: DosificacionInput):
 export async function actualizarDosificacion(
   actor: Actor,
   id: number,
-  cambios: { kgPorKgMp: number; materiaPrimaBaseId: number | null; observaciones?: string | null; motivo?: string | null },
+  cambios: { gPorKgMp: number; materiaPrimaBaseId: number | null; observaciones?: string | null; motivo?: string | null },
 ): Promise<Resultado> {
   if (!puedeEditarParametrosProduccion(actor.rol)) return { error: "No tenés permiso para cambiar la dosificación de master." };
 
@@ -162,7 +160,7 @@ export async function actualizarDosificacion(
     await tx
       .update(dosificacionMaster)
       .set({
-        kgPorKgMp: String(cambios.kgPorKgMp),
+        gPorKgMp: String(cambios.gPorKgMp),
         materiaPrimaBaseId: cambios.materiaPrimaBaseId,
         observaciones,
         actualizadoEn: new Date(),
@@ -170,7 +168,7 @@ export async function actualizarDosificacion(
       })
       .where(eq(dosificacionMaster.id, id));
     await registrarCambios(tx, actor.id, [
-      { entidad: "dosificacion_master", entidadId: id, campo: "kg_por_kg_mp", anterior: actual.kgPorKgMp, nuevo: cambios.kgPorKgMp, motivo: cambios.motivo },
+      { entidad: "dosificacion_master", entidadId: id, campo: "g_por_kg_mp", anterior: actual.gPorKgMp, nuevo: cambios.gPorKgMp, motivo: cambios.motivo },
       { entidad: "dosificacion_master", entidadId: id, campo: "materia_prima_base_id", anterior: actual.materiaPrimaBaseId, nuevo: cambios.materiaPrimaBaseId, motivo: cambios.motivo },
       { entidad: "dosificacion_master", entidadId: id, campo: "observaciones", anterior: actual.observaciones, nuevo: observaciones, motivo: cambios.motivo },
     ]);
@@ -189,7 +187,7 @@ export async function eliminarExcepcionDosificacion(actor: Actor, id: number, mo
     if (actual.colorId == null) return { error: "El valor base de la familia no se puede quitar, sólo editar." };
     await tx.delete(dosificacionMaster).where(eq(dosificacionMaster.id, id));
     await registrarCambios(tx, actor.id, [
-      { entidad: "dosificacion_master", entidadId: id, campo: "kg_por_kg_mp (excepción quitada)", anterior: actual.kgPorKgMp, nuevo: null, motivo },
+      { entidad: "dosificacion_master", entidadId: id, campo: "g_por_kg_mp (excepción quitada)", anterior: actual.gPorKgMp, nuevo: null, motivo },
     ]);
     return {};
   });

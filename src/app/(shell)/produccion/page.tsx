@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { colaProduccion, listarCiclos } from "@/lib/data/produccion";
+import { etiquetaPrioridad } from "@/lib/data/pedidos";
 import { fmtNumero, fmtFecha } from "@/lib/format";
 
 export default async function ProduccionPage() {
@@ -14,8 +15,9 @@ export default async function ProduccionPage() {
           Cola — falta producir para cubrir pedidos
         </h2>
         <p className="mb-3 text-sm text-foreground-muted">
-          En orden de prioridad: primero los pedidos marcados urgentes, después la fecha de entrega más próxima (o la
-          del pedido si no tiene fecha comprometida).
+          En orden de prioridad: primero los ajustes manuales del Encargado o Supervisor (urgente, adelantado), después la
+          fecha de entrega más próxima (o la del pedido si no tiene fecha comprometida); los postergados van al final.
+          Cantidades: lo pendiente de entregar.
         </p>
         {faltantes.length === 0 ? (
           <p className="text-sm text-foreground-muted">No hay faltantes hoy.</p>
@@ -51,7 +53,11 @@ export default async function ProduccionPage() {
                               {" "}
                               · {fmtNumero(p.cantidad, 0)} u. · {p.tieneFechaEntrega ? "entrega" : "pedido"} {fmtFecha(p.fechaEfectiva)}
                             </span>
-                            {p.urgente && <span className="ml-1 badge-estado badge-critico">Urgente</span>}
+                            {p.prioridad !== 0 && (
+                              <span className={`ml-1 badge-estado ${p.prioridad < 0 ? "badge-critico" : "badge-exceso"}`}>
+                                {etiquetaPrioridad(p.prioridad)}
+                              </span>
+                            )}
                           </li>
                         ))}
                       </ul>

@@ -24,7 +24,7 @@ import {
 } from "@/lib/data/dosificacion";
 import { actualizarFichaColor, crearColorEspecial, listarColores } from "@/lib/data/colores";
 import { listarAuditoria } from "@/lib/data/auditoria";
-import { cambiarUrgencia, crearPedido, marcarEntregado, obtenerPedido } from "@/lib/data/pedidos";
+import { cambiarPrioridad, crearPedido, obtenerPedido } from "@/lib/data/pedidos";
 import { colaProduccion } from "@/lib/data/produccion";
 import { resolverClienteDelPedido } from "@/lib/data/clientes";
 import { actualizarUsuarioAdmin, crearUsuarioAdmin } from "@/lib/data/usuarios";
@@ -130,40 +130,40 @@ describe("4-5. Dosificación de master", () => {
   it("valor base por familia y excepción por color", async () => {
     expect(await resolverDosificacion("REJILLA", s.colores.blanco.id)).toBeNull();
 
-    await crearDosificacion(s.usuarios.ENCARGADO, { familia: "REJILLA", colorId: null, materiaPrimaBaseId: s.materiaPrima.copo2240.id, kgPorKgMp: 0.015 });
-    await crearDosificacion(s.usuarios.ENCARGADO, { familia: "REJILLA", colorId: s.colores.negro.id, materiaPrimaBaseId: s.materiaPrima.copo2240.id, kgPorKgMp: 0.012 });
-    await crearDosificacion(s.usuarios.SUPERVISOR, { familia: "CIEGO", colorId: null, materiaPrimaBaseId: s.materiaPrima.copo2630.id, kgPorKgMp: 0.018 });
+    await crearDosificacion(s.usuarios.ENCARGADO, { familia: "REJILLA", colorId: null, materiaPrimaBaseId: s.materiaPrima.copo2240.id, gPorKgMp: 0.015 });
+    await crearDosificacion(s.usuarios.ENCARGADO, { familia: "REJILLA", colorId: s.colores.negro.id, materiaPrimaBaseId: s.materiaPrima.copo2240.id, gPorKgMp: 0.012 });
+    await crearDosificacion(s.usuarios.SUPERVISOR, { familia: "CIEGO", colorId: null, materiaPrimaBaseId: s.materiaPrima.copo2630.id, gPorKgMp: 0.018 });
 
-    expect(await resolverDosificacion("REJILLA", s.colores.blanco.id)).toMatchObject({ kgPorKgMp: 0.015, origen: "base" });
-    expect(await resolverDosificacion("REJILLA", s.colores.negro.id)).toMatchObject({ kgPorKgMp: 0.012, origen: "excepcion", colorNombre: "Negro" });
+    expect(await resolverDosificacion("REJILLA", s.colores.blanco.id)).toMatchObject({ gPorKgMp: 0.015, origen: "base" });
+    expect(await resolverDosificacion("REJILLA", s.colores.negro.id)).toMatchObject({ gPorKgMp: 0.012, origen: "excepcion", colorNombre: "Negro" });
     // La excepción del negro es de rejilla: el ciego negro usa la base de ciego.
-    expect(await resolverDosificacion("CIEGO", s.colores.negro.id)).toMatchObject({ kgPorKgMp: 0.018, origen: "base" });
+    expect(await resolverDosificacion("CIEGO", s.colores.negro.id)).toMatchObject({ gPorKgMp: 0.018, origen: "base" });
   });
 
   it("no admite dos valores para la misma familia y color", async () => {
-    const r = await crearDosificacion(s.usuarios.ENCARGADO, { familia: "REJILLA", colorId: s.colores.negro.id, materiaPrimaBaseId: null, kgPorKgMp: 0.02 });
+    const r = await crearDosificacion(s.usuarios.ENCARGADO, { familia: "REJILLA", colorId: s.colores.negro.id, materiaPrimaBaseId: null, gPorKgMp: 0.02 });
     expect(r.error).toMatch(/Ya existe/);
   });
 
   it("modificar la dosificación de un color cambia lo que resuelve el sistema y queda auditado", async () => {
-    await crearDosificacion(s.usuarios.ENCARGADO, { familia: "REJILLA", colorId: s.colores.rojo.id, materiaPrimaBaseId: null, kgPorKgMp: 0.014 });
+    await crearDosificacion(s.usuarios.ENCARGADO, { familia: "REJILLA", colorId: s.colores.rojo.id, materiaPrimaBaseId: null, gPorKgMp: 0.014 });
     const [fila] = await db()
       .select()
       .from(schema.dosificacionMaster)
       .where(and(eq(schema.dosificacionMaster.familia, "REJILLA"), eq(schema.dosificacionMaster.colorId, s.colores.rojo.id)));
-    const r = await actualizarDosificacion(s.usuarios.ENCARGADO, fila.id, { kgPorKgMp: 0.016, materiaPrimaBaseId: null, motivo: "Prueba de color" });
+    const r = await actualizarDosificacion(s.usuarios.ENCARGADO, fila.id, { gPorKgMp: 0.016, materiaPrimaBaseId: null, motivo: "Prueba de color" });
     expect(r.error).toBeUndefined();
-    expect(await resolverDosificacion("REJILLA", s.colores.rojo.id)).toMatchObject({ kgPorKgMp: 0.016 });
+    expect(await resolverDosificacion("REJILLA", s.colores.rojo.id)).toMatchObject({ gPorKgMp: 0.016 });
     const historial = await listarAuditoria({ entidad: "dosificacion_master", entidadId: fila.id });
-    expect(historial[0]).toMatchObject({ campo: "kg_por_kg_mp", valorNuevo: "0.016" });
+    expect(historial[0]).toMatchObject({ campo: "g_por_kg_mp", valorNuevo: "0.016" });
 
     // Quitar la excepción: vuelve a la base.
     await eliminarExcepcionDosificacion(s.usuarios.ENCARGADO, fila.id);
-    expect(await resolverDosificacion("REJILLA", s.colores.rojo.id)).toMatchObject({ kgPorKgMp: 0.015, origen: "base" });
+    expect(await resolverDosificacion("REJILLA", s.colores.rojo.id)).toMatchObject({ gPorKgMp: 0.015, origen: "base" });
   });
 
   it("rechaza valores imposibles y la base no se puede borrar", async () => {
-    expect((await crearDosificacion(s.usuarios.ENCARGADO, { familia: "CIEGO", colorId: s.colores.rojo.id, materiaPrimaBaseId: null, kgPorKgMp: 1.5 })).error).toBeDefined();
+    expect((await crearDosificacion(s.usuarios.ENCARGADO, { familia: "CIEGO", colorId: s.colores.rojo.id, materiaPrimaBaseId: null, gPorKgMp: 0 })).error).toBeDefined();
     const [base] = await db().select().from(schema.dosificacionMaster).where(eq(schema.dosificacionMaster.familia, "CIEGO"));
     expect((await eliminarExcepcionDosificacion(s.usuarios.ENCARGADO, base.id)).error).toMatch(/base/);
   });
@@ -365,7 +365,7 @@ describe("9-10. Permisos", () => {
 
   it("un operario no toca master, parámetros, colores ni usuarios", async () => {
     const op = s.usuarios.OPERARIO;
-    expect((await crearDosificacion(op, { familia: "CIEGO", colorId: s.colores.blanco.id, materiaPrimaBaseId: null, kgPorKgMp: 0.02 })).error).toMatch(/permiso/);
+    expect((await crearDosificacion(op, { familia: "CIEGO", colorId: s.colores.blanco.id, materiaPrimaBaseId: null, gPorKgMp: 0.02 })).error).toMatch(/permiso/);
     expect((await actualizarParametro(op, "unidades_por_caja_pisos", 30)).error).toMatch(/permiso/);
     expect((await crearColorEspecial(op, { nombre: "Fucsia", clienteId: null, proveedorMasterId: null })).error).toMatch(/permiso/);
     expect((await crearUsuarioAdmin(op, { nombre: "X", email: "x@test", rol: "GERENCIA", secreto: "12345678" })).error).toMatch(/permiso/);
@@ -384,9 +384,10 @@ describe("9-10. Permisos", () => {
 
   it("prioridad manual: sólo Encargado o Supervisor, con motivo", async () => {
     const [p] = await db().select().from(schema.pedido).limit(1);
-    expect((await cambiarUrgencia(s.usuarios.ADMINISTRACION, p.id, true, "urgente")).error).toBeDefined();
-    expect((await cambiarUrgencia(s.usuarios.ENCARGADO, p.id, true, "")).error).toMatch(/motivo/);
-    expect((await cambiarUrgencia(s.usuarios.SUPERVISOR, p.id, true, "Stand de un cliente")).error).toBeUndefined();
+    expect((await cambiarPrioridad(s.usuarios.ADMINISTRACION, p.id, -2, "Urgencia")).error).toBeDefined();
+    expect((await cambiarPrioridad(s.usuarios.ENCARGADO, p.id, -2, "")).error).toMatch(/motivo/);
+    expect((await cambiarPrioridad(s.usuarios.SUPERVISOR, p.id, -2, "Urgencia", "Stand de un cliente")).error).toBeUndefined();
+    expect((await cambiarPrioridad(s.usuarios.SUPERVISOR, p.id, 5, "Urgencia")).error).toMatch(/inválido/);
   });
 });
 
@@ -414,12 +415,14 @@ describe("Prioridad automática por fecha y excepción manual", () => {
     let fila = (await colaProduccion()).find((f) => f.productoId === s.productos.ciegoNegro.id)!;
     expect(fila.pedidos.map((p) => p.pedidoId)).toEqual([pronto.id, tarde.id]);
 
-    await cambiarUrgencia(s.usuarios.ENCARGADO, tarde.id, true, "Cliente reprogramó la obra");
+    await cambiarPrioridad(s.usuarios.ENCARGADO, tarde.id, -2, "Urgencia", "Cliente reprogramó la obra");
     fila = (await colaProduccion()).find((f) => f.productoId === s.productos.ciegoNegro.id)!;
-    expect(fila.pedidos[0]).toMatchObject({ pedidoId: tarde.id, urgente: true });
+    expect(fila.pedidos[0]).toMatchObject({ pedidoId: tarde.id, prioridad: -2 });
+    const historial = await listarAuditoria({ entidad: "pedido", entidadId: tarde.id });
+    expect(historial[0]).toMatchObject({ campo: "prioridad", valorAnterior: "Automática (por fecha)", valorNuevo: "Urgente", motivo: "Urgencia — Cliente reprogramó la obra", usuarioNombre: "Usuario ENCARGADO" });
 
     // La urgencia es una excepción: al quitarla vuelve el orden automático.
-    await cambiarUrgencia(s.usuarios.ENCARGADO, tarde.id, false, null);
+    await cambiarPrioridad(s.usuarios.ENCARGADO, tarde.id, 0, "Planificación productiva");
     fila = (await colaProduccion()).find((f) => f.productoId === s.productos.ciegoNegro.id)!;
     expect(fila.pedidos.map((p) => p.pedidoId)).toEqual([pronto.id, tarde.id]);
   });
@@ -454,20 +457,6 @@ describe("Clientes", () => {
 
     const nuevo = await resolverClienteDelPedido({ nombreNuevo: "Juan Pérez", telefono: "11 1111 1111", domicilio: null });
     expect("id" in nuevo && nuevo.id).not.toBe(s.cliente.id);
-  });
-});
-
-describe("Remitos", () => {
-  it("cada entrega genera un remito interno correlativo", async () => {
-    const pedidos = await db().select().from(schema.pedido);
-    const abiertos = pedidos.filter((p) => p.estado === "PEDIDO").slice(0, 2);
-    for (const p of abiertos) {
-      await db().update(schema.pedido).set({ estado: "LISTO_PARA_DESPACHAR" }).where(eq(schema.pedido.id, p.id));
-      expect((await marcarEntregado(p.id, { numeroRemito: null, usuarioId: s.usuarios.ADMINISTRACION.id })).error).toBeUndefined();
-    }
-    const numeros = (await db().select().from(schema.despacho)).map((d) => d.numeroInterno).sort();
-    expect(numeros).toHaveLength(2);
-    expect(numeros[1] - numeros[0]).toBe(1);
   });
 });
 

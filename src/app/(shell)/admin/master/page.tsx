@@ -1,6 +1,5 @@
 import { listarDosificaciones, opcionesDosificacion, type FilaDosificacion } from "@/lib/data/dosificacion";
 import { actualizarDosificacionAction, crearDosificacionAction, eliminarDosificacionAction } from "@/app/actions/admin";
-import { fmtNumero } from "@/lib/format";
 import { Aviso, BOTON, BOTON_SECUNDARIO, TD, TH, UltimaModificacion, exigirSeccion } from "../comunes";
 
 const FAMILIA_LABEL = { REJILLA: "Piso Rejilla", CIEGO: "Piso Ciego" } as const;
@@ -21,8 +20,7 @@ export default async function AdminMasterPage({ searchParams }: { searchParams: 
           rejilla lleva menos por ser muy intenso). Si un color no tiene excepción, usa el valor base.
         </p>
         <p className="mt-2">
-          Unidad: <strong>kg de master por kg de materia prima</strong> (0,015 = 15 g por kg = 150 g cada 10 kg).
-          El documento de definiciones escribe “0,015 gramos por kilo”: está pendiente confirmar la unidad.
+          Unidad: <strong>gramos de master por kg de materia prima</strong> (g/kg).
         </p>
       </div>
 
@@ -34,7 +32,7 @@ export default async function AdminMasterPage({ searchParams }: { searchParams: 
                 <th className={TH}>Tipo de producto</th>
                 <th className={TH}>Color</th>
                 <th className={TH}>Materia prima base</th>
-                <th className={TH}>Master (kg/kg)</th>
+                <th className={TH}>Master (g/kg de MP)</th>
                 <th className={TH}>Observaciones</th>
                 <th className={TH}>Última modificación</th>
                 <th className={TH} />
@@ -79,8 +77,8 @@ export default async function AdminMasterPage({ searchParams }: { searchParams: 
           <Campo label="Materia prima base">
             <SelectMateria materias={materias} />
           </Campo>
-          <Campo label="Master (kg por kg de MP)">
-            <input name="kgPorKgMp" type="number" step="any" min="0" required placeholder="ej. 0.015" className="input" />
+          <Campo label="Master (g por kg de MP)">
+            <input name="gPorKgMp" type="number" step="any" min="0" required placeholder="ej. 0.015" className="input" />
           </Campo>
           <Campo label="Observaciones">
             <input name="observaciones" className="input" />
@@ -112,8 +110,7 @@ function FilaMaster({ f, materias }: { f: FilaDosificacion; materias: { id: numb
         <SelectMateria materias={materias} form={formId} valor={f.materiaPrimaBaseId} />
       </td>
       <td className={TD}>
-        <input form={formId} name="kgPorKgMp" type="number" step="any" min="0" required defaultValue={f.kgPorKgMp} className="input min-w-[7.5rem]" />
-        <div className="mt-1 text-xs text-foreground-muted">= {fmtNumero(f.kgPorKgMp * 1000, 1)} g por kg</div>
+        <input form={formId} name="gPorKgMp" type="number" step="any" min="0" required defaultValue={f.gPorKgMp} className="input min-w-[7.5rem]" />
       </td>
       <td className={TD}>
         <input form={formId} name="observaciones" defaultValue={f.observaciones ?? ""} className="input min-w-[14rem]" />

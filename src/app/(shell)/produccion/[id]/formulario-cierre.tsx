@@ -71,6 +71,8 @@ export function FormularioCierre({
           <input
             name="piezasEntregadas"
             type="number"
+            min={0}
+            required
             className="input"
             defaultValue={piezasEntregadasSugerida ?? ""}
             key={piezasEntregadasSugerida ?? "vacio"}

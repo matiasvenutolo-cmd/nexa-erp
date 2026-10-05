@@ -13,16 +13,12 @@ import {
   cliente,
   producto,
   reserva,
-  movimiento,
   saldo,
-  despacho,
-  despachoLinea,
 } from "@/lib/db/schema";
 import { getDepositoNexaId } from "@/lib/data/depositos";
-import { puedeCambiarPrioridad } from "@/lib/auth/permisos";
+import { puedeCambiarPrioridad, puedeCrearPedido } from "@/lib/auth/permisos";
+import { anularDespachoActivoEnTx } from "@/lib/data/despachos";
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
-
-type EstadoPedido = (typeof pedido.$inferSelect)["estado"];
 
 export type FilaPedido = {
   id: number;
@@ -84,17 +80,9 @@ export type LineaPedidoConProducto = typeof pedidoLinea.$inferSelect & {
   productoUnidadesPorCaja: number | null;
 };
 
-export type DespachoResumen = {
-  id: number;
-  numeroInterno: number;
-  numeroRemito: string | null;
-  fecha: string;
-};
-
 export type PedidoConDetalle = typeof pedido.$inferSelect & {
   clienteNombre: string;
   lineas: LineaPedidoConProducto[];
-  despachos: DespachoResumen[];
 };
 
 export async function obtenerPedido(id: number): Promise<PedidoConDetalle | null> {
@@ -117,16 +105,6 @@ export async function obtenerPedido(id: number): Promise<PedidoConDetalle | null
     .leftJoin(producto, eq(pedidoLinea.productoId, producto.id))
     .where(eq(pedidoLinea.pedidoId, id));
 
-  const despachos = await db
-    .select({
-      id: despacho.id,
-      numeroInterno: despacho.numeroInterno,
-      numeroRemito: despacho.numeroRemito,
-      fecha: despacho.fecha,
-    })
-    .from(despacho)
-    .where(eq(despacho.pedidoId, id))
-    .orderBy(despacho.numeroInterno);
 
   return {
     ...cabecera.pedido,
@@ -138,7 +116,6 @@ export async function obtenerPedido(id: number): Promise<PedidoConDetalle | null
       productoEsAccesorio: l.productoEsAccesorio,
       productoUnidadesPorCaja: l.productoUnidadesPorCaja,
     })),
-    despachos,
   };
 }
 
@@ -234,126 +211,19 @@ export async function crearPedido(input: NuevoPedidoInput): Promise<{ id: number
 }
 
 /**
- * PEDIDO → EN_ARMADO → LISTO_PARA_DESPACHAR son transiciones de coordinación,
- * sin efecto en el stock (la reserva ya se hizo al crear el pedido). El
- * movimiento real recién ocurre al entregar — ver `marcarEntregado`.
+ * Cancela el pedido: libera las reservas abiertas y anula el despacho que esté
+ * en curso. Lo que ya se entregó en despachos anteriores no se toca (salió de
+ * verdad y tiene su remito).
  */
-const TRANSICIONES: Record<EstadoPedido, EstadoPedido[]> = {
-  PEDIDO: ["EN_ARMADO", "CANCELADO"],
-  EN_ARMADO: ["LISTO_PARA_DESPACHAR", "CANCELADO"],
-  LISTO_PARA_DESPACHAR: ["ENTREGADO", "CANCELADO"],
-  PARCIALMENTE_DESPACHADO: ["ENTREGADO", "CANCELADO"],
-  ENTREGADO: [],
-  CANCELADO: [],
-};
-
-export function transicionesDesde(estado: EstadoPedido): EstadoPedido[] {
-  return TRANSICIONES[estado];
-}
-
-/** Avanza PEDIDO → EN_ARMADO → LISTO_PARA_DESPACHAR. No toca stock. */
-export async function avanzarEstadoPedido(
-  pedidoId: number,
-  nuevoEstado: "EN_ARMADO" | "LISTO_PARA_DESPACHAR",
-): Promise<{ error?: string }> {
-  const actual = await db.query.pedido.findFirst({ where: eq(pedido.id, pedidoId) });
-  if (!actual) return { error: "Pedido no encontrado." };
-  if (!TRANSICIONES[actual.estado].includes(nuevoEstado)) {
-    return { error: `No se puede pasar de ${ESTADO_LABEL[actual.estado]} a ${ESTADO_LABEL[nuevoEstado]}.` };
-  }
-  await db.update(pedido).set({ estado: nuevoEstado }).where(eq(pedido.id, pedidoId));
-  return {};
-}
-
-/**
- * Entrega el pedido COMPLETO (todas las líneas, cantidad total) en un solo
- * despacho. El despacho parcial con piqueo es R5 (docs/02-modelo-datos.md §6)
- * — esto usa la misma tabla `despacho`/`despachoLinea` ya diseñada para eso,
- * con un único despacho que cubre el 100%, para no reñir con el modelo
- * cuando se construya la versión completa.
- *
- * Es la transición que genera el movimiento de SALIDA real — hasta acá el
- * stock sólo estaba reservado, nunca efectivamente descontado.
- */
-export async function marcarEntregado(
-  pedidoId: number,
-  input: { numeroRemito: string | null; usuarioId: number },
-): Promise<{ error?: string }> {
-  const depositoId = await getDepositoNexaId();
-  const actual = await db.query.pedido.findFirst({ where: eq(pedido.id, pedidoId) });
-  if (!actual) return { error: "Pedido no encontrado." };
-  if (!TRANSICIONES[actual.estado].includes("ENTREGADO")) {
-    return { error: `No se puede entregar un pedido en estado ${ESTADO_LABEL[actual.estado]}.` };
-  }
-
-  const lineas = await db.select().from(pedidoLinea).where(eq(pedidoLinea.pedidoId, pedidoId));
-
-  await db.transaction(async (tx) => {
-    const [desp] = await tx
-      .insert(despacho)
-      .values({
-        pedidoId,
-        numeroRemito: input.numeroRemito,
-        fecha: new Date().toISOString().slice(0, 10),
-        controladoPorId: input.usuarioId,
-      })
-      .returning();
-
-    for (const l of lineas) {
-      await tx.insert(despachoLinea).values({
-        despachoId: desp.id,
-        pedidoLineaId: l.id,
-        unidades: l.unidadesPedidas,
-      });
-      await tx
-        .update(pedidoLinea)
-        .set({ unidadesArmadas: l.unidadesPedidas, unidadesDespachadas: l.unidadesPedidas })
-        .where(eq(pedidoLinea.id, l.id));
-
-      if (l.productoId == null) continue;
-
-      await tx.insert(movimiento).values({
-        tipo: "SALIDA",
-        depositoId,
-        productoId: l.productoId,
-        cantidad: String(l.unidadesPedidas),
-        origen: "PEDIDO",
-        origenId: pedidoId,
-        motivo: `Entrega pedido ${pedidoId} · remito interno ${remitoInterno(desp.numeroInterno)}${input.numeroRemito ? ` · remito legal ${input.numeroRemito}` : ""}`,
-        usuarioId: input.usuarioId,
-      });
-      await tx
-        .insert(saldo)
-        .values({ depositoId, productoId: l.productoId, cantidad: String(-l.unidadesPedidas) })
-        .onConflictDoUpdate({
-          target: [saldo.depositoId, saldo.productoId],
-          set: { cantidad: sql`${saldo.cantidad} - ${l.unidadesPedidas}` },
-        });
-
-      // La reserva de esta línea ya cumplió su función — se consume, no
-      // sigue restando contra el disponible de otros pedidos.
-      await tx
-        .update(reserva)
-        .set({ estado: "CONSUMIDA", cerradoEn: new Date() })
-        .where(and(eq(reserva.pedidoLineaId, l.id), eq(reserva.estado, "ABIERTA")));
+export async function cancelarPedido(actor: Actor, pedidoId: number): Promise<Resultado> {
+  if (!puedeCrearPedido(actor.rol)) return { error: "No tenés permiso para cancelar pedidos." };
+  return db.transaction(async (tx) => {
+    const [actual] = await tx.select().from(pedido).where(eq(pedido.id, pedidoId));
+    if (!actual) return { error: "Pedido no encontrado." };
+    if (actual.estado === "ENTREGADO" || actual.estado === "CANCELADO") {
+      return { error: `Un pedido ${ESTADO_LABEL[actual.estado].toLowerCase()} no se puede cancelar.` };
     }
-
-    await tx.update(pedido).set({ estado: "ENTREGADO" }).where(eq(pedido.id, pedidoId));
-  });
-
-  return {};
-}
-
-/** Cancela el pedido y libera sus reservas — nunca tocó stock real (nada se
- *  entregó todavía), así que no hay movimiento que revertir. */
-export async function cancelarPedido(pedidoId: number): Promise<{ error?: string }> {
-  const actual = await db.query.pedido.findFirst({ where: eq(pedido.id, pedidoId) });
-  if (!actual) return { error: "Pedido no encontrado." };
-  if (actual.estado === "ENTREGADO" || actual.estado === "CANCELADO") {
-    return { error: `Un pedido ${ESTADO_LABEL[actual.estado].toLowerCase()} no se puede cancelar.` };
-  }
-
-  await db.transaction(async (tx) => {
+    await anularDespachoActivoEnTx(tx, actor, pedidoId);
     const lineas = await tx.select({ id: pedidoLinea.id }).from(pedidoLinea).where(eq(pedidoLinea.pedidoId, pedidoId));
     const lineaIds = lineas.map((l) => l.id);
     if (lineaIds.length > 0) {
@@ -363,9 +233,45 @@ export async function cancelarPedido(pedidoId: number): Promise<{ error?: string
         .where(and(inArray(reserva.pedidoLineaId, lineaIds), eq(reserva.estado, "ABIERTA")));
     }
     await tx.update(pedido).set({ estado: "CANCELADO" }).where(eq(pedido.id, pedidoId));
+    return {};
   });
+}
 
-  return {};
+/**
+ * Asigna el producto a un renglón histórico importado sin producto (el Excel
+ * viejo traía colores como texto: "Gris oscuro y amarillo"). Sin esto, ese
+ * renglón no se puede armar ni despachar. Reserva lo que queda pendiente.
+ */
+export async function asignarProductoALinea(actor: Actor, lineaId: number, productoId: number): Promise<Resultado> {
+  if (!puedeCrearPedido(actor.rol)) return { error: "No tenés permiso para modificar pedidos." };
+  const depositoId = await getDepositoNexaId();
+  return db.transaction(async (tx) => {
+    const [l] = await tx
+      .select({ linea: pedidoLinea, estado: pedido.estado })
+      .from(pedidoLinea)
+      .innerJoin(pedido, eq(pedidoLinea.pedidoId, pedido.id))
+      .where(eq(pedidoLinea.id, lineaId));
+    if (!l) return { error: "Renglón no encontrado." };
+    if (l.linea.productoId != null) return { error: "El renglón ya tiene producto." };
+    if (l.estado === "ENTREGADO" || l.estado === "CANCELADO") return { error: "El pedido está cerrado." };
+    const [p] = await tx.select({ id: producto.id, codigo: producto.codigo }).from(producto).where(eq(producto.id, productoId));
+    if (!p) return { error: "Producto no encontrado." };
+    await tx.update(pedidoLinea).set({ productoId }).where(eq(pedidoLinea.id, lineaId));
+    const pendiente = l.linea.unidadesPedidas - l.linea.unidadesDespachadas;
+    if (pendiente > 0) {
+      await tx.insert(reserva).values({ depositoId, productoId, pedidoLineaId: lineaId, cantidad: String(pendiente) });
+    }
+    await registrarCambios(tx, actor.id, [
+      {
+        entidad: "pedido",
+        entidadId: l.linea.pedidoId,
+        campo: "producto del renglón",
+        anterior: l.linea.colorTexto ?? l.linea.descripcion ?? "sin producto",
+        nuevo: p.codigo,
+      },
+    ]);
+    return {};
+  });
 }
 
 export type EdicionPedidoInput = {
@@ -415,7 +321,8 @@ export async function materialComprometido(): Promise<FilaComprometido[]> {
   const comprometidoPorProducto = await db
     .select({
       productoId: pedidoLinea.productoId,
-      comprometido: sql<string>`sum(${pedidoLinea.unidadesPedidas})`,
+      // Lo pendiente de entregar: con despachos parciales, lo ya entregado no compromete stock.
+      comprometido: sql<string>`sum(${pedidoLinea.unidadesPedidas} - ${pedidoLinea.unidadesDespachadas})`,
     })
     .from(pedidoLinea)
     .innerJoin(pedido, eq(pedidoLinea.pedidoId, pedido.id))
@@ -469,25 +376,41 @@ export const ESTADO_LABEL: Record<(typeof pedido.$inferSelect)["estado"], string
   CANCELADO: "Cancelado",
 };
 
-/** "R-000001": formato del remito interno correlativo. */
-export function remitoInterno(n: number): string {
-  return `R-${String(n).padStart(6, "0")}`;
-}
 
 /**
  * Prioridad de inyección. Definiciones pendientes: "en producción la
  * prioridad de inyección estaría dada automáticamente por las fechas de los
- * pedidos, con opción a ser cambiada por el encargado o supervisor".
+ * pedidos, con opción a ser cambiada por el encargado o supervisor en base a
+ * planificación. En ocasiones surgen urgencias...".
  *
- * Automática = orden por fecha de entrega comprometida (o fecha del pedido
- * si no tiene). La excepción manual reutiliza `pedido.prioridad`, que ya
- * existía: 0 = automática, -1 = urgente (pasa adelante de todo). Cada cambio
- * queda auditado con su motivo.
+ * Automática = orden por fecha de entrega comprometida (o fecha del pedido si
+ * no tiene). El ajuste manual reutiliza `pedido.prioridad` (ya existía):
+ * 0 = automática; valores negativos adelantan, positivos postergan. Cada
+ * cambio queda auditado con valor anterior, nuevo, motivo, quién y cuándo.
  */
-export const PRIORIDAD_URGENTE = -1;
+export const NIVELES_PRIORIDAD = [
+  { valor: -2, etiqueta: "Urgente" },
+  { valor: -1, etiqueta: "Adelantado" },
+  { valor: 0, etiqueta: "Automática (por fecha)" },
+  { valor: 1, etiqueta: "Postergado" },
+] as const;
+
+/** Los motivos que nombró el cliente para cambiar la planificación. */
+export const MOTIVOS_PRIORIDAD = [
+  "Urgencia",
+  "Planificación productiva",
+  "Agrupar colores",
+  "Reducir cambios de matriz o material",
+  "Otro",
+] as const;
+
 export const PRIORIDAD_AUTOMATICA = 0;
 
-/** Orden de la cola: urgentes primero, después por fecha efectiva de entrega. */
+export function etiquetaPrioridad(valor: number): string {
+  return NIVELES_PRIORIDAD.find((n) => n.valor === valor)?.etiqueta ?? `Manual (${valor})`;
+}
+
+/** Orden de la cola: ajuste manual primero, después por fecha efectiva de entrega. */
 export const ordenPrioridad = [
   pedido.prioridad,
   sql`coalesce(${pedido.fechaEntregaPactada}, ${pedido.fechaPedido})`,
@@ -495,14 +418,17 @@ export const ordenPrioridad = [
   pedido.id,
 ];
 
-export async function cambiarUrgencia(
+export async function cambiarPrioridad(
   actor: Actor,
   pedidoId: number,
-  urgente: boolean,
+  nueva: number,
   motivo: string | null,
+  detalle?: string | null,
 ): Promise<Resultado> {
   if (!puedeCambiarPrioridad(actor.rol)) return { error: "Sólo Encargado o Supervisor pueden cambiar la prioridad." };
-  if (urgente && !motivo?.trim()) return { error: "Indicá el motivo de la urgencia: queda registrado." };
+  if (!NIVELES_PRIORIDAD.some((n) => n.valor === nueva)) return { error: "Nivel de prioridad inválido." };
+  const motivoTxt = [motivo?.trim(), detalle?.trim()].filter(Boolean).join(" — ");
+  if (!motivoTxt) return { error: "Indicá el motivo del cambio: queda registrado." };
 
   return db.transaction(async (tx) => {
     const [actual] = await tx.select({ prioridad: pedido.prioridad, estado: pedido.estado }).from(pedido).where(eq(pedido.id, pedidoId));
@@ -510,10 +436,17 @@ export async function cambiarUrgencia(
     if (actual.estado === "ENTREGADO" || actual.estado === "CANCELADO") {
       return { error: "Un pedido cerrado no tiene prioridad de inyección." };
     }
-    const nueva = urgente ? PRIORIDAD_URGENTE : PRIORIDAD_AUTOMATICA;
+    if (actual.prioridad === nueva) return { error: "El pedido ya tiene esa prioridad." };
     await tx.update(pedido).set({ prioridad: nueva }).where(eq(pedido.id, pedidoId));
     await registrarCambios(tx, actor.id, [
-      { entidad: "pedido", entidadId: pedidoId, campo: "prioridad", anterior: actual.prioridad, nuevo: nueva, motivo },
+      {
+        entidad: "pedido",
+        entidadId: pedidoId,
+        campo: "prioridad",
+        anterior: etiquetaPrioridad(actual.prioridad),
+        nuevo: etiquetaPrioridad(nueva),
+        motivo: motivoTxt,
+      },
     ]);
     return {};
   });

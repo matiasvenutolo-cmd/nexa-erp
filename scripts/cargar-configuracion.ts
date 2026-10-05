@@ -315,13 +315,13 @@ async function main() {
           familia: d.familia,
           colorId: d.colorId,
           materiaPrimaBaseId: base?.id ?? null,
-          kgPorKgMp: String(d.valor),
+          gPorKgMp: String(d.valor),
           observaciones: d.nota,
           actualizadoPorId: sistema.id,
         })
         .returning();
-      await auditar(tx, sistema.id, "dosificacion_master", nueva.id, "kg_por_kg_mp", null, d.valor, "Carga inicial — Definiciones pendientes, respuesta 2");
-      reporte.aplicado.push(`Master ${d.familia}${d.colorId ? " · Negro" : " (base)"}: ${d.valor} kg/kg sobre ${base?.nombre ?? "materia prima no encontrada"}`);
+      await auditar(tx, sistema.id, "dosificacion_master", nueva.id, "g_por_kg_mp", null, d.valor, "Carga inicial — Definiciones pendientes, respuesta 2");
+      reporte.aplicado.push(`Master ${d.familia}${d.colorId ? " · Negro" : " (base)"}: ${d.valor} g/kg sobre ${base?.nombre ?? "materia prima no encontrada"}`);
     }
     if (DRY_RUN) throw new Error("dry-run");
   }).catch(silenciarDryRun);

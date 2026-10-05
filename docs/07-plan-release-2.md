@@ -69,3 +69,7 @@ Para no repetir exploración ni perder algo que el cliente ya usa y valora:
 
 Materia prima, Etiquetas, Despacho, Planificación — R4/R5/R6, en ese orden, después de esta
 entrega y con las preguntas de negocio que todavía faltan resolver.
+
+> Actualización 05/10/2026: materia prima, despacho, trazabilidad y reclamos (R4/R5) quedaron
+> implementados — ver `docs/09-r4-r5-despacho-trazabilidad-reclamos.md`, que incluye las
+> decisiones tomadas y sus preguntas abiertas. Etiquetas siguen fuera de alcance.

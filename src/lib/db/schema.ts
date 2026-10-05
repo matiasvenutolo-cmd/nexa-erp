@@ -134,6 +134,14 @@ export const motivoDevolucionEnum = pgEnum("motivo_devolucion", [
   "MATERIAL_DEFECTUOSO",
 ]);
 
+/** Un despacho (entrega total o parcial) recorre: armado → primer control →
+ *  control final y entrega. ANULADO si se cancela antes de entregar. */
+export const estadoDespachoEnum = pgEnum("estado_despacho", ["ARMANDO", "CONTROLADO", "ENTREGADO", "ANULADO"]);
+
+export const estadoReclamoEnum = pgEnum("estado_reclamo", ["ABIERTO", "EN_ANALISIS", "CERRADO"]);
+
+export const tipoAvisoEnum = pgEnum("tipo_aviso", ["PEDIDO_LISTO", "RECLAMO_NUEVO", "INFORME_RECLAMO"]);
+
 export const condicionIvaEnum = pgEnum("condicion_iva", [
   "RESPONSABLE_INSCRIPTO",
   "MONOTRIBUTO",
@@ -323,9 +331,7 @@ export const recetaProducto = pgTable(
  * excepción del color si existe, si no el valor base. Nada de esto vive en
  * el código: se edita desde el Panel Admin.
  *
- * Unidad: kg/kg, la misma que usaba el modelo desde R1 (`kg_por_kg_mp`). El
- * Word de definiciones escribe "0.015 gramos por kilo" — ver
- * docs/08-configuracion-y-panel-admin.md §inconsistencias.
+ * Unidad: g/kg (`g_por_kg_mp`), definición del cliente del 05/10/2026.
  */
 export const dosificacionMaster = pgTable(
   "dosificacion_master",
@@ -335,7 +341,11 @@ export const dosificacionMaster = pgTable(
     colorId: integer("color_id").references(() => color.id),
     /** La materia prima base sobre la que se dosifica (Copolímero 2240P en rejilla). */
     materiaPrimaBaseId: integer("materia_prima_base_id").references(() => materiaPrima.id),
-    kgPorKgMp: numeric("kg_por_kg_mp", { precision: 8, scale: 5 }).notNull(),
+    /** Columna anterior (kg/kg). Se elimina en la migración siguiente, una
+     *  vez desplegado el código que usa `gPorKgMp`. */
+    kgPorKgMp: numeric("kg_por_kg_mp", { precision: 8, scale: 5 }),
+    /** Gramos de master por kg de materia prima (definición del cliente, 05/10/2026). */
+    gPorKgMp: numeric("g_por_kg_mp", { precision: 10, scale: 5 }),
     observaciones: text("observaciones"),
     actualizadoEn: timestamp("actualizado_en", { withTimezone: true }).notNull().defaultNow(),
     actualizadoPorId: integer("actualizado_por_id").references(() => usuario.id),
@@ -606,9 +616,13 @@ export const loteMp = pgTable(
 export const retiroMp = pgTable("retiro_mp", {
   id: serial("id").primaryKey(),
   fecha: date("fecha").notNull(),
-  loteMpId: integer("lote_mp_id")
+  materiaPrimaId: integer("materia_prima_id")
     .notNull()
-    .references(() => loteMp.id),
+    .references(() => materiaPrima.id),
+  /** Null = stock de materia prima anterior al registro por lotes (importado del Excel). */
+  loteMpId: integer("lote_mp_id").references(() => loteMp.id),
+  /** El ciclo de inyección que alimenta: es el eslabón lote → partida. */
+  cicloId: integer("ciclo_id").references(() => cicloProduccion.id),
   cantidad: numeric("cantidad", { precision: 14, scale: 3 }).notNull(),
   inyectora: text("inyectora"),
   /** Quien retira (Dylan o su reemplazo) y quien entrega (la encargada de MP). */
@@ -893,11 +907,10 @@ export const despacho = pgTable(
     pedidoId: integer("pedido_id")
       .notNull()
       .references(() => pedido.id, { onDelete: "cascade" }),
-    /** Remito del sistema: correlativo, lo asigna Postgres, siempre existe. */
-    numeroInterno: integer("numero_interno")
-      .notNull()
-      .unique()
-      .default(sql`nextval('remito_interno_seq')`),
+    estado: estadoDespachoEnum("estado").notNull().default("ENTREGADO"),
+    /** Remito del sistema: correlativo, se asigna al entregar (así un despacho
+     *  anulado no deja huecos en la numeración). */
+    numeroInterno: integer("numero_interno").unique(),
     /** N° del remito legal preimpreso, si administración imprime ése. */
     numeroRemito: text("numero_remito"),
     fecha: date("fecha").notNull(),
@@ -905,7 +918,18 @@ export const despacho = pgTable(
     transporte: text("transporte"),
     /** Firma de conformidad del fletero — escaneada a Vercel Blob (R5). */
     remitoFirmadoUrl: text("remito_firmado_url"),
+    creadoPorId: integer("creado_por_id").references(() => usuario.id),
+    /** Primer control (piqueo de armado), al pasar de armado a despacho. */
+    control1PorId: integer("control1_por_id").references(() => usuario.id),
+    control1En: timestamp("control1_en", { withTimezone: true }),
+    control1Resultado: text("control1_resultado"),
+    /** Control final, antes de entregar. */
     controladoPorId: integer("controlado_por_id").references(() => usuario.id),
+    controlFinalEn: timestamp("control_final_en", { withTimezone: true }),
+    controlFinalResultado: text("control_final_resultado"),
+    entregadoEn: timestamp("entregado_en", { withTimezone: true }),
+    remitoLegalPorId: integer("remito_legal_por_id").references(() => usuario.id),
+    remitoLegalEn: timestamp("remito_legal_en", { withTimezone: true }),
     observaciones: text("observaciones"),
     creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -963,33 +987,89 @@ export const piqueo = pgTable(
   (t) => [index("piqueo_pedido_idx").on(t.pedidoId, t.tipo)],
 );
 
+
+// ---------------------------------------------------------------------------
+// Reclamos y avisos
+// ---------------------------------------------------------------------------
+
 /**
- * El circuito de devoluciones del procedimiento (§3.11). Toda devolución pasa
- * obligatoriamente por el supervisor general.
- *
- * El caso grave es MATERIAL_DEFECTUOSO: obliga a "detectar si existen partidas
- * en Stock para sacarlas de circulación y enviarlas a reciclado", lo que sólo es
- * posible con la cadena de trazabilidad completa.
+ * Reclamo de un cliente (Definiciones pendientes: "las vendedoras tienen que
+ * buscar el pedido y detallar qué pasó; el reclamo pasa sí o sí por el
+ * supervisor, que detalla la causa y la solución, con opción de enviar el
+ * informe a gerencia"). Reemplaza a la tabla `devolucion` (nunca usada): una
+ * devolución es un reclamo con `motivoDevolucion`.
  */
-export const devolucion = pgTable(
-  "devolucion",
+export const reclamo = pgTable(
+  "reclamo",
   {
     id: serial("id").primaryKey(),
     pedidoId: integer("pedido_id")
       .notNull()
       .references(() => pedido.id),
     despachoId: integer("despacho_id").references(() => despacho.id),
-    motivo: motivoDevolucionEnum("motivo").notNull(),
+    cajaId: integer("caja_id").references(() => caja.id),
+    partidaId: integer("partida_id").references(() => partida.id),
+    estado: estadoReclamoEnum("estado").notNull().default("ABIERTO"),
     descripcion: text("descripcion").notNull(),
-    partidaAfectadaId: integer("partida_afectada_id").references(() => partida.id),
-    resolucion: text("resolucion"),
-    resueltoEn: timestamp("resuelto_en", { withTimezone: true }),
-    /** Derivación obligatoria al supervisor general. */
+    motivoDevolucion: motivoDevolucionEnum("motivo_devolucion"),
+    causa: text("causa"),
+    solucion: text("solucion"),
+    observaciones: text("observaciones"),
     supervisorId: integer("supervisor_id").references(() => usuario.id),
+    creadoPorId: integer("creado_por_id")
+      .notNull()
+      .references(() => usuario.id),
     creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+    cerradoPorId: integer("cerrado_por_id").references(() => usuario.id),
+    cerradoEn: timestamp("cerrado_en", { withTimezone: true }),
+    informeEnviadoPorId: integer("informe_enviado_por_id").references(() => usuario.id),
+    informeEnviadoEn: timestamp("informe_enviado_en", { withTimezone: true }),
+  },
+  (t) => [index("reclamo_pedido_idx").on(t.pedidoId), index("reclamo_estado_idx").on(t.estado)],
+);
+
+/** Historial del reclamo: cada paso queda, nunca se edita. */
+export const reclamoEvento = pgTable(
+  "reclamo_evento",
+  {
+    id: serial("id").primaryKey(),
+    reclamoId: integer("reclamo_id")
+      .notNull()
+      .references(() => reclamo.id),
+    tipo: text("tipo").notNull(), // CREADO, ANALISIS, CAUSA, SOLUCION, OBSERVACION, CERRADO, INFORME
+    detalle: text("detalle"),
     usuarioId: integer("usuario_id")
       .notNull()
       .references(() => usuario.id),
+    creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("devolucion_pedido_idx").on(t.pedidoId)],
+  (t) => [index("reclamo_evento_idx").on(t.reclamoId, t.creadoEn)],
+);
+
+/**
+ * Avisos internos, dirigidos a un rol: el aviso a ventas cuando un pedido
+ * queda listo para despachar, el reclamo nuevo al supervisor y el informe del
+ * reclamo a gerencia. Quedan registrados con quién los generó, quién los vio
+ * y quién los procesó.
+ */
+export const aviso = pgTable(
+  "aviso",
+  {
+    id: serial("id").primaryKey(),
+    tipo: tipoAvisoEnum("tipo").notNull(),
+    destinoRol: rolEnum("destino_rol").notNull(),
+    mensaje: text("mensaje").notNull(),
+    pedidoId: integer("pedido_id").references(() => pedido.id),
+    despachoId: integer("despacho_id").references(() => despacho.id),
+    reclamoId: integer("reclamo_id").references(() => reclamo.id),
+    creadoPorId: integer("creado_por_id")
+      .notNull()
+      .references(() => usuario.id),
+    creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+    vistoPorId: integer("visto_por_id").references(() => usuario.id),
+    vistoEn: timestamp("visto_en", { withTimezone: true }),
+    procesadoPorId: integer("procesado_por_id").references(() => usuario.id),
+    procesadoEn: timestamp("procesado_en", { withTimezone: true }),
+  },
+  (t) => [index("aviso_destino_idx").on(t.destinoRol, t.procesadoEn)],
 );

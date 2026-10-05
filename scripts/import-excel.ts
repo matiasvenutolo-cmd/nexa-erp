@@ -224,18 +224,18 @@ async function main() {
         m2PorUnidad: m2 !== null ? String(m2) : parsed.tipo === "UNICO" || parsed.tipo === "MONEDA" || parsed.tipo === "TRAMA" ? "0.16" : null,
         kgPorUnidad: parsed.tipo === "UNICO" || parsed.tipo === "MONEDA" || parsed.tipo === "TRAMA" ? "0.610" : null,
         piezasPorGolpe: parsed.tipo === "RAMPA" ? 2 : parsed.tipo === "ESQUINERO" || parsed.tipo === "BORDE" ? 4 : 1,
-        unidadesPorCaja: parsed.familia === "REJILLA" ? 8 : 25, // docs/01-analisis.md §3.9 — pregunta 9 pendiente
+        // Sin unidades por caja propias: los pisos usan el parámetro
+        // unidades_por_caja_pisos y los accesorios no se embalan (respuesta 4).
+        unidadesPorCaja: null,
         esAccesorio,
         minimo: minimo !== null ? Math.round(minimo) : null,
         maximo: maximo !== null ? Math.round(maximo) : null,
       })
       .onConflictDoUpdate({
         target: schema.producto.codigo,
-        set: {
-          descripcion: texto(r[2]) ?? codigo,
-          minimo: minimo !== null ? Math.round(minimo) : undefined,
-          maximo: maximo !== null ? Math.round(maximo) : undefined,
-        },
+        // Mínimos y máximos de un producto existente se administran desde el
+        // Panel Admin (con historial): re-importar el Excel no los pisa.
+        set: { descripcion: texto(r[2]) ?? codigo },
       })
       .returning();
 

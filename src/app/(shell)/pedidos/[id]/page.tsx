@@ -1,37 +1,78 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { obtenerPedido, remitoInterno, PRIORIDAD_URGENTE } from "@/lib/data/pedidos";
+import {
+  ESTADO_LABEL,
+  MOTIVOS_PRIORIDAD,
+  NIVELES_PRIORIDAD,
+  PRIORIDAD_AUTOMATICA,
+  etiquetaPrioridad,
+  obtenerPedido,
+} from "@/lib/data/pedidos";
+import { listarDespachos, remitoInterno, situacionLineas, type DespachoDetalle } from "@/lib/data/despachos";
 import { obtenerParametros } from "@/lib/data/parametros";
 import { listarAuditoria } from "@/lib/data/auditoria";
-import { desglosarCajas, unidadesPorCaja } from "@/lib/data/catalogo";
+import { listarReclamos, ESTADO_RECLAMO_LABEL } from "@/lib/data/reclamos";
+import { colaProduccion } from "@/lib/data/produccion";
+import { desglosarCajas, listarProductos, unidadesPorCaja } from "@/lib/data/catalogo";
 import { disponiblePorProducto } from "@/lib/data/stock";
 import { getDepositoNexaId } from "@/lib/data/depositos";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeVerPrecios, puedeCrearPedido, puedeCambiarPrioridad } from "@/lib/auth/permisos";
+import {
+  puedeCambiarPrioridad,
+  puedeCrearPedido,
+  puedeCrearReclamo,
+  puedeOperarDespacho,
+  puedeRegistrarRemitoLegal,
+  puedeVerPrecios,
+  puedeVerReclamos,
+} from "@/lib/auth/permisos";
 import { EstadoPedido } from "@/components/estado-pedido";
-import { AccionesPedido } from "./acciones-pedido";
-import { ControlUrgencia } from "./urgencia";
-import { fmtFecha, fmtMoneda, fmtNumero } from "@/lib/format";
+import { CancelarPedido } from "./acciones-pedido";
+import { AsignarProducto, BotonPrepararDespacho, ControlPrioridad } from "./urgencia";
+import { RemitoLegal } from "./remito-legal";
+import { fmtFecha, fmtFechaHora, fmtMoneda, fmtNumero } from "@/lib/format";
 
-export default async function DetallePedidoPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function DetallePedidoPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ entregado?: string }>;
+}) {
   const { id } = await params;
+  const sp = await searchParams;
   const pedidoId = Number(id);
   if (!Number.isFinite(pedidoId)) notFound();
 
-  const [usuario, pedido, depositoId, parametros, cambiosPrioridad] = await Promise.all([
+  const [usuario, pedido, depositoId, parametros] = await Promise.all([
     getUsuarioActual(),
     obtenerPedido(pedidoId),
     getDepositoNexaId(),
     obtenerParametros(),
-    listarAuditoria({ entidad: "pedido", entidadId: pedidoId, limite: 1 }),
   ]);
   if (!pedido) notFound();
-  const urgente = pedido.prioridad <= PRIORIDAD_URGENTE;
+  const rol = usuario.rol;
   const abierto = pedido.estado !== "ENTREGADO" && pedido.estado !== "CANCELADO";
-  const verPrecios = puedeVerPrecios(usuario.rol);
 
-  const productoIds = pedido.lineas.map((l) => l.productoId).filter((id): id is number => id != null);
-  const disponible = await disponiblePorProducto(depositoId, productoIds, pedido.id);
+  const [lineas, despachos, cambiosPrioridad, reclamos, cola] = await Promise.all([
+    situacionLineas(pedidoId),
+    listarDespachos(pedidoId),
+    listarAuditoria({ entidad: "pedido", entidadId: pedidoId, limite: 20 }),
+    puedeVerReclamos(rol) ? listarReclamos({ pedidoId }) : Promise.resolve([]),
+    abierto ? colaProduccion() : Promise.resolve([]),
+  ]);
+  const ultimoCambioPrioridad = cambiosPrioridad.find((c) => c.campo === "prioridad");
+  const sinProducto = lineas.filter((l) => l.productoId == null);
+  const productos = sinProducto.length && abierto && puedeCrearPedido(rol) ? await listarProductos() : [];
+  const disponible = await disponiblePorProducto(
+    depositoId,
+    lineas.map((l) => l.productoId).filter((x): x is number => x != null),
+    pedido.id,
+  );
+  const activo = despachos.find((d) => d.estado === "ARMANDO" || d.estado === "CONTROLADO");
+  const hayPendienteDespachable = lineas.some((l) => l.productoId != null && l.pendiente > 0);
+  const lineaPorId = new Map(pedido.lineas.map((l) => [l.id, l]));
+  const posicionEnCola = new Map(cola.map((f, i) => [f.productoId, { posicion: i + 1, total: cola.length }]));
 
   return (
     <div className="space-y-6">
@@ -40,34 +81,104 @@ export default async function DetallePedidoPage({ params }: { params: Promise<{ 
           ← Pedidos
         </Link>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-brand-azul-oscuro">{pedido.clienteNombre}</h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-xl font-semibold text-brand-azul-oscuro">
+              #{pedido.id} · {pedido.clienteNombre}
+            </h1>
             <EstadoPedido estado={pedido.estado} />
-            {urgente && abierto && <span className="badge-estado badge-critico">Urgente</span>}
+            {abierto && pedido.prioridad !== PRIORIDAD_AUTOMATICA && (
+              <span className={`badge-estado ${pedido.prioridad < 0 ? "badge-critico" : "badge-exceso"}`}>
+                {etiquetaPrioridad(pedido.prioridad)}
+              </span>
+            )}
           </div>
-          {puedeCrearPedido(usuario.rol) && (
-            <div className="flex items-center gap-3">
-              {pedido.estado !== "ENTREGADO" && pedido.estado !== "CANCELADO" && (
+          <div className="flex flex-wrap items-center gap-4">
+            {puedeCrearReclamo(rol) && (
+              <Link href={`/reclamos/nuevo?pedido=${pedido.id}`} className="text-sm font-medium text-accent hover:underline">
+                Registrar reclamo
+              </Link>
+            )}
+            {puedeCrearPedido(rol) && abierto && (
+              <>
                 <Link href={`/pedidos/${pedido.id}/editar`} className="text-sm font-medium text-accent hover:underline">
                   Editar
                 </Link>
-              )}
-              <AccionesPedido pedidoId={pedido.id} estado={pedido.estado} />
-            </div>
-          )}
+                <CancelarPedido pedidoId={pedido.id} />
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {abierto && (urgente || puedeCambiarPrioridad(usuario.rol)) && (
+      {sp.entregado && (
+        <div className="rounded-md bg-[var(--estado-ok-bg)] px-3 py-2 text-sm font-medium text-[var(--estado-ok-fg)]">
+          Entrega registrada con el remito interno {sp.entregado}.
+        </div>
+      )}
+
+      {/* Despacho */}
+      {abierto && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-sm">
-          <span className="text-foreground-muted">
-            {urgente
-              ? `Urgente para producción${cambiosPrioridad[0]?.motivo ? `: ${cambiosPrioridad[0].motivo}` : ""}${
-                  cambiosPrioridad[0] ? ` (${cambiosPrioridad[0].usuarioNombre})` : ""
-                }`
-              : "Prioridad de producción automática, por fecha de entrega."}
-          </span>
-          {puedeCambiarPrioridad(usuario.rol) && <ControlUrgencia pedidoId={pedido.id} urgente={urgente} />}
+          {activo ? (
+            <EstadoControles d={activo} />
+          ) : (
+            <span className="text-foreground-muted">
+              {hayPendienteDespachable
+                ? "Sin despacho en curso."
+                : sinProducto.length
+                  ? "Hay renglones sin producto: asignalos para poder despacharlos."
+                  : "No queda nada pendiente de entregar."}
+            </span>
+          )}
+          {puedeOperarDespacho(rol) &&
+            (activo ? (
+              <Link
+                href={`/pedidos/${pedido.id}/despacho`}
+                className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90"
+              >
+                {activo.estado === "ARMANDO" ? "Continuar armado →" : "Hacer control final →"}
+              </Link>
+            ) : (
+              hayPendienteDespachable && <BotonPrepararDespacho pedidoId={pedido.id} />
+            ))}
+        </div>
+      )}
+
+      {/* Prioridad de inyección */}
+      {abierto && (
+        <div className="space-y-2 rounded-lg border border-border bg-surface px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span>
+              <span className="font-medium">Prioridad de producción: {etiquetaPrioridad(pedido.prioridad)}</span>
+              {ultimoCambioPrioridad && (
+                <span className="text-foreground-muted">
+                  {" "}
+                  — cambiada por {ultimoCambioPrioridad.usuarioNombre} el {fmtFechaHora(ultimoCambioPrioridad.creadoEn)}
+                  {ultimoCambioPrioridad.motivo ? ` (${ultimoCambioPrioridad.motivo})` : ""}
+                </span>
+              )}
+            </span>
+            <span className="text-xs text-foreground-muted">
+              Entrega comprometida: {pedido.fechaEntregaPactada ? fmtFecha(pedido.fechaEntregaPactada) : "sin fecha (cuenta la del pedido)"}
+            </span>
+          </div>
+          {lineas.some((l) => l.productoId != null && posicionEnCola.has(l.productoId)) && (
+            <ul className="text-xs text-foreground-muted">
+              {lineas
+                .filter((l) => l.productoId != null && posicionEnCola.has(l.productoId))
+                .map((l) => {
+                  const p = posicionEnCola.get(l.productoId!)!;
+                  return (
+                    <li key={l.lineaId}>
+                      {l.productoCodigo}: puesto {p.posicion} de {p.total} en la cola de producción
+                    </li>
+                  );
+                })}
+            </ul>
+          )}
+          {puedeCambiarPrioridad(rol) && (
+            <ControlPrioridad pedidoId={pedido.id} actual={pedido.prioridad} niveles={NIVELES_PRIORIDAD} motivos={MOTIVOS_PRIORIDAD} />
+          )}
         </div>
       )}
 
@@ -76,12 +187,10 @@ export default async function DetallePedidoPage({ params }: { params: Promise<{ 
         <Dato label="Entrega comprometida" valor={pedido.fechaEntregaPactada ? fmtFecha(pedido.fechaEntregaPactada) : "—"} />
         <Dato label="Contacto" valor={pedido.contacto ?? "—"} />
         <Dato label="Entrega" valor={pedido.modoEntrega ?? "—"} />
-        {verPrecios && <Dato label="Total" valor={fmtMoneda(pedido.total)} />}
-        {verPrecios && pedido.senia != null && <Dato label="Seña" valor={fmtMoneda(pedido.senia)} />}
-        {verPrecios && pedido.metodoPago && <Dato label="Método de pago" valor={pedido.metodoPago} />}
-        {verPrecios && pedido.numeroComprobante && (
-          <Dato label="N° de comprobante" valor={pedido.numeroComprobante} />
-        )}
+        {puedeVerPrecios(rol) && <Dato label="Total" valor={fmtMoneda(pedido.total)} />}
+        {puedeVerPrecios(rol) && pedido.senia != null && <Dato label="Seña" valor={fmtMoneda(pedido.senia)} />}
+        {puedeVerPrecios(rol) && pedido.metodoPago && <Dato label="Método de pago" valor={pedido.metodoPago} />}
+        {puedeVerPrecios(rol) && pedido.numeroComprobante && <Dato label="N° de comprobante" valor={pedido.numeroComprobante} />}
         {pedido.domicilioEntrega && (
           <div className="col-span-2 sm:col-span-4">
             <Dato label="Domicilio" valor={pedido.domicilioEntrega} />
@@ -96,72 +205,91 @@ export default async function DetallePedidoPage({ params }: { params: Promise<{ 
 
       <div className="overflow-hidden rounded-lg border border-border bg-surface">
         <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
-              <th className="px-4 py-2.5">Producto</th>
-              <th className="px-4 py-2.5 text-right">Pedido</th>
-              <th className="px-4 py-2.5 text-right">Armado</th>
-              <th className="px-4 py-2.5">Stock</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pedido.lineas.map((l) => {
-              const disp = l.productoId != null ? disponible.get(l.productoId) : undefined;
-              return (
-                <tr key={l.id} className="border-b border-border last:border-0">
-                  <td className="px-4 py-3">
-                    {l.productoDescripcion ? (
-                      <>
-                        <div className="font-medium text-foreground">{l.productoDescripcion}</div>
-                        <div className="text-xs text-foreground-muted">{l.productoCodigo}</div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-foreground-muted italic">Sin producto asignado</div>
-                        {l.colorTexto && <div className="text-xs text-foreground-muted">Color: {l.colorTexto}</div>}
-                      </>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {fmtNumero(l.unidadesPedidas, 0)}
-                    <Cajas
-                      unidades={l.unidadesPedidas}
-                      porCaja={
-                        l.productoId != null
-                          ? unidadesPorCaja(
-                              { esAccesorio: l.productoEsAccesorio ?? false, unidadesPorCaja: l.productoUnidadesPorCaja },
-                              parametros,
-                            )
-                          : null
-                      }
-                    />
-                  </td>
-                  <td className="px-4 py-3 text-right text-foreground-muted">{fmtNumero(l.unidadesArmadas, 0)}</td>
-                  <td className="px-4 py-3">
-                    <EstadoStockLinea disponible={disp} pedido={l.unidadesPedidas} sinSku={l.productoId == null} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
+                <th className="px-4 py-2.5">Producto</th>
+                <th className="px-4 py-2.5 text-right">Pedido</th>
+                <th className="px-4 py-2.5 text-right">Entregado</th>
+                <th className="px-4 py-2.5 text-right">En despacho</th>
+                <th className="px-4 py-2.5 text-right">Pendiente</th>
+                <th className="px-4 py-2.5">Stock</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lineas.map((l) => {
+                const det = lineaPorId.get(l.lineaId);
+                const porCaja =
+                  l.productoId != null && det
+                    ? unidadesPorCaja({ esAccesorio: det.productoEsAccesorio ?? false, unidadesPorCaja: det.productoUnidadesPorCaja }, parametros)
+                    : null;
+                return (
+                  <tr key={l.lineaId} className="border-b border-border align-top last:border-0">
+                    <td className="px-4 py-3">
+                      {l.productoDescripcion ? (
+                        <>
+                          <div className="font-medium text-foreground">{l.productoDescripcion}</div>
+                          <div className="text-xs text-foreground-muted">{l.productoCodigo}</div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="italic text-foreground-muted">Sin producto asignado</div>
+                          {l.colorTexto && <div className="text-xs text-foreground-muted">Texto del Excel: {l.colorTexto}</div>}
+                          {productos.length > 0 && <AsignarProducto pedidoId={pedido.id} lineaId={l.lineaId} productos={productos} />}
+                        </>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">{fmtNumero(l.pedido, 0)}</td>
+                    <td className="px-4 py-3 text-right">{fmtNumero(l.entregado, 0)}</td>
+                    <td className="px-4 py-3 text-right text-foreground-muted">{l.enDespacho ? fmtNumero(l.enDespacho, 0) : "—"}</td>
+                    <td className="px-4 py-3 text-right font-medium">
+                      {fmtNumero(l.pendiente, 0)}
+                      <Cajas unidades={l.pendiente} porCaja={porCaja} />
+                    </td>
+                    <td className="px-4 py-3">
+                      {l.pendiente + l.enDespacho === 0 ? (
+                        <span className="badge-estado badge-ok">Entregado</span>
+                      ) : (
+                        <EstadoStockLinea
+                          disponible={l.productoId != null ? disponible.get(l.productoId) : undefined}
+                          necesario={l.pendiente + l.enDespacho}
+                          sinSku={l.productoId == null}
+                        />
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {pedido.despachos.length > 0 && (
-        <div className="rounded-lg border border-border bg-surface p-4 text-sm">
-          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground-muted">Remitos</div>
+      {despachos.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground-muted">Despachos</h2>
+          {despachos.map((d) => (
+            <TarjetaDespacho key={d.id} d={d} pedidoId={pedido.id} puedeRemitoLegal={puedeRegistrarRemitoLegal(rol)} />
+          ))}
+        </section>
+      )}
+
+      {reclamos.length > 0 && (
+        <section className="rounded-lg border border-border bg-surface p-4 text-sm">
+          <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground-muted">Reclamos</h2>
           <ul className="space-y-1">
-            {pedido.despachos.map((d) => (
-              <li key={d.id}>
-                <span className="font-medium">{remitoInterno(d.numeroInterno)}</span>
-                <span className="text-foreground-muted"> · {fmtFecha(d.fecha)}</span>
-                {d.numeroRemito && <span className="text-foreground-muted"> · remito legal {d.numeroRemito}</span>}
+            {reclamos.map((r) => (
+              <li key={r.id}>
+                <Link href={`/reclamos/${r.id}`} className="font-medium text-accent hover:underline">
+                  Reclamo #{r.id}
+                </Link>{" "}
+                <span className="text-foreground-muted">
+                  · {ESTADO_RECLAMO_LABEL[r.estado]} · {r.descripcion}
+                </span>
               </li>
             ))}
           </ul>
-        </div>
+        </section>
       )}
 
       {pedido.observaciones && (
@@ -170,7 +298,95 @@ export default async function DetallePedidoPage({ params }: { params: Promise<{ 
           {pedido.observaciones}
         </div>
       )}
+      <p className="text-xs text-foreground-muted">Estado: {ESTADO_LABEL[pedido.estado]}</p>
     </div>
+  );
+}
+
+function EstadoControles({ d }: { d: DespachoDetalle }) {
+  return (
+    <div className="space-y-0.5">
+      <div className="font-medium">Despacho en curso</div>
+      <div className="text-foreground-muted">
+        {d.control1En ? (
+          <>✓ Primer control realizado por {d.control1PorNombre} el {fmtFechaHora(d.control1En)}</>
+        ) : (
+          <>○ Pendiente de primer control (armado)</>
+        )}
+      </div>
+      <div className="text-foreground-muted">
+        {d.controlFinalEn ? <>✓ Control final realizado</> : <>○ Pendiente de control final</>}
+      </div>
+    </div>
+  );
+}
+
+const ESTADO_DESPACHO_LABEL: Record<DespachoDetalle["estado"], string> = {
+  ARMANDO: "En armado — pendiente de primer control",
+  CONTROLADO: "Primer control realizado — pendiente de control final",
+  ENTREGADO: "Entregado",
+  ANULADO: "Anulado",
+};
+
+function TarjetaDespacho({ d, pedidoId, puedeRemitoLegal }: { d: DespachoDetalle; pedidoId: number; puedeRemitoLegal: boolean }) {
+  const mismoControlador = d.control1PorId != null && d.controladoPorId != null && d.control1PorId === d.controladoPorId;
+  const unidades = d.lineas.length
+    ? d.lineas
+    : d.piqueos
+        .filter((p) => p.tipo === "ARMADO" && !p.conAlerta)
+        .reduce<{ lineaId: number; productoCodigo: string | null; productoDescripcion: string | null; unidades: number }[]>((acc, p) => {
+          const ya = acc.find((x) => x.productoCodigo === p.productoCodigo);
+          if (ya) ya.unidades += p.cantidad;
+          else acc.push({ lineaId: p.id, productoCodigo: p.productoCodigo, productoDescripcion: null, unidades: p.cantidad });
+          return acc;
+        }, []);
+  return (
+    <details className="rounded-lg border border-border bg-surface p-4 text-sm" open={d.estado !== "ANULADO"}>
+      <summary className="flex cursor-pointer flex-wrap items-center gap-3">
+        <span className="font-semibold">{d.estado === "ENTREGADO" ? `Remito interno ${remitoInterno(d.numeroInterno)}` : `Despacho #${d.id}`}</span>
+        <span className={`badge-estado ${d.estado === "ENTREGADO" ? "badge-ok" : d.estado === "ANULADO" ? "bg-surface-muted text-foreground-muted" : "badge-bajo"}`}>
+          {ESTADO_DESPACHO_LABEL[d.estado]}
+        </span>
+        {d.entregadoEn && <span className="text-foreground-muted">Entregado {fmtFechaHora(d.entregadoEn)}</span>}
+      </summary>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <div className="text-xs font-medium uppercase text-foreground-muted">Productos</div>
+          <ul>
+            {unidades.map((l) => (
+              <li key={l.lineaId}>
+                {l.productoCodigo ?? "—"} × {fmtNumero(l.unidades, 0)}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="space-y-1 text-foreground-muted">
+          <div>Armado iniciado por {d.creadoPorNombre ?? "—"}</div>
+          <div>
+            Primer control: {d.control1En ? `${d.control1PorNombre}, ${fmtFechaHora(d.control1En)}` : "pendiente"}
+            {d.control1Resultado && <div className="text-xs">{d.control1Resultado}</div>}
+          </div>
+          <div>
+            Control final: {d.controlFinalEn ? `${d.controlFinalPorNombre}, ${fmtFechaHora(d.controlFinalEn)}` : "pendiente"}
+            {d.controlFinalResultado && <div className="text-xs">{d.controlFinalResultado}</div>}
+          </div>
+          {mismoControlador && <div className="text-xs">Los dos controles los hizo la misma persona.</div>}
+          {d.estado === "ANULADO" && d.observaciones && <div className="text-xs">{d.observaciones}</div>}
+        </div>
+      </div>
+      {d.estado === "ENTREGADO" && (
+        <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-border pt-3">
+          <Link href={`/pedidos/${pedidoId}/remito/${d.id}`} className="text-sm font-medium text-accent hover:underline">
+            Ver / imprimir remito (original y duplicado)
+          </Link>
+          <span className="text-foreground-muted">
+            Remito legal: {d.numeroRemito ?? "sin registrar"}
+            {d.remitoLegalPorNombre && ` (${d.remitoLegalPorNombre})`}
+          </span>
+          {puedeRemitoLegal && <RemitoLegal pedidoId={pedidoId} despachoId={d.id} actual={d.numeroRemito} />}
+        </div>
+      )}
+    </details>
   );
 }
 
@@ -183,23 +399,6 @@ function Dato({ label, valor }: { label: string; valor: string }) {
   );
 }
 
-function EstadoStockLinea({
-  disponible,
-  pedido,
-  sinSku,
-}: {
-  disponible: number | undefined;
-  pedido: number;
-  sinSku: boolean;
-}) {
-  if (sinSku) return <span className="badge-estado bg-surface-muted text-foreground-muted">A asignar</span>;
-  if (disponible == null) return <span className="badge-estado badge-critico">Sin stock</span>;
-  if (disponible >= pedido) return <span className="badge-estado badge-ok">OK para armar</span>;
-  if (disponible > 0)
-    return <span className="badge-estado badge-bajo">Falta producir {fmtNumero(pedido - disponible, 0)}</span>;
-  return <span className="badge-estado badge-critico">Falta producir {fmtNumero(pedido, 0)}</span>;
-}
-
 /** Pisos: cajas cerradas + caja abierta con sueltas (respuesta 4 de Definiciones pendientes). */
 function Cajas({ unidades, porCaja }: { unidades: number; porCaja: number | null }) {
   const d = desglosarCajas(unidades, porCaja);
@@ -207,5 +406,13 @@ function Cajas({ unidades, porCaja }: { unidades: number; porCaja: number | null
   const partes = [];
   if (d.cajas > 0) partes.push(`${d.cajas} caja${d.cajas === 1 ? "" : "s"}`);
   if (d.sueltas > 0) partes.push(`${d.sueltas} suelta${d.sueltas === 1 ? "" : "s"}`);
-  return <div className="text-xs text-foreground-muted">{partes.join(" + ")}</div>;
+  return <div className="text-xs font-normal text-foreground-muted">{partes.join(" + ")}</div>;
+}
+
+function EstadoStockLinea({ disponible, necesario, sinSku }: { disponible: number | undefined; necesario: number; sinSku: boolean }) {
+  if (sinSku) return <span className="badge-estado bg-surface-muted text-foreground-muted">A asignar</span>;
+  if (disponible == null) return <span className="badge-estado badge-critico">Sin stock</span>;
+  if (disponible >= necesario) return <span className="badge-estado badge-ok">OK para armar</span>;
+  if (disponible > 0) return <span className="badge-estado badge-bajo">Falta producir {fmtNumero(necesario - disponible, 0)}</span>;
+  return <span className="badge-estado badge-critico">Falta producir {fmtNumero(necesario, 0)}</span>;
 }

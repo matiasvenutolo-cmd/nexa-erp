@@ -21,9 +21,14 @@ import {
   cliente,
   movimiento,
   saldo,
+  caja,
+  parametro,
+  color,
 } from "@/lib/db/schema";
 import { getDepositoNexaId } from "@/lib/data/depositos";
-import { materialComprometido, ordenPrioridad, PRIORIDAD_URGENTE, type FilaComprometido } from "@/lib/data/pedidos";
+import { materialComprometido, ordenPrioridad, type FilaComprometido } from "@/lib/data/pedidos";
+import { unidadesPorCaja } from "@/lib/data/catalogo";
+import { PARAMETROS } from "@/lib/data/parametros";
 
 /** Lista chica para el select del alta de ciclo — no la del catálogo completo,
  *  que trae stock/semáforo que acá no hace falta. */
@@ -140,8 +145,20 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
     input.golpesFin != null && ciclo.golpesInicio != null && ciclo.piezasPorGolpe != null
       ? (input.golpesFin - ciclo.golpesInicio) * ciclo.piezasPorGolpe
       : null;
+  if (piezasProducidas != null && piezasProducidas < 0) return { error: "Los golpes de fin no pueden ser menores que los de inicio." };
+  // Sin este dato no entra nada a stock ni se generan las cajas: no se acepta vacío.
+  if (input.piezasEntregadas == null || !Number.isInteger(input.piezasEntregadas) || input.piezasEntregadas < 0) {
+    return { error: "Indicá las piezas que pasan a stock (0 si no pasa ninguna)." };
+  }
+  if (piezasProducidas != null && input.piezasEntregadas > piezasProducidas) {
+    return { error: `Las piezas a stock (${input.piezasEntregadas}) no pueden superar las producidas (${piezasProducidas}).` };
+  }
 
   const depositoId = await getDepositoNexaId();
+  const [part] = ciclo.partidaId
+    ? await db.select({ numero: partida.numero }).from(partida).where(eq(partida.id, ciclo.partidaId))
+    : [];
+  const numeroPartida = part?.numero ?? null;
 
   await db.transaction(async (tx) => {
     await tx
@@ -169,7 +186,7 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
         cantidad: String(input.piezasEntregadas),
         origen: "CICLO",
         origenId: cicloId,
-        motivo: `Ciclo #${cicloId}${ciclo.partidaId ? ` · partida ${ciclo.partidaId}` : ""}`,
+        motivo: `Ciclo #${cicloId}${numeroPartida != null ? ` · partida N° ${numeroPartida}` : ""}`,
         usuarioId: input.usuarioId,
       });
       await tx
@@ -181,12 +198,71 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
         });
     }
 
+    if (ciclo.productoId != null && ciclo.partidaId != null && input.piezasEntregadas != null && input.piezasEntregadas > 0) {
+      await generarCajas(tx, {
+        cicloId,
+        partidaId: ciclo.partidaId,
+        productoId: ciclo.productoId,
+        piezas: input.piezasEntregadas,
+      });
+    }
+
     if (input.cerrarPartida && ciclo.partidaId) {
       await tx.update(partida).set({ fechaCierre: new Date().toISOString().slice(0, 10) }).where(eq(partida.id, ciclo.partidaId));
     }
   });
 
   return {};
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** "P00012-C0003": partida 12, caja 3. Identificador interno de la caja para
+ *  piquearla; el diseño de la etiqueta impresa queda fuera de esta etapa. */
+export function codigoCaja(partidaNumero: number, numeroCaja: number): string {
+  return `P${String(partidaNumero).padStart(5, "0")}-C${String(numeroCaja).padStart(4, "0")}`;
+}
+
+/**
+ * Las piezas que entran a stock al cerrar el día quedan en cajas vinculadas a
+ * la partida y al ciclo — el eslabón partida → caja → despacho → cliente.
+ * Pisos: cajas cerradas de `unidades_por_caja_pisos` (o la excepción del
+ * producto) y una caja abierta con el resto. Accesorios: no se embalan hasta
+ * la venta (respuesta 4), quedan como un bulto sin embalar de la partida.
+ */
+async function generarCajas(tx: Tx, input: { cicloId: number; partidaId: number; productoId: number; piezas: number }) {
+  const [prod] = await tx
+    .select({ esAccesorio: producto.esAccesorio, unidadesPorCaja: producto.unidadesPorCaja })
+    .from(producto)
+    .where(eq(producto.id, input.productoId));
+  const [part] = await tx.select({ numero: partida.numero }).from(partida).where(eq(partida.id, input.partidaId));
+  const [param] = await tx.select({ valor: parametro.valor }).from(parametro).where(eq(parametro.clave, PARAMETROS.UNIDADES_POR_CAJA_PISOS));
+  if (!param) throw new Error(`Falta el parámetro "${PARAMETROS.UNIDADES_POR_CAJA_PISOS}".`);
+  const porCaja = unidadesPorCaja(prod, { unidades_por_caja_pisos: Number(param.valor) });
+
+  const tandas: number[] = [];
+  if (porCaja == null) {
+    tandas.push(input.piezas);
+  } else {
+    for (let resto = input.piezas; resto > 0; resto -= porCaja) tandas.push(Math.min(porCaja, resto));
+  }
+
+  const [{ ultimo }] = await tx
+    .select({ ultimo: sql<number>`coalesce(max(${caja.numeroCaja}), 0)`.mapWith(Number) })
+    .from(caja)
+    .where(eq(caja.partidaId, input.partidaId));
+  const hoy = new Date().toISOString().slice(0, 10);
+  await tx.insert(caja).values(
+    tandas.map((cantidad, i) => ({
+      partidaId: input.partidaId,
+      productoId: input.productoId,
+      cicloId: input.cicloId,
+      numeroCaja: ultimo + i + 1,
+      cantidad,
+      codigoBarra: codigoCaja(part.numero, ultimo + i + 1),
+      fecha: hoy,
+    })),
+  );
 }
 
 export type FilaCiclo = {
@@ -237,6 +313,7 @@ export type CicloConDetalle = typeof cicloProduccion.$inferSelect & {
   productoDescripcion: string | null;
   productoFamilia: (typeof producto.$inferSelect)["familia"] | null;
   productoColorId: number | null;
+  productoColorNombre: string | null;
   productoKgPorUnidad: string | null;
   partidaNumero: number | null;
   operarioNombre: string | null;
@@ -251,12 +328,14 @@ export async function obtenerCiclo(id: number): Promise<CicloConDetalle | null> 
       productoDescripcion: producto.descripcion,
       productoFamilia: producto.familia,
       productoColorId: producto.colorId,
+      productoColorNombre: color.nombre,
       productoKgPorUnidad: producto.kgPorUnidad,
       partidaNumero: partida.numero,
       operarioNombre: usuario.nombre,
     })
     .from(cicloProduccion)
     .leftJoin(producto, eq(cicloProduccion.productoId, producto.id))
+    .leftJoin(color, eq(producto.colorId, color.id))
     .leftJoin(partida, eq(cicloProduccion.partidaId, partida.id))
     .leftJoin(usuario, eq(cicloProduccion.operarioId, usuario.id))
     .where(eq(cicloProduccion.id, id));
@@ -269,7 +348,7 @@ export async function obtenerCiclo(id: number): Promise<CicloConDetalle | null> 
     .innerJoin(cliente, eq(pedido.clienteId, cliente.id))
     .where(eq(cicloPedido.cicloId, id));
 
-  return { ...fila.ciclo, productoCodigo: fila.productoCodigo, productoDescripcion: fila.productoDescripcion, productoFamilia: fila.productoFamilia, productoColorId: fila.productoColorId, productoKgPorUnidad: fila.productoKgPorUnidad, partidaNumero: fila.partidaNumero, operarioNombre: fila.operarioNombre, pedidos };
+  return { ...fila.ciclo, productoCodigo: fila.productoCodigo, productoDescripcion: fila.productoDescripcion, productoFamilia: fila.productoFamilia, productoColorId: fila.productoColorId, productoColorNombre: fila.productoColorNombre, productoKgPorUnidad: fila.productoKgPorUnidad, partidaNumero: fila.partidaNumero, operarioNombre: fila.operarioNombre, pedidos };
 }
 
 export type PedidoNecesitaProducto = {
@@ -279,7 +358,8 @@ export type PedidoNecesitaProducto = {
   /** Fecha que ordena la cola: la de entrega comprometida, o la del pedido si no tiene. */
   fechaEfectiva: string;
   tieneFechaEntrega: boolean;
-  urgente: boolean;
+  /** 0 = automática por fecha; distinto de 0 = ajuste manual (ver NIVELES_PRIORIDAD). */
+  prioridad: number;
   cantidad: number;
 };
 
@@ -293,7 +373,7 @@ export async function pedidosQueNecesitan(productoId: number): Promise<PedidoNec
       fechaPedido: pedido.fechaPedido,
       fechaEntregaPactada: pedido.fechaEntregaPactada,
       prioridad: pedido.prioridad,
-      cantidad: pedidoLinea.unidadesPedidas,
+      cantidad: sql<number>`${pedidoLinea.unidadesPedidas} - ${pedidoLinea.unidadesDespachadas}`.mapWith(Number),
     })
     .from(pedidoLinea)
     .innerJoin(pedido, eq(pedidoLinea.pedidoId, pedido.id))
@@ -302,6 +382,7 @@ export async function pedidosQueNecesitan(productoId: number): Promise<PedidoNec
       and(
         eq(pedidoLinea.productoId, productoId),
         sql`${pedido.estado} not in ('ENTREGADO', 'CANCELADO')`,
+        sql`${pedidoLinea.unidadesPedidas} > ${pedidoLinea.unidadesDespachadas}`,
       ),
     )
     .orderBy(...ordenPrioridad);
@@ -322,7 +403,7 @@ function aPedidoNecesita(f: {
     fechaPedido: f.fechaPedido,
     fechaEfectiva: f.fechaEntregaPactada ?? f.fechaPedido,
     tieneFechaEntrega: f.fechaEntregaPactada != null,
-    urgente: f.prioridad <= PRIORIDAD_URGENTE,
+    prioridad: f.prioridad,
     cantidad: f.cantidad,
   };
 }
@@ -348,7 +429,7 @@ export async function colaProduccion(): Promise<FilaCola[]> {
       fechaPedido: pedido.fechaPedido,
       fechaEntregaPactada: pedido.fechaEntregaPactada,
       prioridad: pedido.prioridad,
-      cantidad: pedidoLinea.unidadesPedidas,
+      cantidad: sql<number>`${pedidoLinea.unidadesPedidas} - ${pedidoLinea.unidadesDespachadas}`.mapWith(Number),
     })
     .from(pedidoLinea)
     .innerJoin(pedido, eq(pedidoLinea.pedidoId, pedido.id))
@@ -357,6 +438,7 @@ export async function colaProduccion(): Promise<FilaCola[]> {
       and(
         inArray(pedidoLinea.productoId, faltantes.map((f) => f.productoId)),
         sql`${pedido.estado} not in ('ENTREGADO', 'CANCELADO')`,
+        sql`${pedidoLinea.unidadesPedidas} > ${pedidoLinea.unidadesDespachadas}`,
       ),
     )
     .orderBy(...ordenPrioridad);
@@ -373,4 +455,13 @@ export async function colaProduccion(): Promise<FilaCola[]> {
   return faltantes
     .map((f) => ({ ...f, pedidos: porProducto.get(f.productoId) ?? [] }))
     .sort((a, b) => (posicion.get(a.productoId) ?? Infinity) - (posicion.get(b.productoId) ?? Infinity));
+}
+
+/** Cajas que generó un ciclo al cerrarse, con su estado actual. */
+export async function cajasDeCiclo(cicloId: number) {
+  return db
+    .select({ id: caja.id, codigo: caja.codigoBarra, cantidad: caja.cantidad, estado: caja.estado })
+    .from(caja)
+    .where(eq(caja.cicloId, cicloId))
+    .orderBy(asc(caja.numeroCaja));
 }

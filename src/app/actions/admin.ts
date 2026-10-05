@@ -81,7 +81,7 @@ export async function guardarParametroAction(fd: FormData) {
 
 export async function crearDosificacionAction(fd: FormData) {
   const usuario = await getUsuarioActual();
-  const kg = numero(fd, "kgPorKgMp");
+  const kg = numero(fd, "gPorKgMp");
   const familia = String(fd.get("familia"));
   const r =
     kg == null
@@ -90,7 +90,7 @@ export async function crearDosificacionAction(fd: FormData) {
           familia: familia as "REJILLA" | "CIEGO",
           colorId: entero(fd, "colorId"),
           materiaPrimaBaseId: entero(fd, "materiaPrimaBaseId"),
-          kgPorKgMp: kg,
+          gPorKgMp: kg,
           observaciones: texto(fd, "observaciones"),
           motivo: texto(fd, "motivo"),
         });
@@ -99,12 +99,12 @@ export async function crearDosificacionAction(fd: FormData) {
 
 export async function actualizarDosificacionAction(fd: FormData) {
   const usuario = await getUsuarioActual();
-  const kg = numero(fd, "kgPorKgMp");
+  const kg = numero(fd, "gPorKgMp");
   const r =
     kg == null
       ? { error: "Falta la dosificación." }
       : await actualizarDosificacion(usuario, Number(fd.get("id")), {
-          kgPorKgMp: kg,
+          gPorKgMp: kg,
           materiaPrimaBaseId: entero(fd, "materiaPrimaBaseId"),
           observaciones: texto(fd, "observaciones"),
           motivo: texto(fd, "motivo"),

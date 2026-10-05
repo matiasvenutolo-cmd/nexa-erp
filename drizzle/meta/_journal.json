@@ -29,6 +29,20 @@
       "when": 1791203562950,
       "tag": "0003_panel_admin_configuracion",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791208769679,
+      "tag": "0004_reclamo_reemplaza_devolucion",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791208814579,
+      "tag": "0005_r4_r5_despacho_trazabilidad_reclamos",
+      "breakpoints": true
     }
   ]
 }

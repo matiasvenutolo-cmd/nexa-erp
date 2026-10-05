@@ -4,11 +4,10 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import {
   crearPedido,
-  avanzarEstadoPedido,
-  marcarEntregado,
   cancelarPedido,
   editarPedido,
-  cambiarUrgencia,
+  cambiarPrioridad,
+  asignarProductoALinea,
 } from "@/lib/data/pedidos";
 import { resolverClienteDelPedido } from "@/lib/data/clientes";
 import { crearProductoNuevo } from "@/lib/data/catalogo";
@@ -16,7 +15,7 @@ import { getUsuarioActual } from "@/lib/session";
 import { puedeCrearPedido, puedeCrearProducto, puedeVerPrecios } from "@/lib/auth/permisos";
 import type { FamiliaProducto, TipoProducto } from "@/lib/catalogo-normalizacion";
 
-export type FormState = { error?: string };
+export type FormState = { error?: string; ok?: boolean };
 
 type LineaEntrante = {
   productoId: number | null;
@@ -143,36 +142,9 @@ function revalidarPedido(id: number) {
   revalidatePath(`/pedidos/${id}`);
 }
 
-export async function pasarAArmadoAction(pedidoId: number) {
-  const usuario = await getUsuarioActual();
-  if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para modificar pedidos." };
-  const r = await avanzarEstadoPedido(pedidoId, "EN_ARMADO");
-  revalidarPedido(pedidoId);
-  return r;
-}
-
-export async function marcarListoAction(pedidoId: number) {
-  const usuario = await getUsuarioActual();
-  if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para modificar pedidos." };
-  const r = await avanzarEstadoPedido(pedidoId, "LISTO_PARA_DESPACHAR");
-  revalidarPedido(pedidoId);
-  return r;
-}
-
-export async function marcarEntregadoAction(_prev: FormState, fd: FormData): Promise<FormState> {
-  const usuario = await getUsuarioActual();
-  if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para modificar pedidos." };
-  const pedidoId = Number(fd.get("pedidoId"));
-  const numeroRemito = String(fd.get("numeroRemito") ?? "").trim() || null;
-  const r = await marcarEntregado(pedidoId, { numeroRemito, usuarioId: usuario.id });
-  revalidarPedido(pedidoId);
-  return r;
-}
-
 export async function cancelarPedidoAction(pedidoId: number) {
   const usuario = await getUsuarioActual();
-  if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para modificar pedidos." };
-  const r = await cancelarPedido(pedidoId);
+  const r = await cancelarPedido(usuario, pedidoId);
   revalidarPedido(pedidoId);
   return r;
 }
@@ -202,13 +174,27 @@ export async function editarPedidoAction(_prev: FormState, fd: FormData): Promis
   redirect(`/pedidos/${pedidoId}`);
 }
 
-export async function cambiarUrgenciaAction(_prev: FormState, fd: FormData): Promise<FormState> {
+export async function cambiarPrioridadAction(_prev: FormState, fd: FormData): Promise<FormState> {
   const usuario = await getUsuarioActual();
   const pedidoId = Number(fd.get("pedidoId"));
-  const urgente = fd.get("urgente") === "1";
-  const r = await cambiarUrgencia(usuario, pedidoId, urgente, String(fd.get("motivo") ?? "").trim() || null);
+  const r = await cambiarPrioridad(
+    usuario,
+    pedidoId,
+    Number(fd.get("prioridad")),
+    String(fd.get("motivo") ?? "").trim() || null,
+    String(fd.get("detalle") ?? "").trim() || null,
+  );
   if (r.error) return r;
   revalidarPedido(pedidoId);
   revalidatePath("/produccion");
-  return {};
+  return { ok: true };
+}
+
+export async function asignarProductoAction(_prev: FormState, fd: FormData): Promise<FormState> {
+  const usuario = await getUsuarioActual();
+  const pedidoId = Number(fd.get("pedidoId"));
+  const r = await asignarProductoALinea(usuario, Number(fd.get("lineaId")), Number(fd.get("productoId")));
+  if (r.error) return r;
+  revalidarPedido(pedidoId);
+  return { ok: true };
 }

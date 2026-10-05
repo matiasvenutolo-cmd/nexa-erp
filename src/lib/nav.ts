@@ -10,7 +10,14 @@
  * Pedidos — regla 7, no agregar secciones que su tarea de hoy no necesita.
  */
 import type { usuario } from "@/lib/db/schema";
-import { ROLES_GESTION, puedeCargarProduccion, puedeVerPanelAdmin } from "@/lib/auth/permisos";
+import {
+  ROLES_GESTION,
+  puedeCargarProduccion,
+  puedeVerMateriaPrima,
+  puedeVerPanelAdmin,
+  puedeVerReclamos,
+  puedeVerTrazabilidad,
+} from "@/lib/auth/permisos";
 
 type Rol = (typeof usuario.$inferSelect)["rol"];
 
@@ -42,10 +49,18 @@ const NAV_GESTION: ItemNav[] = [
   { href: "/clientes", label: "Clientes" },
 ];
 
+/** Roles que reciben avisos: ventas (pedido listo), supervisor (reclamo nuevo)
+ *  y gerencia (informes de reclamos; además ve todos). */
+export const ROLES_CON_AVISOS: readonly Rol[] = ["ADMINISTRACION", "SUPERVISOR", "GERENCIA"];
+
 export const NAV_POR_ROL: Record<Rol, ItemNav[]> = Object.fromEntries(
   (Object.keys(ROL_LABEL) as Rol[]).map((r) => {
     const items = [...(ROLES_GESTION.includes(r) ? NAV_GESTION : NAV_BASE)];
+    if (ROLES_CON_AVISOS.includes(r)) items.splice(1, 0, { href: "/avisos", label: "Avisos" });
     if (puedeCargarProduccion(r)) items.push({ href: "/produccion", label: "Producción" });
+    if (puedeVerMateriaPrima(r)) items.push({ href: "/materia-prima", label: "Materia prima" });
+    if (puedeVerTrazabilidad(r)) items.push({ href: "/trazabilidad", label: "Trazabilidad" });
+    if (puedeVerReclamos(r)) items.push({ href: "/reclamos", label: "Reclamos" });
     if (puedeVerPanelAdmin(r)) items.push({ href: "/admin", label: "Panel Admin" });
     return [r, items];
   }),

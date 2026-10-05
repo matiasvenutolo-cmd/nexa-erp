@@ -31,7 +31,7 @@ describe("11. Persistencia después de cerrar y reabrir", () => {
     const db = await abrirBase(dir);
     const s = await sembrar(db);
     await actualizarMinMaxProducto(s.usuarios.ENCARGADO, s.productos.rejRojo.id, { minimo: 900, maximo: 1200 });
-    await crearDosificacion(s.usuarios.ENCARGADO, { familia: "REJILLA", colorId: null, materiaPrimaBaseId: null, kgPorKgMp: 0.015 });
+    await crearDosificacion(s.usuarios.ENCARGADO, { familia: "REJILLA", colorId: null, materiaPrimaBaseId: null, gPorKgMp: 0.015 });
     await crearColorEspecial(s.usuarios.ENCARGADO, { nombre: "Naranja Shell", clienteId: s.cliente.id, proveedorMasterId: s.proveedores.berma.id, masterCodigo: "7363" });
     await actualizarParametro(s.usuarios.ENCARGADO, "unidades_por_caja_pisos", 24);
     await cerrarBase();
@@ -40,7 +40,7 @@ describe("11. Persistencia después de cerrar y reabrir", () => {
     await abrirBase(dir);
     const rojo = (await listarMinMaxProductos()).find((p) => p.id === s.productos.rejRojo.id)!;
     expect(rojo).toMatchObject({ minimo: 900, maximo: 1200 });
-    expect(await resolverDosificacion("REJILLA", s.colores.rojo.id)).toMatchObject({ kgPorKgMp: 0.015 });
+    expect(await resolverDosificacion("REJILLA", s.colores.rojo.id)).toMatchObject({ gPorKgMp: 0.015 });
     expect((await listarColores({ texto: "shell" }))[0]).toMatchObject({ especial: true, masterCodigo: "7363", clienteNombre: "Carrefour" });
     expect((await obtenerParametros()).unidades_por_caja_pisos).toBe(24);
     expect((await listarAuditoria()).length).toBeGreaterThanOrEqual(4);

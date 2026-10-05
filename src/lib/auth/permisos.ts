@@ -113,3 +113,68 @@ export function puedeVerPanelAdmin(rol: Rol): boolean {
     puedeAdministrarUsuarios(rol)
   );
 }
+
+// ---------------------------------------------------------------------------
+// Despacho, materia prima, reclamos (R4/R5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Armar un despacho, hacer el primer control (piqueo de armado) y el control
+ * final: el sector despacho (Sabrina Orellano, procedimiento firmado) y quienes
+ * coordinan la planta. El procedimiento no exige que los dos controles los haga
+ * una persona distinta, así que no se bloquea: se registra y se muestra.
+ */
+const ROLES_DESPACHO: readonly Rol[] = ["DESPACHO", "ENCARGADO", "SUPERVISOR", "GERENCIA"];
+
+export function puedeOperarDespacho(rol: Rol): boolean {
+  return ROLES_DESPACHO.includes(rol);
+}
+
+/** El remito legal lo emite administración ("la orden de despacho es manejada
+ *  por administración"). */
+export function puedeRegistrarRemitoLegal(rol: Rol): boolean {
+  return rol === "ADMINISTRACION" || rol === "GERENCIA";
+}
+
+/** Ingreso de materia prima con su certificado y lote (Daniela Tenorio). */
+const ROLES_INGRESO_MP: readonly Rol[] = ["MATERIA_PRIMA", "SUPERVISOR", "GERENCIA"];
+
+export function puedeIngresarMateriaPrima(rol: Rol): boolean {
+  return ROLES_INGRESO_MP.includes(rol);
+}
+
+/** Retiro de materia prima a máquina (Dylan Romero) y quien la entrega. */
+const ROLES_RETIRO_MP: readonly Rol[] = ["RETIROS_MP", "MATERIA_PRIMA", "ENCARGADO", "SUPERVISOR", "GERENCIA"];
+
+export function puedeRetirarMateriaPrima(rol: Rol): boolean {
+  return ROLES_RETIRO_MP.includes(rol);
+}
+
+export function puedeVerMateriaPrima(rol: Rol): boolean {
+  return puedeIngresarMateriaPrima(rol) || puedeRetirarMateriaPrima(rol);
+}
+
+/** "Las vendedoras tienen que buscar el pedido y detallar qué pasó". */
+const ROLES_CARGAN_RECLAMO: readonly Rol[] = ["ADMINISTRACION", "SUPERVISOR", "GERENCIA"];
+
+export function puedeCrearReclamo(rol: Rol): boolean {
+  return ROLES_CARGAN_RECLAMO.includes(rol);
+}
+
+/** "Este reclamo pasa sí o sí por el supervisor". */
+export function puedeResolverReclamo(rol: Rol): boolean {
+  return rol === "SUPERVISOR";
+}
+
+const ROLES_VEN_RECLAMOS: readonly Rol[] = ["ADMINISTRACION", "SUPERVISOR", "GERENCIA", "ENCARGADO"];
+
+export function puedeVerReclamos(rol: Rol): boolean {
+  return ROLES_VEN_RECLAMOS.includes(rol);
+}
+
+/** Trazabilidad: quienes investigan reclamos o lotes. */
+const ROLES_TRAZABILIDAD: readonly Rol[] = ["GERENCIA", "SUPERVISOR", "ENCARGADO", "ADMINISTRACION", "MATERIA_PRIMA"];
+
+export function puedeVerTrazabilidad(rol: Rol): boolean {
+  return ROLES_TRAZABILIDAD.includes(rol);
+}

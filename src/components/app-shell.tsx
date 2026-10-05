@@ -1,7 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { getUsuarioActual } from "@/lib/session";
-import { NAV_POR_ROL, ROL_LABEL } from "@/lib/nav";
+import { NAV_POR_ROL, ROL_LABEL, ROLES_CON_AVISOS } from "@/lib/nav";
+import { contarAvisosPendientes } from "@/lib/data/avisos";
 import { cerrarSesionAction } from "@/app/actions/sesion";
 import { SidebarNav } from "@/components/sidebar-nav";
 
@@ -14,6 +15,9 @@ import { SidebarNav } from "@/components/sidebar-nav";
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const usuario = await getUsuarioActual();
   const nav = NAV_POR_ROL[usuario.rol];
+  const contadores: Record<string, number> = ROLES_CON_AVISOS.includes(usuario.rol)
+    ? { "/avisos": await contarAvisosPendientes(usuario.rol) }
+    : {};
 
   const usuarioInfo = (
     <>
@@ -35,7 +39,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       {/* Sidebar — desktop */}
       <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-surface p-4 print:hidden md:flex">
         <Image src="/nexa-logo.png" alt="NEXA" width={112} height={73} priority className="mb-6" />
-        <SidebarNav nav={nav} />
+        <SidebarNav nav={nav} contadores={contadores} />
         <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">{usuarioInfo}</div>
       </aside>
 
@@ -54,6 +58,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
                 className="whitespace-nowrap rounded-t-md px-3 py-2 text-sm font-medium text-foreground-muted hover:bg-surface-muted hover:text-foreground"
               >
                 {item.label}
+                {contadores[item.href] ? ` (${contadores[item.href]})` : ""}
               </Link>
             ))}
           </nav>

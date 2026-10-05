@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
-import { obtenerCiclo } from "@/lib/data/produccion";
+import Link from "next/link";
+import { cajasDeCiclo, obtenerCiclo } from "@/lib/data/produccion";
 import { resolverDosificacion } from "@/lib/data/dosificacion";
+import { codigoDeUso, listarRetiros } from "@/lib/data/materia-prima";
 import { fmtNumero, fmtFecha } from "@/lib/format";
 import { FormularioCierre } from "./formulario-cierre";
 
@@ -11,6 +13,7 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
   const dosificacion = ciclo.productoFamilia
     ? await resolverDosificacion(ciclo.productoFamilia, ciclo.productoColorId)
     : null;
+  const [cajas, retiros] = await Promise.all([cajasDeCiclo(ciclo.id), listarRetiros({ cicloId: ciclo.id })]);
   const kgMp =
     ciclo.piezasProducidas != null && ciclo.productoKgPorUnidad != null
       ? ciclo.piezasProducidas * Number(ciclo.productoKgPorUnidad)
@@ -32,21 +35,27 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
       </div>
 
       <div className="rounded-lg border border-border bg-surface p-4 text-sm">
-        <h2 className="mb-2 text-sm font-semibold text-foreground-muted">Master</h2>
+        <h2 className="mb-2 text-sm font-semibold text-foreground-muted">Master que aplica el sistema</h2>
         {dosificacion ? (
           <div className="space-y-1">
-            <p>
-              <span className="font-medium">{fmtNumero(dosificacion.kgPorKgMp, 4)} kg de master por kg</span>
-              {dosificacion.materiaPrimaBaseNombre ? ` de ${dosificacion.materiaPrimaBaseNombre}` : " de materia prima"}{" "}
+            <p className="text-base">
+              <span className="font-semibold">Master: {fmtNumero(dosificacion.gPorKgMp, 4)} g/kg</span>
               <span className="text-foreground-muted">
-                ({fmtNumero(dosificacion.kgPorKgMp * 1000, 1)} g por kg ·{" "}
-                {dosificacion.origen === "excepcion" ? `valor propio del color ${dosificacion.colorNombre}` : "valor general del tipo de producto"})
+                {" "}
+                · Producto: {ciclo.productoFamilia === "REJILLA" ? "Piso Rejilla" : "Piso Ciego"} · Color: {ciclo.productoColorNombre ?? "—"}
               </span>
+            </p>
+            <p className="text-foreground-muted">
+              {dosificacion.origen === "excepcion"
+                ? `Valor propio del color ${dosificacion.colorNombre}`
+                : "Valor general del tipo de producto (el color no tiene excepción)"}
+              {dosificacion.materiaPrimaBaseNombre ? ` · sobre ${dosificacion.materiaPrimaBaseNombre}` : ""}. Se configura en Panel
+              Admin → Master.
             </p>
             {kgMp != null && (
               <p className="text-foreground-muted">
                 Para {fmtNumero(ciclo.piezasProducidas, 0)} piezas (≈ {fmtNumero(kgMp, 1)} kg de materia prima con el peso
-                teórico por pieza): ≈ {fmtNumero(kgMp * dosificacion.kgPorKgMp, 2)} kg de master.
+                teórico por pieza): ≈ {fmtNumero(kgMp * dosificacion.gPorKgMp, 3)} g de master.
               </p>
             )}
           </div>
@@ -56,6 +65,50 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
           </p>
         )}
       </div>
+
+      <div className="rounded-lg border border-border bg-surface p-4 text-sm">
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold text-foreground-muted">Materia prima usada</h2>
+          <Link href={`/materia-prima/retiro?ciclo=${ciclo.id}`} className="text-sm font-medium text-accent hover:underline">
+            Registrar retiro de MP para este ciclo
+          </Link>
+        </div>
+        {retiros.length === 0 ? (
+          <p className="text-foreground-muted">Sin retiros vinculados a este ciclo.</p>
+        ) : (
+          <ul className="space-y-1">
+            {retiros.map((r) => (
+              <li key={r.id}>
+                {r.materiaPrimaNombre} · {fmtNumero(r.cantidad, 3)} kg ·{" "}
+                {r.loteCodigo ? (
+                  <Link href={`/trazabilidad?tipo=lote&valor=${r.loteCodigo}`} className="font-mono text-accent hover:underline">
+                    {r.productoNumero ? codigoDeUso(r.loteCodigo, r.productoNumero) : r.loteCodigo}
+                  </Link>
+                ) : (
+                  <span className="text-foreground-muted">stock sin lote</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {cajas.length > 0 && (
+        <div className="rounded-lg border border-border bg-surface p-4 text-sm">
+          <h2 className="mb-2 text-sm font-semibold text-foreground-muted">Cajas generadas ({cajas.length})</h2>
+          <div className="flex flex-wrap gap-2">
+            {cajas.map((c) => (
+              <Link
+                key={c.id}
+                href={`/trazabilidad?tipo=caja&valor=${c.codigo}`}
+                className="rounded bg-surface-muted px-2 py-1 font-mono text-xs hover:text-accent"
+              >
+                {c.codigo} · {c.cantidad} u. · {c.estado === "EN_STOCK" ? "en stock" : c.estado === "ARMADA" ? "armada" : c.estado === "DESPACHADA" ? "despachada" : "baja"}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {ciclo.pedidos.length > 0 && (
         <div className="rounded-lg border border-border bg-surface p-4">

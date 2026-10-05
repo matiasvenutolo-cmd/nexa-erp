@@ -117,13 +117,15 @@ remito correlativo.
 8. **Unidad del master**: el Word dice "0.015 **gramos** por kilo"; el mismo documento, en la
    pregunta, decía "150 gramos cada 10 kilos (0,015 kg por kg)". 0,015 g/kg sería mil veces
    menos. El sistema ya trabajaba en kg/kg (`kg_por_kg_mp`): se cargó 0,015 / 0,012 / 0,018
-   kg/kg y la pantalla muestra la equivalencia en g/kg. Pendiente de confirmar la unidad.
+   kg/kg y la pantalla muestra la equivalencia en g/kg. **Resuelto (ver doc 09 §3):** el
+   cliente confirmó gramos de master por kg de MP; la columna pasó a `g_por_kg_mp`.
 9. **Quién cambia mínimos**: "solo para Encargado" (respuesta 3) vs "a consideración de
    gerencia" (tabla de asunciones). Se habilitó a ambos.
 10. **"Lo que ya está resuelto"**: el Word marca como implementados el despacho parcial, el
     doble piqueo, el aviso a ventas y la trazabilidad completa. En el código esas piezas
     están **diseñadas en el modelo** (tablas `despacho`, `piqueo`, `devolucion`, `lote_mp`,
-    `caja`) pero **no implementadas**: son R4/R5. No se tocaron ni se rompieron.
+    `caja`) pero **no implementadas**: son R4/R5. **Implementadas en la etapa siguiente
+    (doc 09).**
 11. **Mínimos iguales a máximos**: 045B, 046B, 037A, 038A tienen 500/500. Se cargaron tal cual.
 12. **MP con 0/0** (38, B3, B4, B5): el semáforo los toma como "no controlados".
 13. **Ítems del Excel que no son productos del sistema**: 067 Grampa, cajas 100 y 101; MP A10,
@@ -135,12 +137,12 @@ remito correlativo.
 |---|---|---|
 | 1 | ¿El código oficial pasa a ser el del Excel (RU/RE/RB/CM/CT/CE/CB)? ¿Y Celeste es `CE` o `C`, Yute `YU` o `YT`? | Eduardo |
 | 2 | Los productos 021–030 y 058–066, ¿son "Rampa" o "Borde"? | Eduardo |
-| 3 | Master: ¿0,015 **kg** por kg (15 g por kg)? | Eduardo |
+| 3 | ~~Master: ¿0,015 kg por kg?~~ Resuelta: g de master por kg de MP (doc 09). | — |
 | 4 | Mínimos: ¿sólo el Encargado, o también Gerencia? | Gerencia |
 | 5 | Violeta Obispo: ¿es un color especial? ¿De qué cliente? | Alejandra |
 | 6 | Proveedor del master del Yute (figura "YUTE"). | Daniela |
 | 7 | Inyectora: la respuesta 5 dice baldosas sólo en la 8 y accesorios en cualquiera. ¿Lo validamos en el alta de ciclo? (hoy es texto libre) | David |
-| 8 | Registro de reclamos: el Word lo propone ("podríamos implementar"). La tabla `devolucion` cubre parte. ¿Entra en la próxima etapa? | Gerencia |
+| 8 | ~~Registro de reclamos~~ Implementado (doc 09 §2.6); `devolucion` fue reemplazada por `reclamo`. | — |
 | 9 | Remito por duplicado: ¿se imprime el remito del sistema o el preimpreso? Para el preimpreso hacen falta las medidas. | Alejandra |
 
 ## 5. Qué no se modificó (ya estaba bien o fuera de alcance)
@@ -148,9 +150,8 @@ remito correlativo.
 - Ledger de stock (`movimiento` + `saldo`), reservas, ciclo de vida del pedido, producción por
   día con continuidad de partida y número de partida automático.
 - Regla de precios por rol.
-- Código de barras de MP (primeros 3 dígitos en 0): todavía no hay módulo de MP (R4); no hay
-  nada que corregir.
+- Código de barras de MP (primeros 3 dígitos en 0): implementado con el módulo de MP (doc 09).
 - Etiquetas: fuera de esta etapa por definición del cliente.
-- Reclamos: no se implementó (ver pregunta 8). Remito impreso por duplicado: pendiente
-  (pregunta 9).
+- Reclamos y remito impreso por duplicado (original + duplicado del sistema): implementados
+  en doc 09. Sigue abierta la variante preimpresa (pregunta 9).
 - Líneas históricas sin producto (73, del Excel viejo): se conservan tal cual.
