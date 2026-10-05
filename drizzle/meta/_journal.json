@@ -43,6 +43,13 @@
       "when": 1791208814579,
       "tag": "0005_r4_r5_despacho_trazabilidad_reclamos",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791244043290,
+      "tag": "0006_master_fase2_drop_kg",
+      "breakpoints": true
     }
   ]
 }

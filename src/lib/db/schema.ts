@@ -341,11 +341,8 @@ export const dosificacionMaster = pgTable(
     colorId: integer("color_id").references(() => color.id),
     /** La materia prima base sobre la que se dosifica (Copolímero 2240P en rejilla). */
     materiaPrimaBaseId: integer("materia_prima_base_id").references(() => materiaPrima.id),
-    /** Columna anterior (kg/kg). Se elimina en la migración siguiente, una
-     *  vez desplegado el código que usa `gPorKgMp`. */
-    kgPorKgMp: numeric("kg_por_kg_mp", { precision: 8, scale: 5 }),
     /** Gramos de master por kg de materia prima (definición del cliente, 05/10/2026). */
-    gPorKgMp: numeric("g_por_kg_mp", { precision: 10, scale: 5 }),
+    gPorKgMp: numeric("g_por_kg_mp", { precision: 10, scale: 5 }).notNull(),
     observaciones: text("observaciones"),
     actualizadoEn: timestamp("actualizado_en", { withTimezone: true }).notNull().defaultNow(),
     actualizadoPorId: integer("actualizado_por_id").references(() => usuario.id),
