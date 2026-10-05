@@ -110,7 +110,8 @@ Migración en dos fases (base compartida local/prod):
 1. `0005`: agrega `g_por_kg_mp`, copia los valores (los números eran correctos, la unidad
    no) y deja registro en `auditoria_config` (`X kg/kg` → `X g/kg`). El código nuevo sólo
    usa `g_por_kg_mp`. **Aplicada.**
-2. Después del deploy: eliminar `kg_por_kg_mp` y hacer `g_por_kg_mp` NOT NULL.
+2. `0006`, después del deploy: elimina `kg_por_kg_mp` y hace `g_por_kg_mp` NOT NULL.
+   **Aplicada el 05/10/2026.**
 
 ## 4. Decisiones tomadas para avanzar (preguntas abiertas)
 
