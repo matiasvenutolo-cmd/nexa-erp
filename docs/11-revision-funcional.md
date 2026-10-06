@@ -18,13 +18,18 @@ de negocio nuevas; donde hizo falta una regla se usó la que ya estaba definida.
 | 8–10 | Asignar | "Asignar" ofrecía cualquier producto a renglones del Excel con texto libre ("gris oscuro y violeta") | Se llama "Vincular al producto del catálogo". Texto con varios colores: dato pendiente, no se vincula. Color reconocible: sólo productos de ese color (validado también en el servidor). Texto que no identifica un color: dato pendiente. Sin dato de color: exige registrar cómo se confirmó. La asignación de stock a un pedido sigue siendo la lectura de cajas en el armado, que sólo acepta el producto exacto. |
 | 11 | Remitos | Existían pero dispersos en la tarjeta de cada despacho | Tabla "Remitos" en el pedido: remito interno, fecha, estado, remito legal, quién y cuándo lo registró, e impresión original/duplicado. |
 
-## 2. Hallazgos en datos reales (no modificados)
+## 2. Correcciones de datos reales (autorizadas, 06/10/2026)
 
-- Pedido #54: el renglón "GRIS OSCURO Y ROJO" quedó vinculado a 007B-PR-VC
-  (Rejilla Verde Claro) el 06/10 a las 09:13 (usuario Eduardo González). Con la
-  regla nueva esa vinculación se rechaza. Requiere decisión: revertirla.
-- Pedido #54, otro renglón sin color vinculado a 078A-PR-YU (Yute), 13 u.
-- 5 pedidos con "Listo para despachar" importado (#44, #47, #51, #54, #56).
+Aplicadas en una sola transacción, con fila de auditoría en cada cambio:
+
+- Pedidos #44, #47, #51, #54 y #56: "Listo para despachar" (importado del
+  Excel, sin despacho ni entregas) → "Pedido".
+- Pedido #54, renglón "GRIS OSCURO Y ROJO": se revirtió la vinculación a
+  007B-PR-VC (Rejilla Verde Claro) hecha el 06/10 09:13; la reserva quedó
+  LIBERADA. El otro renglón del #54 (sin color, vinculado a 078A-PR-YU) no se
+  tocó: no hay dato para validarlo.
+- Se borraron los datos de la prueba de punta a punta (pedido #84 y todo lo
+  asociado) y se restauraron los saldos; saldo = ledger en todos los ítems.
 
 ## 3. Tests
 
