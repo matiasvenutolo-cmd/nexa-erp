@@ -1,7 +1,8 @@
 /**
  * Página de arranque.
  *
- * El sistema se entrega en 6 releases mensuales (ver README y docs/03-plan-release-1.md).
+ * El sistema se entrega en 6 releases (ver README y docs/03-plan-release-1.md). El estado
+ * de cada uno se actualiza a mano acá; "falta" lista lo que todavía no está hecho.
  * Es pública (src/proxy.ts la deja pasar sin sesión) porque es la URL que ve
  * el cliente sin necesidad de cuenta — pero por eso mismo tiene que dejar
  * clarísimo cómo se entra al sistema de verdad: nada de que alguien llegue
@@ -10,41 +11,47 @@
  */
 import Link from "next/link";
 
-const RELEASES = [
+type EstadoRelease = "Completado" | "En curso" | "Pendiente";
+
+const RELEASES: { id: string; titulo: string; detalle: string; estado: EstadoRelease; falta?: string }[] = [
   {
     id: "R1",
     titulo: "Núcleo + Pedidos",
     detalle:
       "Usuarios y accesos reales, catálogo de productos, clientes, carga de pedidos con chequeo de stock y reserva de material.",
-    estado: "En curso",
+    estado: "Completado",
   },
   {
     id: "R2",
     titulo: "Stock",
     detalle:
-      "Entradas, salidas y correcciones con historial. Stock disponible, comprometido y a producir. Recuento físico semanal.",
-    estado: "Pendiente",
+      "Entradas, salidas y correcciones con historial. Stock disponible, comprometido y a producir. Mínimos, máximos y semáforo configurables.",
+    estado: "Completado",
+    falta: "Pantalla propia de recuento físico semanal (hoy se registra como corrección de stock con motivo).",
   },
   {
     id: "R3",
     titulo: "Producción",
     detalle:
-      "Cola de producción priorizada, carga del ciclo de inyección en dos pasos, partidas generadas por el sistema y cajas etiquetadas.",
-    estado: "Pendiente",
+      "Cola de producción priorizada, carga del ciclo de inyección en dos pasos, partidas generadas por el sistema y cajas por partida.",
+    estado: "Completado",
+    falta: "Impresión de la etiqueta de cada caja (ver R5).",
   },
   {
     id: "R4",
     titulo: "Materia prima y trazabilidad",
     detalle:
-      "Recetas por producto, lotes y certificados de calidad, retiro a tolva y consumo real de material.",
-    estado: "Pendiente",
+      "Lotes y certificados de calidad, retiro a máquina vinculado a la producción, dosificación de master y trazabilidad completa del certificado al cliente.",
+    estado: "Completado",
+    falta: "Recetas por producto (proporción de cada materia prima).",
   },
   {
     id: "R5",
     titulo: "Etiquetas y despacho",
     detalle:
-      "Etiqueta de producto y de cliente, despacho parcial, doble piqueo, remitos y devoluciones.",
-    estado: "Pendiente",
+      "Despacho parcial, doble control, aviso a ventas, remitos interno y legal, y reclamos con informe a gerencia.",
+    estado: "En curso",
+    falta: "Etiquetas de producto y de cliente.",
   },
   {
     id: "R6",
@@ -54,6 +61,12 @@ const RELEASES = [
     estado: "Pendiente",
   },
 ];
+
+const ESTILO_ESTADO: Record<EstadoRelease, string> = {
+  Completado: "bg-[var(--estado-ok-bg)] text-[var(--estado-ok-fg)]",
+  "En curso": "bg-accent-soft text-accent",
+  Pendiente: "bg-surface-muted text-foreground-muted",
+};
 
 export default function Home() {
   return (
@@ -76,9 +89,9 @@ export default function Home() {
           </Link>
         </div>
         <p className="mt-4 text-base leading-relaxed text-foreground-muted">
-          Sistema en construcción. Reemplaza el circuito actual de planillas por una
-          única aplicación que cubre el recorrido completo del pedido: venta, stock,
-          producción, partidas, etiquetas y despacho.
+          Reemplaza el circuito de planillas por una única aplicación que cubre el
+          recorrido completo del pedido: venta, stock, producción, partidas, materia
+          prima, despacho y trazabilidad.
         </p>
       </header>
 
@@ -88,7 +101,6 @@ export default function Home() {
         </h2>
         <ol className="mt-5 space-y-3">
           {RELEASES.map((r) => {
-            const enCurso = r.estado === "En curso";
             return (
               <li
                 key={r.id}
@@ -100,28 +112,19 @@ export default function Home() {
                     <span className="mx-2 text-border">·</span>
                     {r.titulo}
                   </h3>
-                  <span
-                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                      enCurso
-                        ? "bg-accent-soft text-accent"
-                        : "bg-surface-muted text-foreground-muted"
-                    }`}
-                  >
+                  <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${ESTILO_ESTADO[r.estado]}`}>
                     {r.estado}
                   </span>
                 </div>
                 <p className="mt-2 text-sm leading-relaxed text-foreground-muted">
                   {r.detalle}
                 </p>
+                {r.falta && <p className="mt-1 text-sm text-foreground">Pendiente: {r.falta}</p>}
               </li>
             );
           })}
         </ol>
       </section>
-
-      <footer className="mt-12 border-t border-border pt-6 text-sm text-foreground-muted">
-        Desarrollado por Pinaro.
-      </footer>
     </main>
   );
 }
