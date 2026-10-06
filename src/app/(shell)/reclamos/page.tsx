@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ESTADO_RECLAMO_LABEL, listarReclamos, MOTIVO_DEVOLUCION_LABEL, type EstadoReclamo } from "@/lib/data/reclamos";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeCrearReclamo } from "@/lib/auth/permisos";
-import { fmtFecha } from "@/lib/format";
+import { fmtDia } from "@/lib/format";
 
 const FILTROS: { v?: EstadoReclamo; label: string }[] = [
   { label: "Todos" },
@@ -57,7 +57,7 @@ export default async function ReclamosPage({ searchParams }: { searchParams: Pro
                       #{r.id}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-foreground-muted">{fmtFecha(r.creadoEn)}</td>
+                  <td className="px-4 py-3 text-foreground-muted">{fmtDia(r.creadoEn)}</td>
                   <td className="px-4 py-3">
                     {r.clienteNombre}
                     <div className="text-xs text-foreground-muted">Pedido #{r.pedidoId} · cargó {r.creadoPorNombre}</div>

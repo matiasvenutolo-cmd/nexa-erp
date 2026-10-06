@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { obtenerDespachoParaRemito, remitoInterno } from "@/lib/data/despachos";
-import { fmtFecha, fmtNumero } from "@/lib/format";
+import { fmtDia, fmtFecha, fmtNumero } from "@/lib/format";
 import { BotonImprimir } from "./imprimir";
 
 /** Remito interno del sistema, por duplicado ("independientemente de que
@@ -29,7 +29,7 @@ export default async function RemitoPage({ params }: { params: Promise<{ id: str
             <div className="text-right">
               <div className="text-lg font-semibold">{remitoInterno(r.d.numeroInterno)}</div>
               <div>{copia}</div>
-              <div>Fecha: {r.d.entregadoEn ? fmtFecha(r.d.entregadoEn) : fmtFecha(r.d.fecha)}</div>
+              <div>Fecha: {r.d.entregadoEn ? fmtDia(r.d.entregadoEn) : fmtFecha(r.d.fecha)}</div>
               {r.d.numeroRemito && <div>Remito legal N° {r.d.numeroRemito}</div>}
             </div>
           </div>

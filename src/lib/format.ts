@@ -7,6 +7,20 @@ export function fmtFecha(d: Date | string): string {
   });
 }
 
+const ZONA = "America/Argentina/Buenos_Aires";
+
+/** Día de un momento real (timestamp: creación, entrega, movimiento) en hora
+ *  argentina. `fmtFecha` es para fechas sin hora (columnas `date`). */
+export function fmtDia(d: Date | string): string {
+  return new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: ZONA });
+}
+
+/** "Hoy" en Argentina como AAAA-MM-DD. Con UTC, después de las 21 h lo cargado
+ *  quedaba con la fecha del día siguiente. */
+export function hoyISO(): string {
+  return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: ZONA }).format(new Date());
+}
+
 export function fmtMoneda(v: string | number | null | undefined): string {
   if (v == null) return "—";
   const n = typeof v === "string" ? Number(v) : v;

@@ -222,7 +222,7 @@ export async function trazarCaja(codigo: string) {
 /** Lote fallado → ciclos → partidas → cajas → clientes. */
 export async function trazarLote(codigoOLote: string) {
   const valor = codigoOLote.replace(/\s+/g, "");
-  const [l] = await db
+  const encontrados = await db
     .select({
       id: loteMp.id,
       codigoBarra: loteMp.codigoBarra,
@@ -237,6 +237,9 @@ export async function trazarLote(codigoOLote: string) {
     .innerJoin(materiaPrima, eq(loteMp.materiaPrimaId, materiaPrima.id))
     .leftJoin(certificadoCalidad, eq(loteMp.certificadoId, certificadoCalidad.id))
     .where(sql`${loteMp.codigoBarra} = ${valor} or ${loteMp.numeroLote} = ${valor}`);
+  // El código de 27 dígitos es único; el número de lote solo, no (dos
+  // proveedores pueden repetirlo): en ese caso no se elige uno al azar.
+  const l = encontrados.find((e) => e.codigoBarra === valor) ?? (encontrados.length === 1 ? encontrados[0] : null);
   if (!l) return null;
   const usos = await db
     .select({ cicloId: cicloMateriaPrima.cicloId, kg: cicloMateriaPrima.cantidadKg, partidaId: cicloProduccion.partidaId })
@@ -250,6 +253,15 @@ export async function trazarLote(codigoOLote: string) {
     partidaIds.length ? salidas(and(inArray(partida.id, partidaIds))) : Promise.resolve([] as Destino[]),
   ]);
   return { lote: l, usos: usos.map((u) => ({ ...u, kg: Number(u.kg) })), partidas: origen, cajas, destinos };
+}
+
+/** Lotes que comparten el número buscado (para pedir el código completo). */
+export async function lotesConNumero(numeroLote: string) {
+  return db
+    .select({ codigoBarra: loteMp.codigoBarra, materiaPrimaNombre: materiaPrima.nombre })
+    .from(loteMp)
+    .innerJoin(materiaPrima, eq(loteMp.materiaPrimaId, materiaPrima.id))
+    .where(eq(loteMp.numeroLote, numeroLote.replace(/\s+/g, "")));
 }
 
 export async function trazarCertificado(numero: number) {

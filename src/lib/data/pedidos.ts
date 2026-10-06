@@ -223,7 +223,13 @@ export async function cancelarPedido(actor: Actor, pedidoId: number): Promise<Re
     if (actual.estado === "ENTREGADO" || actual.estado === "CANCELADO") {
       return { error: `Un pedido ${ESTADO_LABEL[actual.estado].toLowerCase()} no se puede cancelar.` };
     }
-    await anularDespachoActivoEnTx(tx, actor, pedidoId);
+    const anulado = await anularDespachoActivoEnTx(tx, actor, pedidoId);
+    if (anulado.error) return anulado;
+    // Se vuelve a leer con bloqueo: un control final pudo cerrar el pedido mientras tanto.
+    const [vigente] = await tx.select({ estado: pedido.estado }).from(pedido).where(eq(pedido.id, pedidoId)).for("update");
+    if (vigente.estado === "ENTREGADO" || vigente.estado === "CANCELADO") {
+      return { error: `Un pedido ${ESTADO_LABEL[vigente.estado].toLowerCase()} no se puede cancelar.` };
+    }
     const lineas = await tx.select({ id: pedidoLinea.id }).from(pedidoLinea).where(eq(pedidoLinea.pedidoId, pedidoId));
     const lineaIds = lineas.map((l) => l.id);
     if (lineaIds.length > 0) {

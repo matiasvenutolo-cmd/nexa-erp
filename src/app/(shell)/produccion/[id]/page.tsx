@@ -3,7 +3,7 @@ import Link from "next/link";
 import { cajasDeCiclo, obtenerCiclo } from "@/lib/data/produccion";
 import { resolverDosificacion } from "@/lib/data/dosificacion";
 import { codigoDeUso, listarRetiros } from "@/lib/data/materia-prima";
-import { fmtNumero, fmtFecha } from "@/lib/format";
+import { fmtNumero, fmtFecha, fmtDia } from "@/lib/format";
 import { FormularioCierre } from "./formulario-cierre";
 
 export default async function CicloPage({ params }: { params: Promise<{ id: string }> }) {
@@ -128,7 +128,7 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
 
       {ciclo.fechaFin ? (
         <div className="grid gap-3 rounded-lg border border-border bg-surface p-4 text-sm sm:grid-cols-3">
-          <Dato label="Fin" valor={fmtFecha(ciclo.fechaFin)} />
+          <Dato label="Fin" valor={fmtDia(ciclo.fechaFin)} />
           <Dato label="Golpes de fin" valor={ciclo.golpesFin != null ? fmtNumero(ciclo.golpesFin, 0) : "—"} />
           <Dato label="Piezas producidas" valor={ciclo.piezasProducidas != null ? fmtNumero(ciclo.piezasProducidas, 0) : "—"} />
           <Dato label="Piezas descartadas" valor={ciclo.piezasDescartadas != null ? fmtNumero(ciclo.piezasDescartadas, 0) : "—"} />

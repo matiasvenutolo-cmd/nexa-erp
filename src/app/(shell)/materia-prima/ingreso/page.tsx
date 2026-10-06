@@ -4,6 +4,7 @@ import { materiasPrimasActivas } from "@/lib/data/materia-prima";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeIngresarMateriaPrima } from "@/lib/auth/permisos";
 import { FormIngreso } from "../formularios";
+import { hoyISO } from "@/lib/format";
 
 export default async function IngresoMpPage() {
   const usuario = await getUsuarioActual();
@@ -17,7 +18,7 @@ export default async function IngresoMpPage() {
         </Link>
         <h1 className="mt-1 text-xl font-semibold text-brand-azul-oscuro">Ingreso de materia prima</h1>
       </div>
-      <FormIngreso materias={materias} hoy={new Date().toISOString().slice(0, 10)} />
+      <FormIngreso materias={materias} hoy={hoyISO()} />
     </div>
   );
 }

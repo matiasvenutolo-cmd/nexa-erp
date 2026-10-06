@@ -3,13 +3,13 @@
 import { useActionState, useState, useTransition } from "react";
 import { crearCicloAction, datosParaProducto, golpesSugeridos, type FormState } from "@/app/actions/produccion";
 import type { PedidoNecesitaProducto } from "@/lib/data/produccion";
+import { hoyISO } from "@/lib/format";
 
 type Producto = { id: number; codigo: string; descripcion: string; piezasPorGolpe: number | null };
 type Operario = { id: number; nombre: string };
 type Partida = { id: number; numero: number; fechaApertura: string };
 type DatosProducto = { piezasPorGolpe: number | null; partidas: Partida[]; pedidos: PedidoNecesitaProducto[] };
 
-const HOY = new Date().toISOString().slice(0, 10);
 
 export function FormularioCiclo({
   productos,
@@ -83,7 +83,7 @@ export function FormularioCiclo({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block text-sm">
           <span className="mb-1 block text-foreground-muted">Fecha</span>
-          <input name="fecha" type="date" required defaultValue={HOY} className="input" />
+          <input name="fecha" type="date" required defaultValue={hoyISO()} className="input" />
         </label>
         <label className="block text-sm">
           <span className="mb-1 block text-foreground-muted">Inyectora</span>

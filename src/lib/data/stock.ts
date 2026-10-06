@@ -154,10 +154,18 @@ export async function corregirStockManual(input: {
   usuarioId: number;
 }): Promise<{ error?: string }> {
   if (input.delta === 0) return { error: "El ajuste no puede ser cero." };
+  if (!Number.isInteger(input.delta)) return { error: "El ajuste es en piezas: tiene que ser un número entero." };
   if (!input.motivo.trim()) return { error: "El motivo es obligatorio." };
 
   const depositoId = await getDepositoNexaId();
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
+    const [actual] = await tx
+      .select({ cantidad: saldo.cantidad })
+      .from(saldo)
+      .where(and(eq(saldo.depositoId, depositoId), eq(saldo.productoId, input.productoId)))
+      .for("update");
+    const stock = Number(actual?.cantidad ?? 0);
+    if (stock + input.delta < 0) return { error: `El stock no puede quedar negativo: hay ${stock} unidades.` };
     await tx.insert(movimiento).values({
       tipo: "AJUSTE",
       depositoId,
@@ -174,8 +182,8 @@ export async function corregirStockManual(input: {
         target: [saldo.depositoId, saldo.productoId],
         set: { cantidad: sql`${saldo.cantidad} + ${input.delta}` },
       });
+    return {};
   });
-  return {};
 }
 
 /** Con qué signo mostrar la cantidad de un movimiento — ENTRADA siempre +,

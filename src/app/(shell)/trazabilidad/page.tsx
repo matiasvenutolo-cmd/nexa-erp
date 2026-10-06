@@ -5,6 +5,7 @@ import {
   trazarCaja,
   trazarCertificado,
   trazarLote,
+  lotesConNumero,
   trazarPartida,
   trazarPedido,
   type Destino,
@@ -137,7 +138,24 @@ async function Resultado({ tipo, valor }: { tipo: Tipo; valor: string }) {
 
   if (tipo === "lote") {
     const t = await trazarLote(valor);
-    if (!t) return sinResultado;
+    if (!t) {
+      const varios = await lotesConNumero(valor);
+      if (varios.length < 2) return sinResultado;
+      return (
+        <Bloque titulo={`Hay ${varios.length} lotes con el número ${valor}: elegí el código completo`}>
+          <ul className="mt-1 space-y-1">
+            {varios.map((v) => (
+              <li key={v.codigoBarra}>
+                <Link href={`/trazabilidad?tipo=lote&valor=${v.codigoBarra}`} className="font-mono text-accent hover:underline">
+                  {v.codigoBarra}
+                </Link>{" "}
+                · {v.materiaPrimaNombre}
+              </li>
+            ))}
+          </ul>
+        </Bloque>
+      );
+    }
     return <TrazaLote t={t} />;
   }
 

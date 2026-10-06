@@ -3,7 +3,7 @@ import { listarColores, mastersDisponibles, type FilaColor } from "@/lib/data/co
 import { listarClientes } from "@/lib/data/clientes";
 import { listarProveedoresMaster } from "@/lib/data/proveedores";
 import { actualizarColorAction, crearColorEspecialAction } from "@/app/actions/admin";
-import { fmtFecha } from "@/lib/format";
+import { fmtDia } from "@/lib/format";
 import { Aviso, BOTON, TD, TH, UltimaModificacion, exigirSeccion } from "../comunes";
 
 type Opcion = { id: number; nombre: string };
@@ -188,7 +188,7 @@ function FilaColorAdmin({
         </details>
         <div className="text-xs text-foreground-muted">
           {c.productos} producto{c.productos === 1 ? "" : "s"}
-          {c.especial && ` · registrado ${fmtFecha(c.creadoEn)}`}
+          {c.especial && ` · registrado ${fmtDia(c.creadoEn)}`}
         </div>
       </td>
       <td className={`${TD} font-mono text-xs`}>{c.iniciales}</td>

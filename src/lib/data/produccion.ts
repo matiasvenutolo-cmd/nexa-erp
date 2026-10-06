@@ -29,6 +29,7 @@ import { getDepositoNexaId } from "@/lib/data/depositos";
 import { materialComprometido, ordenPrioridad, type FilaComprometido } from "@/lib/data/pedidos";
 import { unidadesPorCaja } from "@/lib/data/catalogo";
 import { PARAMETROS } from "@/lib/data/parametros";
+import { hoyISO } from "@/lib/format";
 
 /** Lista chica para el select del alta de ciclo — no la del catálogo completo,
  *  que trae stock/semáforo que acá no hace falta. */
@@ -78,10 +79,15 @@ export type NuevoCicloInput = {
 
 /** Alta del día — Paso 1 (inicio). Si no se elige una partida abierta para
  *  continuar, genera una nueva con número correlativo (nunca se tipea). */
-export async function crearCiclo(input: NuevoCicloInput): Promise<{ id: number }> {
+export async function crearCiclo(input: NuevoCicloInput): Promise<{ id: number } | { error: string }> {
   return db.transaction(async (tx) => {
     let partidaId = input.partidaId;
-    if (!partidaId) {
+    if (partidaId) {
+      // Continuar una partida: tiene que ser del mismo producto y seguir abierta.
+      const [p] = await tx.select().from(partida).where(eq(partida.id, partidaId));
+      if (!p || p.productoId !== input.productoId) return { error: "La partida elegida no es de este producto." };
+      if (p.fechaCierre) return { error: `La partida N° ${p.numero} ya está cerrada.` };
+    } else {
       const [{ maxNumero }] = await tx
         .select({ maxNumero: sql<number>`coalesce(max(${partida.numero}), 0)`.mapWith(Number) })
         .from(partida);
@@ -137,9 +143,10 @@ export type FinCicloInput = {
  * movimiento).
  */
 export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promise<{ error?: string }> {
+  const yaCerrado = { error: "Este ciclo ya está cerrado." };
   const ciclo = await db.query.cicloProduccion.findFirst({ where: eq(cicloProduccion.id, cicloId) });
   if (!ciclo) return { error: "Ciclo no encontrado." };
-  if (ciclo.fechaFin) return { error: "Este ciclo ya está cerrado." };
+  if (ciclo.fechaFin) return yaCerrado;
 
   const piezasProducidas =
     input.golpesFin != null && ciclo.golpesInicio != null && ciclo.piezasPorGolpe != null
@@ -160,8 +167,10 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
     : [];
   const numeroPartida = part?.numero ?? null;
 
-  await db.transaction(async (tx) => {
-    await tx
+  return db.transaction(async (tx) => {
+    // El "abierto" se vuelve a comprobar dentro de la transacción y de forma
+    // atómica: un doble envío no puede ingresar el stock ni las cajas dos veces.
+    const cerrado = await tx
       .update(cicloProduccion)
       .set({
         fechaFin: new Date(),
@@ -175,7 +184,9 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
         cambioCicloCausa: input.cambioCicloCausa,
         observaciones: input.observaciones,
       })
-      .where(eq(cicloProduccion.id, cicloId));
+      .where(and(eq(cicloProduccion.id, cicloId), isNull(cicloProduccion.fechaFin)))
+      .returning({ id: cicloProduccion.id });
+    if (cerrado.length === 0) return yaCerrado;
 
     if (ciclo.productoId != null && input.piezasEntregadas != null && input.piezasEntregadas > 0) {
       await tx.insert(movimiento).values({
@@ -208,11 +219,10 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
     }
 
     if (input.cerrarPartida && ciclo.partidaId) {
-      await tx.update(partida).set({ fechaCierre: new Date().toISOString().slice(0, 10) }).where(eq(partida.id, ciclo.partidaId));
+      await tx.update(partida).set({ fechaCierre: hoyISO() }).where(eq(partida.id, ciclo.partidaId));
     }
+    return {};
   });
-
-  return {};
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -251,7 +261,7 @@ async function generarCajas(tx: Tx, input: { cicloId: number; partidaId: number;
     .select({ ultimo: sql<number>`coalesce(max(${caja.numeroCaja}), 0)`.mapWith(Number) })
     .from(caja)
     .where(eq(caja.partidaId, input.partidaId));
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyISO();
   await tx.insert(caja).values(
     tandas.map((cantidad, i) => ({
       partidaId: input.partidaId,

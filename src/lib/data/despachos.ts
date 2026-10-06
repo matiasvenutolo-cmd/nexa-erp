@@ -41,6 +41,7 @@ import { getDepositoNexaId } from "@/lib/data/depositos";
 import { puedeOperarDespacho, puedeRegistrarRemitoLegal } from "@/lib/auth/permisos";
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
 import { crearAviso } from "@/lib/data/avisos";
+import { hoyISO } from "@/lib/format";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Ejecutor = Tx | typeof db;
@@ -57,6 +58,14 @@ async function despachoActivoDe(ex: Ejecutor, pedidoId: number) {
     .select()
     .from(despacho)
     .where(and(eq(despacho.pedidoId, pedidoId), inArray(despacho.estado, ACTIVOS)));
+  return d ?? null;
+}
+
+/** Lee el despacho bloqueando su fila hasta el fin de la transacción: dos
+ *  confirmaciones simultáneas (doble clic, dos pestañas) se serializan y la
+ *  segunda ve el estado ya cambiado, así el stock no sale dos veces. */
+async function despachoBloqueado(tx: Tx, despachoId: number) {
+  const [d] = await tx.select().from(despacho).where(eq(despacho.id, despachoId)).for("update");
   return d ?? null;
 }
 
@@ -272,7 +281,7 @@ export async function cajasDisponibles(productoIds: number[]) {
 export async function iniciarDespacho(actor: Actor, pedidoId: number): Promise<Resultado & { id?: number }> {
   if (!puedeOperarDespacho(actor.rol)) return { error: "No tenés permiso para armar despachos." };
   return db.transaction(async (tx) => {
-    const [p] = await tx.select().from(pedido).where(eq(pedido.id, pedidoId));
+    const [p] = await tx.select().from(pedido).where(eq(pedido.id, pedidoId)).for("update");
     if (!p) return { error: "Pedido no encontrado." };
     if (p.estado === "ENTREGADO" || p.estado === "CANCELADO") return { error: "El pedido está cerrado." };
     if (await despachoActivoDe(tx, pedidoId)) return { error: "Ya hay un despacho en curso para este pedido." };
@@ -285,7 +294,7 @@ export async function iniciarDespacho(actor: Actor, pedidoId: number): Promise<R
       .values({
         pedidoId,
         estado: "ARMANDO",
-        fecha: new Date().toISOString().slice(0, 10),
+        fecha: hoyISO(),
         modoEntrega: p.modoEntrega,
         transporte: p.transporte,
         creadoPorId: actor.id,
@@ -317,7 +326,7 @@ export async function piquear(
 
   const depositoId = await getDepositoNexaId();
   return db.transaction(async (tx) => {
-    const [d] = await tx.select().from(despacho).where(eq(despacho.id, despachoId));
+    const d = await despachoBloqueado(tx, despachoId);
     if (!d) return { error: "Despacho no encontrado." };
     const tipo = d.estado === "ARMANDO" ? "ARMADO" : d.estado === "CONTROLADO" ? "CONTROL_FINAL" : null;
     if (!tipo) return { error: "Este despacho ya no admite lecturas." };
@@ -362,6 +371,13 @@ export async function piquear(
     }
 
     if (tipo === "ARMADO") {
+      // Serializa el armado del mismo producto entre despachos distintos (dos
+      // pedidos que leen la misma caja o el mismo stock al mismo tiempo).
+      const [s] = await tx
+        .select({ cantidad: saldo.cantidad })
+        .from(saldo)
+        .where(and(eq(saldo.depositoId, depositoId), eq(saldo.productoId, productoId)))
+        .for("update");
       const armado = (await armadoPorLinea(tx, despachoId, "ARMADO")).get(linea.id) ?? 0;
       const pendiente = linea.unidadesPedidas - linea.unidadesDespachadas - armado;
       let disponibleCaja = Infinity;
@@ -390,11 +406,9 @@ export async function piquear(
         return { alerta: `La caja ${codigo} tiene ${disponibleCaja} unidades disponibles.` };
       }
       if (!c) {
-        // Stock sin caja: no se puede armar más de lo que hay.
-        const [s] = await tx
-          .select({ cantidad: saldo.cantidad })
-          .from(saldo)
-          .where(and(eq(saldo.depositoId, depositoId), eq(saldo.productoId, productoId)));
+        // Stock sin caja: lo que hay, menos lo ya armado en despachos en curso y
+        // menos lo que sigue guardado en cajas sin comprometer (eso se arma
+        // leyendo la caja; si no, la misma unidad se comprometería dos veces).
         const enDespachosActivos = await tx
           .select({ total: sql<number>`coalesce(sum(${piqueo.cantidad}), 0)`.mapWith(Number) })
           .from(piqueo)
@@ -408,10 +422,20 @@ export async function piquear(
               inArray(despacho.estado, ACTIVOS),
             ),
           );
-        const libre = Number(s?.cantidad ?? 0) - enDespachosActivos[0].total;
+        const cajasDelProducto = await tx
+          .select({ id: caja.id, cantidad: caja.cantidad })
+          .from(caja)
+          .where(and(eq(caja.productoId, productoId), inArray(caja.estado, ["EN_STOCK", "ARMADA"])));
+        const usadoCajas = await usadoDeCajas(tx, cajasDelProducto.map((x) => x.id));
+        const enCajas = cajasDelProducto.reduce((t, x) => t + Math.max(0, x.cantidad - (usadoCajas.get(x.id) ?? 0)), 0);
+        const libre = Number(s?.cantidad ?? 0) - enDespachosActivos[0].total - enCajas;
         if (cantidad > libre) {
           await registrar(cantidad, linea.id, `Stock insuficiente (${Math.max(0, libre)} libres).`);
-          return { alerta: `No hay stock suficiente: ${Math.max(0, libre)} unidades libres.` };
+          return {
+            alerta:
+              `No hay stock suficiente sin caja: ${Math.max(0, libre)} unidades libres.` +
+              (enCajas > 0 ? ` Hay ${enCajas} en cajas: leé el código de la caja.` : ""),
+          };
         }
       }
       await registrar(cantidad, linea.id, null);
@@ -474,7 +498,7 @@ function describir(lineas: { codigo: string | null; unidades: number; pendiente:
 export async function confirmarPrimerControl(actor: Actor, despachoId: number, observaciones?: string | null): Promise<Resultado> {
   if (!puedeOperarDespacho(actor.rol)) return { error: "No tenés permiso para controlar despachos." };
   return db.transaction(async (tx) => {
-    const [d] = await tx.select().from(despacho).where(eq(despacho.id, despachoId));
+    const d = await despachoBloqueado(tx, despachoId);
     if (!d) return { error: "Despacho no encontrado." };
     if (d.estado !== "ARMANDO") return { error: "El primer control ya se hizo o el despacho no está en armado." };
     const armado = await armadoPorLinea(tx, despachoId, "ARMADO");
@@ -526,7 +550,7 @@ export async function confirmarControlFinal(actor: Actor, despachoId: number, ob
   if (!puedeOperarDespacho(actor.rol)) return { error: "No tenés permiso para controlar despachos." };
   const depositoId = await getDepositoNexaId();
   return db.transaction(async (tx) => {
-    const [d] = await tx.select().from(despacho).where(eq(despacho.id, despachoId));
+    const d = await despachoBloqueado(tx, despachoId);
     if (!d) return { error: "Despacho no encontrado." };
     if (d.estado !== "CONTROLADO") return { error: "Falta el primer control: no se puede hacer el control final." };
 
@@ -640,7 +664,7 @@ export async function anularDespacho(actor: Actor, despachoId: number, motivo: s
 }
 
 async function anularEnTx(tx: Tx, actor: Actor, despachoId: number, motivo: string): Promise<Resultado> {
-  const [d] = await tx.select().from(despacho).where(eq(despacho.id, despachoId));
+  const d = await despachoBloqueado(tx, despachoId);
   if (!d) return { error: "Despacho no encontrado." };
   if (!ACTIVOS.includes(d.estado)) return { error: "Sólo se anula un despacho que todavía no se entregó." };
   await tx.update(despacho).set({ estado: "ANULADO", observaciones: `Anulado: ${motivo}` }).where(eq(despacho.id, despachoId));
@@ -665,9 +689,12 @@ async function anularEnTx(tx: Tx, actor: Actor, despachoId: number, motivo: stri
 }
 
 /** Si se cancela un pedido con un despacho en curso, el despacho se anula. */
-export async function anularDespachoActivoEnTx(tx: Tx, actor: Actor, pedidoId: number) {
+export async function anularDespachoActivoEnTx(tx: Tx, actor: Actor, pedidoId: number): Promise<Resultado> {
   const activo = await despachoActivoDe(tx, pedidoId);
-  if (activo) await anularEnTx(tx, actor, activo.id, "Pedido cancelado");
+  if (!activo) return {};
+  const r = await anularEnTx(tx, actor, activo.id, "Pedido cancelado");
+  // Si el control final se confirmó en el medio, el despacho ya se entregó.
+  return r.error ? { error: "El despacho en curso acaba de entregarse: revisá el pedido antes de cancelarlo." } : {};
 }
 
 /** El N° del remito legal que emite administración, asociado al despacho. */
@@ -676,7 +703,7 @@ export async function registrarRemitoLegal(actor: Actor, despachoId: number, num
   const valor = numero.trim();
   if (!valor) return { error: "Falta el número de remito legal." };
   return db.transaction(async (tx) => {
-    const [d] = await tx.select().from(despacho).where(eq(despacho.id, despachoId));
+    const d = await despachoBloqueado(tx, despachoId);
     if (!d) return { error: "Despacho no encontrado." };
     if (d.estado !== "ENTREGADO") return { error: "El remito legal se registra sobre un despacho entregado." };
     await tx.update(despacho).set({ numeroRemito: valor, remitoLegalPorId: actor.id, remitoLegalEn: new Date() }).where(eq(despacho.id, despachoId));

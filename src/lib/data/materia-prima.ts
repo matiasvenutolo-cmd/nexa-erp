@@ -32,6 +32,7 @@ import {
 import { getDepositoNexaId } from "@/lib/data/depositos";
 import { puedeIngresarMateriaPrima, puedeRetirarMateriaPrima } from "@/lib/auth/permisos";
 import type { Actor, Resultado } from "@/lib/data/auditoria";
+import { hoyISO } from "@/lib/format";
 
 export type BloquesCodigo = { producto: string; materiaPrima: string; proveedorCertificado: string; lote: string };
 
@@ -174,6 +175,13 @@ export async function retirarMateriaPrima(actor: Actor, input: RetiroInput): Pro
   return db.transaction(async (tx) => {
     const [mp] = await tx.select().from(materiaPrima).where(eq(materiaPrima.id, input.materiaPrimaId));
     if (!mp) return { error: "Materia prima no encontrada." };
+    // Bloquea el saldo de esta MP: dos retiros simultáneos se serializan y el
+    // segundo ve lo que retiró el primero (lote y stock).
+    const [s] = await tx
+      .select({ cantidad: saldo.cantidad })
+      .from(saldo)
+      .where(and(eq(saldo.depositoId, depositoId), eq(saldo.materiaPrimaId, mp.id)))
+      .for("update");
     if (input.loteMpId != null) {
       const [lote] = await tx.select().from(loteMp).where(eq(loteMp.id, input.loteMpId));
       if (!lote || lote.materiaPrimaId !== mp.id) return { error: "El lote no corresponde a esa materia prima." };
@@ -184,10 +192,6 @@ export async function retirarMateriaPrima(actor: Actor, input: RetiroInput): Pro
       const disponible = Number(lote.cantidadIngresada) - retirado;
       if (input.cantidadKg > disponible + 1e-9) return { error: `El lote tiene ${disponible} kg disponibles.` };
     }
-    const [s] = await tx
-      .select({ cantidad: saldo.cantidad })
-      .from(saldo)
-      .where(and(eq(saldo.depositoId, depositoId), eq(saldo.materiaPrimaId, mp.id)));
     if (input.cantidadKg > Number(s?.cantidad ?? 0) + 1e-9) return { error: `Hay ${Number(s?.cantidad ?? 0)} kg en stock de ${mp.nombre}.` };
     if (input.cicloId != null) {
       const [ciclo] = await tx.select({ id: cicloProduccion.id }).from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
@@ -197,7 +201,7 @@ export async function retirarMateriaPrima(actor: Actor, input: RetiroInput): Pro
     const [retiro] = await tx
       .insert(retiroMp)
       .values({
-        fecha: input.fecha ?? new Date().toISOString().slice(0, 10),
+        fecha: input.fecha ?? hoyISO(),
         materiaPrimaId: mp.id,
         loteMpId: input.loteMpId,
         cicloId: input.cicloId,

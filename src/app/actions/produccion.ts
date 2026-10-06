@@ -38,7 +38,7 @@ export async function crearCicloAction(_prev: FormState, fd: FormData): Promise<
     .map((pedidoId, i) => ({ pedidoId, cantidadAsignada: cantidades[i] ?? 0 }))
     .filter((p) => p.pedidoId && p.cantidadAsignada > 0);
 
-  const { id } = await crearCiclo({
+  const creado = await crearCiclo({
     fecha,
     inyectora,
     productoId,
@@ -52,8 +52,10 @@ export async function crearCicloAction(_prev: FormState, fd: FormData): Promise<
     usuarioId: usuario.id,
   });
 
+  if ("error" in creado) return { error: creado.error };
+
   revalidatePath("/produccion");
-  redirect(`/produccion/${id}`);
+  redirect(`/produccion/${creado.id}`);
 }
 
 /** Lo que cambia al elegir un producto en el alta de ciclo: sus partidas

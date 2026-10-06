@@ -2,7 +2,7 @@ import Link from "next/link";
 import { listarMovimientosProducto, signoCantidad } from "@/lib/data/stock";
 import { listarProductos } from "@/lib/data/catalogo";
 import { CorreccionStock } from "./correccion-stock";
-import { fmtFecha, fmtNumero } from "@/lib/format";
+import { fmtDia, fmtNumero } from "@/lib/format";
 
 const TIPOS = ["ENTRADA", "SALIDA", "AJUSTE"] as const;
 const TIPO_LABEL: Record<string, string> = {
@@ -85,7 +85,7 @@ export default async function MovimientosPage({
                 const signo = signoCantidad(m.tipo, m.cantidad);
                 return (
                   <tr key={m.id} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3 text-foreground-muted">{fmtFecha(m.fecha)}</td>
+                    <td className="px-4 py-3 text-foreground-muted">{fmtDia(m.fecha)}</td>
                     <td className="px-4 py-3">
                       {m.productoCodigo ? (
                         <>

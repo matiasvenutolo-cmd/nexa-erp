@@ -4,7 +4,7 @@ import { useActionState, useMemo, useState } from "react";
 import { crearPedidoAction, type FormState } from "@/app/actions/pedidos";
 import { GRUPOS, coloresDeGrupo } from "@/lib/pedido-grupos";
 import type { FilaProducto } from "@/lib/data/catalogo";
-import { fmtNumero } from "@/lib/format";
+import { fmtNumero, hoyISO } from "@/lib/format";
 import { claveColor } from "@/lib/catalogo-normalizacion";
 
 const LIBRE = "LIBRE";
@@ -70,7 +70,7 @@ export function FormularioPedido({
   puedeCrearProducto: boolean;
 }) {
   const [state, formAction] = useActionState<FormState, FormData>(crearPedidoAction, {});
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyISO();
 
   const [clienteModo, setClienteModo] = useState<"existente" | "nuevo">("existente");
   const [contacto, setContacto] = useState("");

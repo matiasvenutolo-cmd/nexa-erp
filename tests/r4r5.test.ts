@@ -161,6 +161,7 @@ describe("Pedido · producción · cajas", () => {
       pedidos: [{ pedidoId, cantidadAsignada: 60 }],
       usuarioId: s.usuarios.ENCARGADO.id,
     });
+    if ("error" in c) throw new Error(c.error);
     cicloId = c.id;
     const [lote] = await db().select().from(schema.loteMp).where(eq(schema.loteMp.codigoBarra, LOTE));
     const retiro = await retirarMateriaPrima(s.usuarios.RETIROS_MP, {

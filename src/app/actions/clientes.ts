@@ -9,6 +9,9 @@ import { getUsuarioActual } from "@/lib/session";
 import { puedeCrearPedido } from "@/lib/auth/permisos";
 
 export async function crearClienteAction(formData: FormData) {
+  const usuario = await getUsuarioActual();
+  if (!puedeCrearPedido(usuario.rol)) redirect("/clientes/nuevo?error=permiso");
+
   const nombre = String(formData.get("nombre") ?? "").trim();
   if (!nombre) redirect("/clientes/nuevo?error=nombre");
 

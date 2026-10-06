@@ -10,7 +10,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
-import { caja, cliente, despacho, pedido, reclamo, reclamoEvento, usuario } from "@/lib/db/schema";
+import { caja, cliente, despacho, pedido, piqueo, reclamo, reclamoEvento, usuario } from "@/lib/db/schema";
 import { puedeCrearReclamo, puedeResolverReclamo } from "@/lib/auth/permisos";
 import { crearAviso } from "@/lib/data/avisos";
 import type { Actor, Resultado } from "@/lib/data/auditoria";
@@ -57,16 +57,36 @@ export async function crearReclamo(
     if (input.cajaCodigo?.trim()) {
       const [c] = await tx.select().from(caja).where(eq(caja.codigoBarra, input.cajaCodigo.trim().toUpperCase()));
       if (!c) return { error: `No existe la caja ${input.cajaCodigo.trim()}.` };
+      // La caja tiene que haber salido en un despacho de ESTE pedido: si no, el
+      // reclamo apuntaría a una partida que el cliente nunca recibió.
+      const [entrega] = await tx
+        .select({ despachoId: despacho.id })
+        .from(piqueo)
+        .innerJoin(despacho, eq(piqueo.despachoId, despacho.id))
+        .where(
+          and(
+            eq(piqueo.cajaId, c.id),
+            eq(piqueo.tipo, "CONTROL_FINAL"),
+            eq(piqueo.conAlerta, false),
+            eq(despacho.pedidoId, input.pedidoId),
+            eq(despacho.estado, "ENTREGADO"),
+          ),
+        )
+        .orderBy(desc(despacho.id))
+        .limit(1);
+      if (!entrega) return { error: `La caja ${c.codigoBarra} no se entregó en el pedido #${input.pedidoId}.` };
       cajaId = c.id;
       partidaId = c.partidaId;
+      despachoId = entrega.despachoId;
+    } else {
+      const [ultimoDespacho] = await tx
+        .select({ id: despacho.id })
+        .from(despacho)
+        .where(and(eq(despacho.pedidoId, input.pedidoId), eq(despacho.estado, "ENTREGADO")))
+        .orderBy(desc(despacho.id))
+        .limit(1);
+      despachoId = ultimoDespacho?.id ?? null;
     }
-    const [ultimoDespacho] = await tx
-      .select({ id: despacho.id })
-      .from(despacho)
-      .where(and(eq(despacho.pedidoId, input.pedidoId), eq(despacho.estado, "ENTREGADO")))
-      .orderBy(desc(despacho.id))
-      .limit(1);
-    despachoId = ultimoDespacho?.id ?? null;
 
     const [r] = await tx
       .insert(reclamo)
