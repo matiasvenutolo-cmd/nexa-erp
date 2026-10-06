@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { listarPedidos, contarPedidosPorEstado, materialComprometido, ESTADO_LABEL } from "@/lib/data/pedidos";
+import { listarPedidos, contarPedidosPorEstado, materialComprometido, situacionPedidos, ESTADO_LABEL, type SituacionPedido } from "@/lib/data/pedidos";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeVerPrecios, puedeCrearPedido } from "@/lib/auth/permisos";
 import { EstadoPedido } from "@/components/estado-pedido";
@@ -27,6 +27,7 @@ export default async function PedidosPage({
   const verPrecios = puedeVerPrecios(usuario.rol);
   const gestion = puedeCrearPedido(usuario.rol);
   const comprometido = gestion ? await materialComprometido() : [];
+  const situacion = await situacionPedidos(pedidos.filter((p) => p.estado !== "ENTREGADO" && p.estado !== "CANCELADO").map((p) => p.id));
 
   return (
     <div className="space-y-5">
@@ -104,6 +105,7 @@ export default async function PedidosPage({
               <th className="px-4 py-2.5">Líneas</th>
               {verPrecios && <th className="px-4 py-2.5 text-right">Total</th>}
               <th className="px-4 py-2.5">Estado</th>
+              <th className="px-4 py-2.5">Situación</th>
             </tr>
           </thead>
           <tbody>
@@ -123,11 +125,14 @@ export default async function PedidosPage({
                 <td className="px-4 py-3">
                   <EstadoPedido estado={p.estado} />
                 </td>
+                <td className="px-4 py-3">
+                  <Situacion s={situacion.get(p.id)} estado={p.estado} />
+                </td>
               </tr>
             ))}
             {pedidos.length === 0 && (
               <tr>
-                <td colSpan={verPrecios ? 5 : 4} className="px-4 py-8 text-center text-foreground-muted">
+                <td colSpan={verPrecios ? 6 : 5} className="px-4 py-8 text-center text-foreground-muted">
                   No hay pedidos en este estado.
                 </td>
               </tr>
@@ -152,4 +157,39 @@ function FiltroTab({ href, activo, label, n }: { href: string; activo: boolean; 
       {n != null && <span className="ml-1.5 opacity-70">{n}</span>}
     </Link>
   );
+}
+
+/** Qué le falta a un pedido abierto para poder despacharse. */
+function Situacion({ s, estado }: { s: SituacionPedido | undefined; estado: string }) {
+  if (estado === "ENTREGADO" || estado === "CANCELADO") return <span className="text-xs text-foreground-muted">—</span>;
+  if (!s || s.pendiente === 0) return <span className="text-xs text-foreground-muted">—</span>;
+  if (s.despachoEnCurso && estado === "LISTO_PARA_DESPACHAR")
+    return <span className="text-xs text-foreground-muted">Armado y controlado: falta el control final</span>;
+  if (s.despachoEnCurso) return <span className="text-xs text-foreground-muted">En armado</span>;
+  const partes: React.ReactNode[] = [];
+  if (estado === "LISTO_PARA_DESPACHAR" || estado === "EN_ARMADO")
+    partes.push(
+      <span key="i" className="badge-estado badge-bajo" title="Estado traído del Excel: no tiene armado ni control en el sistema">
+        Estado importado sin armado
+      </span>,
+    );
+  if (s.sinProducto > 0)
+    partes.push(
+      <span key="d" className="badge-estado bg-surface-muted text-foreground-muted">
+        Datos pendientes: {s.sinProducto} {s.sinProducto === 1 ? "renglón" : "renglones"} sin producto
+      </span>,
+    );
+  if (s.faltaProducir > 0)
+    partes.push(
+      <span key="f" className="badge-estado badge-critico">
+        Falta producir {fmtNumero(s.faltaProducir, 0)}
+      </span>,
+    );
+  if (partes.length === 0)
+    partes.push(
+      <span key="ok" className="badge-estado badge-ok">
+        Stock disponible para armar
+      </span>,
+    );
+  return <div className="flex flex-wrap gap-1">{partes}</div>;
 }

@@ -8,13 +8,17 @@
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
+  despacho,
+  piqueo,
   pedido,
   pedidoLinea,
   cliente,
   producto,
   reserva,
   saldo,
+  color,
 } from "@/lib/db/schema";
+import { claveColor, pareceMulticolor, resolverColorLibre } from "@/lib/catalogo-normalizacion";
 import { getDepositoNexaId } from "@/lib/data/depositos";
 import { puedeCambiarPrioridad, puedeCrearPedido } from "@/lib/auth/permisos";
 import { anularDespachoActivoEnTx } from "@/lib/data/despachos";
@@ -51,6 +55,99 @@ export async function listarPedidos(estado?: (typeof pedido.$inferSelect)["estad
     .orderBy(pedido.prioridad, desc(pedido.fechaPedido));
 
   return filas;
+}
+
+export type SituacionPedido = { pendiente: number; sinProducto: number; faltaProducir: number; despachoEnCurso: boolean };
+export type CoberturaLinea = { pendiente: number; cubierto: number; faltaProducir: number };
+
+/**
+ * Cuánto de lo pendiente de cada renglón cubre el stock actual, repartiendo el
+ * stock con el MISMO orden que la cola de producción (prioridad manual y
+ * después fecha de entrega comprometida). Lo ya armado en un despacho en curso
+ * se cubre primero con su propia mercadería. Así la suma de lo que "falta
+ * producir" en los pedidos coincide con el faltante global de cada producto.
+ */
+export async function coberturaPorLinea(productoIds?: number[]): Promise<Map<number, CoberturaLinea>> {
+  const depositoId = await getDepositoNexaId();
+  const lineas = await db
+    .select({
+      lineaId: pedidoLinea.id,
+      productoId: pedidoLinea.productoId,
+      pendiente: sql<number>`${pedidoLinea.unidadesPedidas} - ${pedidoLinea.unidadesDespachadas}`.mapWith(Number),
+    })
+    .from(pedidoLinea)
+    .innerJoin(pedido, eq(pedidoLinea.pedidoId, pedido.id))
+    .where(
+      and(
+        sql`${pedido.estado} not in ('ENTREGADO', 'CANCELADO')`,
+        sql`${pedidoLinea.productoId} is not null`,
+        sql`${pedidoLinea.unidadesPedidas} > ${pedidoLinea.unidadesDespachadas}`,
+        productoIds ? inArray(pedidoLinea.productoId, productoIds.length ? productoIds : [-1]) : undefined,
+      ),
+    )
+    .orderBy(...ordenPrioridad, pedidoLinea.id);
+  const ids = [...new Set(lineas.map((l) => l.productoId!))];
+  if (ids.length === 0) return new Map();
+  const [saldos, armado] = await Promise.all([
+    db.select({ productoId: saldo.productoId, cantidad: saldo.cantidad }).from(saldo).where(and(eq(saldo.depositoId, depositoId), inArray(saldo.productoId, ids))),
+    db
+      .select({ lineaId: piqueo.pedidoLineaId, total: sql<number>`coalesce(sum(${piqueo.cantidad}), 0)`.mapWith(Number) })
+      .from(piqueo)
+      .innerJoin(despacho, eq(piqueo.despachoId, despacho.id))
+      .where(and(eq(piqueo.tipo, "ARMADO"), eq(piqueo.conAlerta, false), inArray(despacho.estado, ["ARMANDO", "CONTROLADO"])))
+      .groupBy(piqueo.pedidoLineaId),
+  ]);
+  const libre = new Map(saldos.map((x) => [x.productoId!, Number(x.cantidad)]));
+  const armadoPorLinea = new Map(armado.map((a) => [a.lineaId!, a.total]));
+  const res = new Map<number, CoberturaLinea>();
+  // 1) lo armado ya tiene dueño
+  for (const l of lineas) {
+    const a = Math.min(armadoPorLinea.get(l.lineaId) ?? 0, l.pendiente);
+    libre.set(l.productoId!, (libre.get(l.productoId!) ?? 0) - a);
+    res.set(l.lineaId, { pendiente: l.pendiente, cubierto: a, faltaProducir: 0 });
+  }
+  // 2) el resto, por prioridad
+  for (const l of lineas) {
+    const r = res.get(l.lineaId)!;
+    const disponible = Math.max(0, libre.get(l.productoId!) ?? 0);
+    const toma = Math.min(disponible, l.pendiente - r.cubierto);
+    libre.set(l.productoId!, disponible - toma);
+    r.cubierto += toma;
+    r.faltaProducir = l.pendiente - r.cubierto;
+  }
+  return res;
+}
+
+/** Situación real de los pedidos abiertos: lo que falta producir (con la
+ *  cobertura por prioridad) y los renglones sin producto (datos pendientes). */
+export async function situacionPedidos(pedidoIds: number[]): Promise<Map<number, SituacionPedido>> {
+  const res = new Map<number, SituacionPedido>();
+  if (pedidoIds.length === 0) return res;
+  const [lineas, enCursoFilas, cobertura] = await Promise.all([
+    db
+      .select({
+        lineaId: pedidoLinea.id,
+        pedidoId: pedidoLinea.pedidoId,
+        productoId: pedidoLinea.productoId,
+        pendiente: sql<number>`${pedidoLinea.unidadesPedidas} - ${pedidoLinea.unidadesDespachadas}`.mapWith(Number),
+      })
+      .from(pedidoLinea)
+      .where(and(inArray(pedidoLinea.pedidoId, pedidoIds), sql`${pedidoLinea.unidadesPedidas} > ${pedidoLinea.unidadesDespachadas}`)),
+    db
+      .select({ pedidoId: despacho.pedidoId })
+      .from(despacho)
+      .where(and(inArray(despacho.pedidoId, pedidoIds), inArray(despacho.estado, ["ARMANDO", "CONTROLADO"]))),
+    coberturaPorLinea(),
+  ]);
+  const enCurso = new Set(enCursoFilas.map((d) => d.pedidoId));
+  for (const l of lineas) {
+    const s = res.get(l.pedidoId) ?? { pendiente: 0, sinProducto: 0, faltaProducir: 0, despachoEnCurso: enCurso.has(l.pedidoId) };
+    s.pendiente += l.pendiente;
+    if (l.productoId == null) s.sinProducto += 1;
+    else s.faltaProducir += cobertura.get(l.lineaId)?.faltaProducir ?? l.pendiente;
+    res.set(l.pedidoId, s);
+  }
+  return res;
 }
 
 export async function contarPedidosPorEstado(): Promise<
@@ -248,7 +345,31 @@ export async function cancelarPedido(actor: Actor, pedidoId: number): Promise<Re
  * viejo traía colores como texto: "Gris oscuro y amarillo"). Sin esto, ese
  * renglón no se puede armar ni despachar. Reserva lo que queda pendiente.
  */
-export async function asignarProductoALinea(actor: Actor, lineaId: number, productoId: number): Promise<Resultado> {
+/**
+ * Qué se puede vincular a un renglón histórico según su texto del Excel:
+ * - texto con varios colores ("gris oscuro y violeta") para una sola cantidad:
+ *   nada — falta la cantidad por color, es un dato a resolver con el cliente;
+ * - texto con un color reconocible: sólo productos de ese color;
+ * - texto que no identifica un color único ("gris"): nada;
+ * - sin texto: cualquier producto, dejando registrado cómo se confirmó.
+ */
+export function compatibilidadRenglon(colorTexto: string | null, coloresConocidos: string[]):
+  | { tipo: "multicolor" | "irreconocible"; texto: string }
+  | { tipo: "color"; colorNombre: string }
+  | { tipo: "sin-dato" } {
+  const texto = colorTexto?.trim();
+  if (!texto) return { tipo: "sin-dato" };
+  if (pareceMulticolor(texto, coloresConocidos) || /\sy\s/i.test(texto)) return { tipo: "multicolor", texto };
+  const c = resolverColorLibre(texto);
+  return c ? { tipo: "color", colorNombre: c.nombre } : { tipo: "irreconocible", texto };
+}
+
+export async function asignarProductoALinea(
+  actor: Actor,
+  lineaId: number,
+  productoId: number,
+  confirmacion?: string | null,
+): Promise<Resultado> {
   if (!puedeCrearPedido(actor.rol)) return { error: "No tenés permiso para modificar pedidos." };
   const depositoId = await getDepositoNexaId();
   return db.transaction(async (tx) => {
@@ -260,8 +381,27 @@ export async function asignarProductoALinea(actor: Actor, lineaId: number, produ
     if (!l) return { error: "Renglón no encontrado." };
     if (l.linea.productoId != null) return { error: "El renglón ya tiene producto." };
     if (l.estado === "ENTREGADO" || l.estado === "CANCELADO") return { error: "El pedido está cerrado." };
-    const [p] = await tx.select({ id: producto.id, codigo: producto.codigo }).from(producto).where(eq(producto.id, productoId));
+    const [p] = await tx
+      .select({ id: producto.id, codigo: producto.codigo, colorNombre: color.nombre })
+      .from(producto)
+      .innerJoin(color, eq(producto.colorId, color.id))
+      .where(eq(producto.id, productoId));
     if (!p) return { error: "Producto no encontrado." };
+    const conocidos = (await tx.select({ nombre: color.nombre }).from(color)).map((c) => c.nombre);
+    const comp = compatibilidadRenglon(l.linea.colorTexto, conocidos);
+    if (comp.tipo === "multicolor") {
+      return { error: `El renglón dice “${comp.texto}”: varios colores para una sola cantidad. Falta la cantidad por color; no se puede vincular a un producto.` };
+    }
+    if (comp.tipo === "irreconocible") {
+      return { error: `El texto “${comp.texto}” no identifica un único color del catálogo: no se puede vincular sin confirmar el color.` };
+    }
+    if (comp.tipo === "color" && claveColor(comp.colorNombre) !== claveColor(p.colorNombre)) {
+      return { error: `El renglón es color ${comp.colorNombre} y el producto elegido (${p.codigo}) es ${p.colorNombre}.` };
+    }
+    const fuente = confirmacion?.trim();
+    if (comp.tipo === "sin-dato" && !fuente) {
+      return { error: "El renglón no tiene color ni producto en el Excel: indicá cómo se confirmó el producto (queda registrado)." };
+    }
     await tx.update(pedidoLinea).set({ productoId }).where(eq(pedidoLinea.id, lineaId));
     const pendiente = l.linea.unidadesPedidas - l.linea.unidadesDespachadas;
     if (pendiente > 0) {
@@ -274,6 +414,7 @@ export async function asignarProductoALinea(actor: Actor, lineaId: number, produ
         campo: "producto del renglón",
         anterior: l.linea.colorTexto ?? l.linea.descripcion ?? "sin producto",
         nuevo: p.codigo,
+        motivo: fuente || null,
       },
     ]);
     return {};

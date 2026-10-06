@@ -30,12 +30,20 @@ import { materialComprometido, ordenPrioridad, type FilaComprometido } from "@/l
 import { unidadesPorCaja } from "@/lib/data/catalogo";
 import { PARAMETROS } from "@/lib/data/parametros";
 import { hoyISO } from "@/lib/format";
+import { resolverInyectora } from "@/lib/inyectoras";
+import { resolverDosificacion } from "@/lib/data/dosificacion";
 
 /** Lista chica para el select del alta de ciclo — no la del catálogo completo,
  *  que trae stock/semáforo que acá no hace falta. */
 export async function productosParaCiclo() {
   return db
-    .select({ id: producto.id, codigo: producto.codigo, descripcion: producto.descripcion, piezasPorGolpe: producto.piezasPorGolpe })
+    .select({
+      id: producto.id,
+      codigo: producto.codigo,
+      descripcion: producto.descripcion,
+      piezasPorGolpe: producto.piezasPorGolpe,
+      esAccesorio: producto.esAccesorio,
+    })
     .from(producto)
     .where(eq(producto.activo, true))
     .orderBy(asc(producto.codigo));
@@ -43,6 +51,59 @@ export async function productosParaCiclo() {
 
 /** Partidas todavía abiertas de un producto — para continuar en vez de abrir
  *  una nueva cuando se sigue con el mismo color al día siguiente. */
+export type ResumenParaCiclo = Awaited<ReturnType<typeof resumenParaCiclo>>;
+
+/**
+ * Todo lo que el alta de ciclo necesita mostrar al elegir el producto: qué se
+ * produce (color, material base y master configurados), en qué partida
+ * (continuar la abierta o la próxima, con su número automático) y para qué
+ * (pendiente de los pedidos contra el stock actual).
+ */
+export async function resumenParaCiclo(productoId: number) {
+  const [p] = await db
+    .select({
+      id: producto.id,
+      esAccesorio: producto.esAccesorio,
+      familia: producto.familia,
+      colorId: producto.colorId,
+      colorNombre: color.nombre,
+      piezasPorGolpe: producto.piezasPorGolpe,
+    })
+    .from(producto)
+    .leftJoin(color, eq(producto.colorId, color.id))
+    .where(eq(producto.id, productoId));
+  if (!p) return null;
+  const depositoId = await getDepositoNexaId();
+  const [abiertas, [{ maxNumero }], dosif, pedidos, [s]] = await Promise.all([
+    partidasAbiertasDe(productoId),
+    db.select({ maxNumero: sql<number>`coalesce(max(${partida.numero}), 0)`.mapWith(Number) }).from(partida),
+    p.familia ? resolverDosificacion(p.familia, p.colorId) : Promise.resolve(null),
+    pedidosQueNecesitan(productoId),
+    db.select({ cantidad: saldo.cantidad }).from(saldo).where(and(eq(saldo.depositoId, depositoId), eq(saldo.productoId, productoId))),
+  ]);
+  const partidas = await Promise.all(
+    abiertas.map(async (a) => {
+      const ultimo = await ultimoCicloDePartida(a.id);
+      return { ...a, ultimoGolpesFin: ultimo?.golpesFin ?? null, ultimoCicloAbierto: ultimo ? ultimo.fechaFin == null : false };
+    }),
+  );
+  const pendientePedidos = pedidos.reduce((t, x) => t + x.cantidad, 0);
+  const stock = Number(s?.cantidad ?? 0);
+  return {
+    esAccesorio: p.esAccesorio,
+    familia: p.familia,
+    colorNombre: p.colorNombre,
+    piezasPorGolpe: p.piezasPorGolpe,
+    material: dosif ? { nombre: dosif.materiaPrimaBaseNombre, gPorKgMp: dosif.gPorKgMp } : null,
+    partidas,
+    siguientePartida: maxNumero + 1,
+    pedidos,
+    pendientePedidos,
+    stock,
+    faltaProducir: Math.max(0, pendientePedidos - stock),
+  };
+}
+
 export async function partidasAbiertasDe(productoId: number) {
   return db
     .select({ id: partida.id, numero: partida.numero, fechaApertura: partida.fechaApertura })
@@ -58,7 +119,7 @@ export async function ultimoCicloDePartida(partidaId: number) {
     .select()
     .from(cicloProduccion)
     .where(eq(cicloProduccion.partidaId, partidaId))
-    .orderBy(desc(cicloProduccion.fechaInicio))
+    .orderBy(desc(cicloProduccion.fechaInicio), desc(cicloProduccion.id))
     .limit(1);
   return c ?? null;
 }
@@ -81,12 +142,24 @@ export type NuevoCicloInput = {
  *  continuar, genera una nueva con número correlativo (nunca se tipea). */
 export async function crearCiclo(input: NuevoCicloInput): Promise<{ id: number } | { error: string }> {
   return db.transaction(async (tx) => {
+    const [prod] = await tx.select({ esAccesorio: producto.esAccesorio }).from(producto).where(eq(producto.id, input.productoId));
+    if (!prod) return { error: "Producto no encontrado." };
+    // Baldosas sólo en la inyectora 8; accesorios en una inyectora existente.
+    const iny = resolverInyectora(prod.esAccesorio, input.inyectora);
+    if ("error" in iny) return iny;
+
     let partidaId = input.partidaId;
     if (partidaId) {
       // Continuar una partida: tiene que ser del mismo producto y seguir abierta.
       const [p] = await tx.select().from(partida).where(eq(partida.id, partidaId));
       if (!p || p.productoId !== input.productoId) return { error: "La partida elegida no es de este producto." };
       if (p.fechaCierre) return { error: `La partida N° ${p.numero} ya está cerrada.` };
+      // La continuidad sale del cierre anterior (golpes de fin): tiene que estar cerrado.
+      const [abierto] = await tx
+        .select({ id: cicloProduccion.id })
+        .from(cicloProduccion)
+        .where(and(eq(cicloProduccion.partidaId, partidaId), isNull(cicloProduccion.fechaFin)));
+      if (abierto) return { error: `La partida N° ${p.numero} tiene el ciclo #${abierto.id} sin cerrar: cerralo antes de continuar.` };
     } else {
       const [{ maxNumero }] = await tx
         .select({ maxNumero: sql<number>`coalesce(max(${partida.numero}), 0)`.mapWith(Number) })
@@ -103,7 +176,7 @@ export async function crearCiclo(input: NuevoCicloInput): Promise<{ id: number }
       .values({
         partidaId,
         productoId: input.productoId,
-        inyectora: input.inyectora,
+        inyectora: iny.inyectora,
         fechaInicio: new Date(`${input.fecha}T00:00:00`),
         golpesInicio: input.golpesInicio,
         piezasPorGolpe: input.piezasPorGolpe,

@@ -16,6 +16,8 @@ import { getUsuarioActual } from "@/lib/session";
 import { puedeVerTrazabilidad } from "@/lib/auth/permisos";
 import { fmtFecha, fmtFechaHora, fmtNumero } from "@/lib/format";
 
+const ESTADO_CAJA: Record<string, string> = { EN_STOCK: "en stock", ARMADA: "armada", DESPACHADA: "despachada", BAJA: "baja" };
+
 const TIPOS = [
   { v: "pedido", label: "N° de pedido" },
   { v: "cliente", label: "Cliente" },
@@ -116,7 +118,7 @@ async function Resultado({ tipo, valor }: { tipo: Tipo; valor: string }) {
     return (
       <>
         <Bloque titulo={`Caja ${t.caja.codigoBarra}`}>
-          {t.caja.cantidad} unidades · {t.caja.estado} · {fmtFecha(t.caja.fecha)}
+          {t.caja.cantidad} unidades · {ESTADO_CAJA[t.caja.estado]} · {fmtFecha(t.caja.fecha)}
         </Bloque>
         <Destinos destinos={t.destinos} titulo="A quién se entregó" />
         <Origen partidas={t.origen ? [t.origen] : []} />
@@ -306,7 +308,7 @@ function Cajas({ cajas }: { cajas: { id: number; codigo: string; cantidad: numbe
         {cajas.map((c) => (
           <Enlace key={c.id} tipo="caja" valor={c.codigo}>
             <span className="rounded bg-surface-muted px-2 py-0.5 font-mono text-xs">
-              {c.codigo} · {c.cantidad} · {c.estado}
+              {c.codigo} · {c.cantidad} u. · {ESTADO_CAJA[c.estado]}
             </span>
           </Enlace>
         ))}

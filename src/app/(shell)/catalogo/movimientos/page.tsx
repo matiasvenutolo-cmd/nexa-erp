@@ -39,7 +39,7 @@ export default async function MovimientosPage({
     <div className="space-y-5">
       <div>
         <Link href="/catalogo" className="text-sm text-foreground-muted hover:text-foreground">
-          ← Stock - Productos
+          ← Stock / Productos
         </Link>
         <h1 className="mt-1 text-xl font-semibold text-brand-azul-oscuro">Movimientos de stock</h1>
       </div>

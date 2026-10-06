@@ -25,25 +25,32 @@ export function SidebarNav({ nav, contadores = {} }: { nav: ItemNav[]; contadore
   const pathname = usePathname();
   return (
     <nav className="flex flex-col gap-0.5">
-      {nav.map((item) => {
+      {nav.map((item, i) => {
         const activo = pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icono = ICONO[item.href];
+        const nuevaSeccion = item.seccion && item.seccion !== nav[i - 1]?.seccion;
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
-              activo ? "bg-accent-soft text-accent" : "text-foreground-muted hover:bg-surface-muted hover:text-foreground"
-            }`}
-          >
-            {Icono && <Icono size={17} className="shrink-0" />}
-            {item.label}
-            {(contadores[item.href] ?? 0) > 0 && (
-              <span className="ml-auto rounded-full bg-[var(--estado-critico-bg)] px-1.5 text-xs font-semibold text-[var(--estado-critico-fg)]">
-                {contadores[item.href]}
-              </span>
+          <div key={item.href}>
+            {nuevaSeccion && (
+              <div className="mb-1 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wider text-foreground-muted">
+                {item.seccion}
+              </div>
             )}
-          </Link>
+            <Link
+              href={item.href}
+              className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
+                activo ? "bg-accent-soft text-accent" : "text-foreground-muted hover:bg-surface-muted hover:text-foreground"
+              }`}
+            >
+              {Icono && <Icono size={17} className="shrink-0" />}
+              {item.label}
+              {(contadores[item.href] ?? 0) > 0 && (
+                <span className="ml-auto rounded-full bg-[var(--estado-critico-bg)] px-1.5 text-xs font-semibold text-[var(--estado-critico-fg)]">
+                  {contadores[item.href]}
+                </span>
+              )}
+            </Link>
+          </div>
         );
       })}
     </nav>

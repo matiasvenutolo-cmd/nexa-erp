@@ -24,6 +24,7 @@ export type FilaProducto = {
   descripcion: string;
   familia: (typeof producto.$inferSelect)["familia"];
   tipo: (typeof producto.$inferSelect)["tipo"];
+  esAccesorio: boolean;
   colorId: number;
   colorNombre: string;
   colorEspecial: boolean;
@@ -35,12 +36,15 @@ export type FilaProducto = {
 
 export async function listarProductos(filtro?: {
   familia?: (typeof producto.$inferSelect)["familia"];
+  /** Pisos (baldosas) o accesorios (bordes, esquineros, rampas). */
+  clase?: "pisos" | "accesorios";
   texto?: string;
 }): Promise<FilaProducto[]> {
   const depositoId = await getDepositoNexaId();
 
   const condiciones = [eq(producto.activo, true)];
   if (filtro?.familia) condiciones.push(eq(producto.familia, filtro.familia));
+  if (filtro?.clase) condiciones.push(eq(producto.esAccesorio, filtro.clase === "accesorios"));
   if (filtro?.texto) {
     const like = `%${filtro.texto}%`;
     condiciones.push(or(ilike(producto.descripcion, like), ilike(producto.codigo, like))!);
@@ -55,6 +59,7 @@ export async function listarProductos(filtro?: {
         descripcion: producto.descripcion,
         familia: producto.familia,
         tipo: producto.tipo,
+        esAccesorio: producto.esAccesorio,
         colorId: producto.colorId,
         colorNombre: color.nombre,
         colorEspecial: color.especial,
@@ -66,7 +71,7 @@ export async function listarProductos(filtro?: {
       .innerJoin(color, eq(producto.colorId, color.id))
       .leftJoin(saldo, and(eq(saldo.productoId, producto.id), eq(saldo.depositoId, depositoId)))
       .where(and(...condiciones))
-      .orderBy(asc(producto.familia), asc(producto.tipo), asc(color.nombre)),
+      .orderBy(asc(producto.esAccesorio), asc(producto.familia), asc(producto.tipo), asc(color.nombre)),
     obtenerParametros(),
   ]);
 

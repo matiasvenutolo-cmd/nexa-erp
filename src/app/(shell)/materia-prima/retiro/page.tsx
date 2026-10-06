@@ -5,6 +5,7 @@ import { getUsuariosPorRol } from "@/lib/data/usuarios";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeRetirarMateriaPrima } from "@/lib/auth/permisos";
 import { fmtFecha } from "@/lib/format";
+import { etiquetaInyectora } from "@/lib/inyectoras";
 import { FormRetiro } from "../formularios";
 
 export default async function RetiroMpPage({ searchParams }: { searchParams: Promise<{ ciclo?: string }> }) {
@@ -25,7 +26,8 @@ export default async function RetiroMpPage({ searchParams }: { searchParams: Pro
         </Link>
         <h1 className="mt-1 text-xl font-semibold text-brand-azul-oscuro">Retiro de materia prima a máquina</h1>
         <p className="mt-1 text-sm text-foreground-muted">
-          Al indicar el ciclo, el lote queda vinculado a la partida que se produce: es el eslabón de la trazabilidad.
+          Se retira para un ciclo de producción ya iniciado: el lote queda vinculado a su partida, que es el eslabón de la
+          trazabilidad. Lo habitual es entrar desde el ciclo (“Retirar materia prima para este ciclo”).
         </p>
       </div>
       <FormRetiro
@@ -33,7 +35,8 @@ export default async function RetiroMpPage({ searchParams }: { searchParams: Pro
         lotes={lotes.map((l) => ({ id: l.id, codigoBarra: l.codigoBarra, materiaPrimaId: l.materiaPrimaId, disponible: l.disponible }))}
         ciclos={ciclos.map((c) => ({
           id: c.id,
-          etiqueta: `#${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"} · iny. ${c.inyectora}${c.cerrado ? " (cerrado)" : ""}`,
+          etiqueta: `Ciclo #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"} · partida N° ${c.partidaNumero ?? "—"} · ${etiquetaInyectora(c.inyectora)}`,
+          abierto: !c.cerrado,
         }))}
         usuarios={entregan.map((u) => ({ id: u.id, nombre: u.nombre }))}
         cicloInicial={sp.ciclo ? Number(sp.ciclo) : null}

@@ -60,35 +60,50 @@ export function ControlPrioridad({
   );
 }
 
-/** Renglón histórico sin producto: asignarle el producto para poder despacharlo. */
-export function AsignarProducto({
+/**
+ * Renglón histórico (importado del Excel) sin producto: se vincula al producto
+ * exacto del catálogo. Sólo se ofrecen productos del color que dice el renglón;
+ * si el texto no permite saberlo, el renglón queda como dato pendiente.
+ */
+export function VincularProducto({
   pedidoId,
   lineaId,
   productos,
+  requiereConfirmacion,
 }: {
   pedidoId: number;
   lineaId: number;
   productos: { id: number; codigo: string; descripcion: string }[];
+  requiereConfirmacion: boolean;
 }) {
   const [state, action, pendiente] = useActionState<FormState, FormData>(asignarProductoAction, {});
   return (
-    <form action={action} className="mt-1 flex flex-wrap items-center gap-2">
+    <form action={action} className="mt-2 space-y-1.5 rounded-md border border-border p-2">
       <input type="hidden" name="pedidoId" value={pedidoId} />
       <input type="hidden" name="lineaId" value={lineaId} />
-      <select name="productoId" required defaultValue="" className="input w-72 text-xs">
-        <option value="" disabled>
-          Asignar producto…
-        </option>
-        {productos.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.codigo} · {p.descripcion}
+      <label className="block text-xs text-foreground-muted">
+        Vincular al producto del catálogo (tipo y color)
+        <select name="productoId" required defaultValue="" className="input mt-1 w-full text-xs">
+          <option value="" disabled>
+            Elegí el producto…
           </option>
-        ))}
-      </select>
+          {productos.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.codigo} · {p.descripcion}
+            </option>
+          ))}
+        </select>
+      </label>
+      {requiereConfirmacion && (
+        <label className="block text-xs text-foreground-muted">
+          Cómo se confirmó (el Excel no dice el color)
+          <input name="confirmacion" required className="input mt-1 w-full text-xs" placeholder="ej. confirmado con el cliente por teléfono" />
+        </label>
+      )}
       <button type="submit" disabled={pendiente} className="text-xs font-medium text-accent hover:underline">
-        Asignar
+        Vincular producto
       </button>
-      {state.error && <span className="text-xs text-[var(--estado-critico-fg)]">{state.error}</span>}
+      {state.error && <p className="text-xs text-[var(--estado-critico-fg)]">{state.error}</p>}
     </form>
   );
 }

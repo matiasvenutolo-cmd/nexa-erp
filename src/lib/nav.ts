@@ -34,35 +34,36 @@ export const ROL_LABEL: Record<Rol, string> = {
   OPERARIO: "Operario",
 };
 
-export type ItemNav = { href: string; label: string };
+/** Áreas de negocio del menú. Sólo agrupan la navegación: las rutas y los
+ *  permisos de cada ítem son los mismos de siempre. */
+export type SeccionNav = "Ventas" | "Fábrica" | "Administración";
 
-// El tablero es la puerta de entrada para todos los roles (minuta 26-28/09:
-// "el tablero debería ser la primera pantalla que aparece al ingresar").
-const NAV_BASE: ItemNav[] = [
-  { href: "/tablero", label: "Tablero" },
-  { href: "/pedidos", label: "Pedidos" },
-];
-const NAV_GESTION: ItemNav[] = [
-  { href: "/tablero", label: "Tablero" },
-  { href: "/pedidos", label: "Pedidos" },
-  { href: "/catalogo", label: "Stock - Productos" },
-  { href: "/clientes", label: "Clientes" },
-];
+export type ItemNav = { href: string; label: string; seccion?: SeccionNav };
 
 /** Roles que reciben avisos: ventas (pedido listo), supervisor (reclamo nuevo)
  *  y gerencia (informes de reclamos; además ve todos). */
 export const ROLES_CON_AVISOS: readonly Rol[] = ["ADMINISTRACION", "SUPERVISOR", "GERENCIA"];
 
+// El tablero es la puerta de entrada para todos los roles (minuta 26-28/09:
+// "el tablero debería ser la primera pantalla que aparece al ingresar").
+// Pedidos lo ven todos los roles; Stock y Clientes, quien carga o coordina
+// pedidos (ROLES_GESTION).
 export const NAV_POR_ROL: Record<Rol, ItemNav[]> = Object.fromEntries(
   (Object.keys(ROL_LABEL) as Rol[]).map((r) => {
-    const items = [...(ROLES_GESTION.includes(r) ? NAV_GESTION : NAV_BASE)];
-    if (ROLES_CON_AVISOS.includes(r)) items.splice(1, 0, { href: "/avisos", label: "Avisos" });
-    if (puedeCargarProduccion(r)) items.push({ href: "/produccion", label: "Producción" });
-    if (puedeVerMateriaPrima(r)) items.push({ href: "/materia-prima", label: "Materia prima" });
-    if (puedeVerTrazabilidad(r)) items.push({ href: "/trazabilidad", label: "Trazabilidad" });
-    if (puedeVerReclamos(r)) items.push({ href: "/reclamos", label: "Reclamos" });
-    if (puedeVerPanelAdmin(r)) items.push({ href: "/admin", label: "Panel Admin" });
-    return [r, items];
+    const gestion = ROLES_GESTION.includes(r);
+    const items: (ItemNav | false)[] = [
+      { href: "/tablero", label: "Tablero" },
+      ROLES_CON_AVISOS.includes(r) && { href: "/avisos", label: "Avisos" },
+      { href: "/pedidos", label: "Pedidos", seccion: "Ventas" },
+      gestion && { href: "/catalogo", label: "Stock / Productos", seccion: "Ventas" },
+      gestion && { href: "/clientes", label: "Clientes", seccion: "Ventas" },
+      puedeVerReclamos(r) && { href: "/reclamos", label: "Reclamos", seccion: "Ventas" },
+      puedeCargarProduccion(r) && { href: "/produccion", label: "Producción", seccion: "Fábrica" },
+      puedeVerMateriaPrima(r) && { href: "/materia-prima", label: "Materia prima", seccion: "Fábrica" },
+      puedeVerTrazabilidad(r) && { href: "/trazabilidad", label: "Trazabilidad", seccion: "Fábrica" },
+      puedeVerPanelAdmin(r) && { href: "/admin", label: "Panel Admin", seccion: "Administración" },
+    ];
+    return [r, items.filter((i): i is ItemNav => Boolean(i))];
   }),
 ) as Record<Rol, ItemNav[]>;
 

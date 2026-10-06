@@ -1,5 +1,6 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getUsuarioActual } from "@/lib/session";
 import { ingresarMateriaPrima, retirarMateriaPrima } from "@/lib/data/materia-prima";
@@ -42,5 +43,8 @@ export async function retiroMpAction(_prev: EstadoForm, fd: FormData): Promise<E
   if (r.error) return { error: r.error };
   revalidatePath("/materia-prima");
   revalidatePath("/produccion");
+  // Desde un ciclo, se vuelve al ciclo: el paso siguiente es producir y cerrar el día.
+  const cicloId = num(fd, "cicloId");
+  if (cicloId) redirect(`/produccion/${cicloId}`);
   return { ok: "Retiro registrado." };
 }

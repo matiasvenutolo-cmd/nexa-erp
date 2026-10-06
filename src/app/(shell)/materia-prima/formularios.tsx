@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { ingresoMpAction, retiroMpAction, type EstadoForm } from "@/app/actions/materia-prima";
+import { INYECTORAS } from "@/lib/inyectoras";
 
 const BOTON = "rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-60";
 
@@ -89,7 +90,7 @@ export function FormIngreso({ materias, hoy }: { materias: Mp[]; hoy: string }) 
 }
 
 type Lote = { id: number; codigoBarra: string; materiaPrimaId: number; disponible: number };
-type Ciclo = { id: number; etiqueta: string };
+type Ciclo = { id: number; etiqueta: string; abierto: boolean };
 
 export function FormRetiro({
   materias,
@@ -106,10 +107,42 @@ export function FormRetiro({
 }) {
   const [state, action, pendiente] = useActionState<EstadoForm, FormData>(retiroMpAction, {});
   const [mp, setMp] = useState("");
+  const [ciclo, setCiclo] = useState(cicloInicial ? String(cicloInicial) : "");
   const lotesDeMp = lotes.filter((l) => String(l.materiaPrimaId) === mp);
+  const enCurso = ciclos.filter((c) => c.abierto);
+  const cerrados = ciclos.filter((c) => !c.abierto);
   return (
     <form action={action} className="space-y-3 rounded-lg border border-border bg-surface p-4">
       <Mensaje s={state} />
+      <Campo label="Ciclo de producción que alimenta (para la trazabilidad)">
+        <select name="cicloId" value={ciclo} onChange={(e) => setCiclo(e.target.value)} className="input">
+          <option value="">Sin ciclo (retiro sin producción asociada)</option>
+          {enCurso.length > 0 && (
+            <optgroup label="En curso">
+              {enCurso.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.etiqueta}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {cerrados.length > 0 && (
+            <optgroup label="Cerrados recientemente">
+              {cerrados.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.etiqueta}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </Campo>
+      {enCurso.length === 0 && !cicloInicial && (
+        <p className="text-xs text-foreground-muted">
+          No hay producción en curso. Para vincular la materia prima a una partida, primero iniciá la producción en Producción → Nuevo ciclo
+          y retirá desde ese ciclo.
+        </p>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Campo label="Materia prima *">
           <select name="materiaPrimaId" required value={mp} onChange={(e) => setMp(e.target.value)} className="input">
@@ -123,7 +156,7 @@ export function FormRetiro({
             ))}
           </select>
         </Campo>
-        <Campo label="Lote">
+        <Campo label="Lote de MP (código de barras)">
           <select name="loteMpId" defaultValue="" className="input">
             <option value="">Stock sin lote (anterior al registro por lotes)</option>
             {lotesDeMp.map((l) => (
@@ -136,19 +169,22 @@ export function FormRetiro({
         <Campo label="Cantidad (kg) *">
           <input name="cantidadKg" type="number" step="any" min="0" required className="input" />
         </Campo>
-        <Campo label="Inyectora">
-          <input name="inyectora" className="input" placeholder="ej. 8" />
-        </Campo>
-        <Campo label="Ciclo que alimenta (para la trazabilidad)">
-          <select name="cicloId" defaultValue={cicloInicial ?? ""} className="input">
-            <option value="">—</option>
-            {ciclos.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.etiqueta}
-              </option>
-            ))}
-          </select>
-        </Campo>
+        {ciclo ? (
+          <Campo label="Inyectora">
+            <input className="input bg-surface-muted" readOnly value="La del ciclo elegido" />
+          </Campo>
+        ) : (
+          <Campo label="Inyectora">
+            <select name="inyectora" defaultValue="" className="input">
+              <option value="">—</option>
+              {INYECTORAS.map((n) => (
+                <option key={n} value={n}>
+                  Inyectora {n}
+                </option>
+              ))}
+            </select>
+          </Campo>
+        )}
         <Campo label="Entregó">
           <select name="entregaId" defaultValue="" className="input">
             <option value="">—</option>

@@ -5,17 +5,18 @@ import {
   MOTIVOS_PRIORIDAD,
   NIVELES_PRIORIDAD,
   PRIORIDAD_AUTOMATICA,
+  compatibilidadRenglon,
+  coberturaPorLinea,
   etiquetaPrioridad,
   obtenerPedido,
 } from "@/lib/data/pedidos";
+import { claveColor } from "@/lib/catalogo-normalizacion";
 import { listarDespachos, remitoInterno, situacionLineas, type DespachoDetalle } from "@/lib/data/despachos";
 import { obtenerParametros } from "@/lib/data/parametros";
 import { listarAuditoria } from "@/lib/data/auditoria";
 import { listarReclamos, ESTADO_RECLAMO_LABEL } from "@/lib/data/reclamos";
 import { colaProduccion } from "@/lib/data/produccion";
 import { desglosarCajas, listarProductos, unidadesPorCaja } from "@/lib/data/catalogo";
-import { disponiblePorProducto } from "@/lib/data/stock";
-import { getDepositoNexaId } from "@/lib/data/depositos";
 import { getUsuarioActual } from "@/lib/session";
 import {
   puedeCambiarPrioridad,
@@ -28,7 +29,7 @@ import {
 } from "@/lib/auth/permisos";
 import { EstadoPedido } from "@/components/estado-pedido";
 import { CancelarPedido } from "./acciones-pedido";
-import { AsignarProducto, BotonPrepararDespacho, ControlPrioridad } from "./urgencia";
+import { BotonPrepararDespacho, ControlPrioridad, VincularProducto } from "./urgencia";
 import { RemitoLegal } from "./remito-legal";
 import { fmtFecha, fmtFechaHora, fmtMoneda, fmtNumero } from "@/lib/format";
 
@@ -44,12 +45,7 @@ export default async function DetallePedidoPage({
   const pedidoId = Number(id);
   if (!Number.isFinite(pedidoId)) notFound();
 
-  const [usuario, pedido, depositoId, parametros] = await Promise.all([
-    getUsuarioActual(),
-    obtenerPedido(pedidoId),
-    getDepositoNexaId(),
-    obtenerParametros(),
-  ]);
+  const [usuario, pedido, parametros] = await Promise.all([getUsuarioActual(), obtenerPedido(pedidoId), obtenerParametros()]);
   if (!pedido) notFound();
   const rol = usuario.rol;
   const abierto = pedido.estado !== "ENTREGADO" && pedido.estado !== "CANCELADO";
@@ -63,12 +59,11 @@ export default async function DetallePedidoPage({
   ]);
   const ultimoCambioPrioridad = cambiosPrioridad.find((c) => c.campo === "prioridad");
   const sinProducto = lineas.filter((l) => l.productoId == null);
-  const productos = sinProducto.length && abierto && puedeCrearPedido(rol) ? await listarProductos() : [];
-  const disponible = await disponiblePorProducto(
-    depositoId,
-    lineas.map((l) => l.productoId).filter((x): x is number => x != null),
-    pedido.id,
-  );
+  const productos = sinProducto.length && abierto ? await listarProductos() : [];
+  const coloresConocidos = [...new Set(productos.map((p) => p.colorNombre))];
+  const puedeVincular = abierto && puedeCrearPedido(rol);
+  // Misma cuenta que la lista de pedidos y la cola: el stock se reparte por prioridad.
+  const cobertura = await coberturaPorLinea(lineas.map((l) => l.productoId).filter((x): x is number => x != null));
   const activo = despachos.find((d) => d.estado === "ARMANDO" || d.estado === "CONTROLADO");
   const hayPendienteDespachable = lineas.some((l) => l.productoId != null && l.pendiente > 0);
   const lineaPorId = new Map(pedido.lineas.map((l) => [l.id, l]));
@@ -116,6 +111,13 @@ export default async function DetallePedidoPage({
         </div>
       )}
 
+      {!activo && (pedido.estado === "LISTO_PARA_DESPACHAR" || pedido.estado === "EN_ARMADO") && (
+        <div className="rounded-md bg-[var(--estado-bajo-bg)] px-3 py-2 text-sm text-[var(--estado-bajo-fg)]">
+          El estado “{ESTADO_LABEL[pedido.estado]}” viene de la importación del Excel: este pedido no tiene armado ni control en
+          el sistema. Su situación real es la de los renglones de abajo; para despacharlo hay que prepararlo y controlarlo.
+        </div>
+      )}
+
       {/* Despacho */}
       {abierto && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-sm">
@@ -126,7 +128,7 @@ export default async function DetallePedidoPage({
               {hayPendienteDespachable
                 ? "Sin despacho en curso."
                 : sinProducto.length
-                  ? "Hay renglones sin producto: asignalos para poder despacharlos."
+                  ? "Hay renglones sin producto (datos pendientes del Excel): no se pueden armar hasta vincularlos a un producto."
                   : "No queda nada pendiente de entregar."}
             </span>
           )}
@@ -232,11 +234,25 @@ export default async function DetallePedidoPage({
                           <div className="text-xs text-foreground-muted">{l.productoCodigo}</div>
                         </>
                       ) : (
-                        <>
-                          <div className="italic text-foreground-muted">Sin producto asignado</div>
-                          {l.colorTexto && <div className="text-xs text-foreground-muted">Texto del Excel: {l.colorTexto}</div>}
-                          {productos.length > 0 && <AsignarProducto pedidoId={pedido.id} lineaId={l.lineaId} productos={productos} />}
-                        </>
+                        <RenglonSinProducto
+                          colorTexto={l.colorTexto}
+                          unidades={l.pedido}
+                          compat={compatibilidadRenglon(l.colorTexto, coloresConocidos)}
+                          vincular={
+                            puedeVincular
+                              ? (compat) => (
+                                  <VincularProducto
+                                    pedidoId={pedido.id}
+                                    lineaId={l.lineaId}
+                                    requiereConfirmacion={compat.tipo === "sin-dato"}
+                                    productos={productos.filter(
+                                      (p) => compat.tipo === "sin-dato" || (compat.tipo === "color" && claveColor(p.colorNombre) === claveColor(compat.colorNombre)),
+                                    )}
+                                  />
+                                )
+                              : null
+                          }
+                        />
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">{fmtNumero(l.pedido, 0)}</td>
@@ -250,11 +266,7 @@ export default async function DetallePedidoPage({
                       {l.pendiente + l.enDespacho === 0 ? (
                         <span className="badge-estado badge-ok">Entregado</span>
                       ) : (
-                        <EstadoStockLinea
-                          disponible={l.productoId != null ? disponible.get(l.productoId) : undefined}
-                          necesario={l.pendiente + l.enDespacho}
-                          sinSku={l.productoId == null}
-                        />
+                        <EstadoStockLinea falta={cobertura.get(l.lineaId)?.faltaProducir ?? l.pendiente} sinSku={l.productoId == null} />
                       )}
                     </td>
                   </tr>
@@ -264,6 +276,52 @@ export default async function DetallePedidoPage({
           </table>
         </div>
       </div>
+
+      {despachos.some((d) => d.estado === "ENTREGADO") && (
+        <section className="rounded-lg border border-border bg-surface">
+          <h2 className="border-b border-border px-4 py-2.5 text-sm font-semibold uppercase tracking-wide text-foreground-muted">Remitos</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
+                  <th className="px-4 py-2">Remito interno</th>
+                  <th className="px-4 py-2">Fecha</th>
+                  <th className="px-4 py-2">Estado</th>
+                  <th className="px-4 py-2">Remito legal</th>
+                  <th className="px-4 py-2">Registrado por</th>
+                  <th className="px-4 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {despachos
+                  .filter((d) => d.estado === "ENTREGADO")
+                  .map((d) => (
+                    <tr key={d.id} className="border-b border-border last:border-0">
+                      <td className="px-4 py-2 font-mono font-medium">{remitoInterno(d.numeroInterno)}</td>
+                      <td className="px-4 py-2">{d.entregadoEn ? fmtFechaHora(d.entregadoEn) : fmtFecha(d.fecha)}</td>
+                      <td className="px-4 py-2">
+                        <span className="badge-estado badge-ok">Entregado</span>
+                      </td>
+                      <td className="px-4 py-2 font-mono">{d.numeroRemito ?? <span className="font-sans text-foreground-muted">sin registrar</span>}</td>
+                      <td className="px-4 py-2 text-foreground-muted">
+                        {d.remitoLegalPorNombre ? `${d.remitoLegalPorNombre}${d.remitoLegalEn ? `, ${fmtFechaHora(d.remitoLegalEn)}` : ""}` : "—"}
+                      </td>
+                      <td className="px-4 py-2">
+                        <Link href={`/pedidos/${pedido.id}/remito/${d.id}`} className="text-accent hover:underline">
+                          Ver / imprimir (original y duplicado)
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="border-t border-border px-4 py-2 text-xs text-foreground-muted">
+            El remito interno se numera solo al confirmar el control final. El remito legal lo registra Administración en el despacho
+            correspondiente (abajo).
+          </p>
+        </section>
+      )}
 
       {despachos.length > 0 && (
         <section className="space-y-3">
@@ -348,6 +406,9 @@ function TarjetaDespacho({ d, pedidoId, puedeRemitoLegal }: { d: DespachoDetalle
           {ESTADO_DESPACHO_LABEL[d.estado]}
         </span>
         {d.entregadoEn && <span className="text-foreground-muted">Entregado {fmtFechaHora(d.entregadoEn)}</span>}
+        {d.estado !== "ENTREGADO" && d.estado !== "ANULADO" && (
+          <span className="text-xs text-foreground-muted">El remito interno se asigna al confirmar el control final.</span>
+        )}
       </summary>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div>
@@ -381,7 +442,7 @@ function TarjetaDespacho({ d, pedidoId, puedeRemitoLegal }: { d: DespachoDetalle
           </Link>
           <span className="text-foreground-muted">
             Remito legal: {d.numeroRemito ?? "sin registrar"}
-            {d.remitoLegalPorNombre && ` (${d.remitoLegalPorNombre})`}
+            {d.remitoLegalPorNombre && ` (${d.remitoLegalPorNombre}${d.remitoLegalEn ? `, ${fmtFechaHora(d.remitoLegalEn)}` : ""})`}
           </span>
           {puedeRemitoLegal && <RemitoLegal pedidoId={pedidoId} despachoId={d.id} actual={d.numeroRemito} />}
         </div>
@@ -409,10 +470,44 @@ function Cajas({ unidades, porCaja }: { unidades: number; porCaja: number | null
   return <div className="text-xs font-normal text-foreground-muted">{partes.join(" + ")}</div>;
 }
 
-function EstadoStockLinea({ disponible, necesario, sinSku }: { disponible: number | undefined; necesario: number; sinSku: boolean }) {
-  if (sinSku) return <span className="badge-estado bg-surface-muted text-foreground-muted">A asignar</span>;
-  if (disponible == null) return <span className="badge-estado badge-critico">Sin stock</span>;
-  if (disponible >= necesario) return <span className="badge-estado badge-ok">OK para armar</span>;
-  if (disponible > 0) return <span className="badge-estado badge-bajo">Falta producir {fmtNumero(necesario - disponible, 0)}</span>;
-  return <span className="badge-estado badge-critico">Falta producir {fmtNumero(necesario, 0)}</span>;
+type Compat = ReturnType<typeof compatibilidadRenglon>;
+
+/** Renglón importado del Excel sin producto: dato pendiente hasta vincularlo al producto exacto. */
+function RenglonSinProducto({
+  colorTexto,
+  unidades,
+  compat,
+  vincular,
+}: {
+  colorTexto: string | null;
+  unidades: number;
+  compat: Compat;
+  vincular: ((c: Compat) => React.ReactNode) | null;
+}) {
+  return (
+    <div>
+      <div className="font-medium text-foreground">Dato pendiente: renglón sin producto</div>
+      <div className="text-xs text-foreground-muted">
+        Importado del Excel — color: {colorTexto ? `“${colorTexto}”` : "sin dato"} · {fmtNumero(unidades, 0)} u.
+      </div>
+      {compat.tipo === "multicolor" && (
+        <div className="mt-1 text-xs text-[var(--estado-bajo-fg)]">
+          Nombra varios colores para una sola cantidad: falta saber cuántas unidades de cada color. Se resuelve con el cliente; no se
+          puede vincular a un producto.
+        </div>
+      )}
+      {compat.tipo === "irreconocible" && (
+        <div className="mt-1 text-xs text-[var(--estado-bajo-fg)]">
+          El texto no identifica un único color del catálogo: hay que confirmar el color con el cliente.
+        </div>
+      )}
+      {(compat.tipo === "color" || compat.tipo === "sin-dato") && vincular?.(compat)}
+    </div>
+  );
+}
+
+function EstadoStockLinea({ falta, sinSku }: { falta: number; sinSku: boolean }) {
+  if (sinSku) return <span className="badge-estado bg-surface-muted text-foreground-muted">Dato pendiente</span>;
+  if (falta === 0) return <span className="badge-estado badge-ok">Stock disponible para armar</span>;
+  return <span className="badge-estado badge-critico">Falta producir {fmtNumero(falta, 0)}</span>;
 }

@@ -10,14 +10,20 @@ export function FormularioCierre({
   cicloId,
   golpesInicio,
   piezasPorGolpe,
+  pendientePedidos,
+  stockActual,
 }: {
   cicloId: number;
   golpesInicio: number | null;
   piezasPorGolpe: number | null;
+  /** Lo que los pedidos abiertos todavía esperan de este producto. */
+  pendientePedidos: number;
+  stockActual: number;
 }) {
   const [state, formAction, pendiente] = useActionState<FormState, FormData>(cerrarCicloAction, {});
   const [golpesFin, setGolpesFin] = useState("");
   const [descartadas, setDescartadas] = useState("");
+  const [aStock, setAStock] = useState<string | null>(null);
 
   const piezasProducidas = useMemo(() => {
     if (!golpesFin || golpesInicio == null || piezasPorGolpe == null) return null;
@@ -67,18 +73,23 @@ export function FormularioCierre({
           />
         </label>
         <label className="block text-sm">
-          <span className="mb-1 block text-foreground-muted">Piezas a stock</span>
+          <span className="mb-1 block text-foreground-muted">Piezas que entran a stock</span>
           <input
             name="piezasEntregadas"
             type="number"
             min={0}
             required
             className="input"
-            defaultValue={piezasEntregadasSugerida ?? ""}
-            key={piezasEntregadasSugerida ?? "vacio"}
+            value={aStock ?? piezasEntregadasSugerida ?? ""}
+            onChange={(e) => setAStock(e.target.value)}
           />
+          <span className="mt-1 block text-xs text-foreground-muted">
+            Se calcula como producidas − descartadas. Corregilo sólo si quedaron piezas sin entregar al depósito.
+          </span>
         </label>
       </div>
+
+      <Destino entran={Number(aStock ?? piezasEntregadasSugerida ?? 0) || 0} pendiente={pendientePedidos} stock={stockActual} />
 
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="block text-sm">
@@ -117,5 +128,20 @@ export function FormularioCierre({
         Cerrar ciclo
       </button>
     </form>
+  );
+}
+
+/** Dónde impacta cada número: todo lo que entra va al stock general; los
+ *  pedidos lo toman al armar el despacho y el resto queda libre. */
+function Destino({ entran, pendiente, stock }: { entran: number; pendiente: number; stock: number }) {
+  const total = stock + entran;
+  const cubre = Math.min(total, pendiente);
+  const libre = Math.max(0, total - pendiente);
+  return (
+    <div className="rounded-md bg-surface-muted px-3 py-2 text-xs text-foreground-muted">
+      <span className="font-medium text-foreground">Destino de lo producido:</span> entran {entran} piezas al stock (en cajas). Stock
+      después del cierre: {total}. Los pedidos abiertos esperan {pendiente}: el stock cubre {cubre}
+      {pendiente > total ? ` y siguen faltando ${pendiente - total}` : ""}; quedan {libre} libres para stock.
+    </div>
   );
 }

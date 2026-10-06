@@ -24,6 +24,7 @@ import {
   loteMp,
   materiaPrima,
   movimiento,
+  partida,
   producto,
   retiroMp,
   saldo,
@@ -32,6 +33,7 @@ import {
 import { getDepositoNexaId } from "@/lib/data/depositos";
 import { puedeIngresarMateriaPrima, puedeRetirarMateriaPrima } from "@/lib/auth/permisos";
 import type { Actor, Resultado } from "@/lib/data/auditoria";
+import { INYECTORAS } from "@/lib/inyectoras";
 import { hoyISO } from "@/lib/format";
 
 export type BloquesCodigo = { producto: string; materiaPrima: string; proveedorCertificado: string; lote: string };
@@ -193,9 +195,19 @@ export async function retirarMateriaPrima(actor: Actor, input: RetiroInput): Pro
       if (input.cantidadKg > disponible + 1e-9) return { error: `El lote tiene ${disponible} kg disponibles.` };
     }
     if (input.cantidadKg > Number(s?.cantidad ?? 0) + 1e-9) return { error: `Hay ${Number(s?.cantidad ?? 0)} kg en stock de ${mp.nombre}.` };
+    // Con ciclo, la inyectora es la del ciclo; sin ciclo, una de las máquinas de la planta.
+    let inyectora: string | null = null;
     if (input.cicloId != null) {
-      const [ciclo] = await tx.select({ id: cicloProduccion.id }).from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
+      const [ciclo] = await tx
+        .select({ id: cicloProduccion.id, inyectora: cicloProduccion.inyectora })
+        .from(cicloProduccion)
+        .where(eq(cicloProduccion.id, input.cicloId));
       if (!ciclo) return { error: "El ciclo indicado no existe." };
+      inyectora = ciclo.inyectora;
+    } else if (input.inyectora?.trim()) {
+      const v = input.inyectora.replace(/inyectora/i, "").trim();
+      if (!(INYECTORAS as readonly string[]).includes(v)) return { error: `La inyectora ${v} no existe en la planta (1 a 8).` };
+      inyectora = v;
     }
 
     const [retiro] = await tx
@@ -206,7 +218,7 @@ export async function retirarMateriaPrima(actor: Actor, input: RetiroInput): Pro
         loteMpId: input.loteMpId,
         cicloId: input.cicloId,
         cantidad: String(input.cantidadKg),
-        inyectora: input.inyectora?.trim() || null,
+        inyectora,
         retiraId: actor.id,
         entregaId: input.entregaId,
         observaciones: input.observaciones?.trim() || null,
@@ -220,7 +232,7 @@ export async function retirarMateriaPrima(actor: Actor, input: RetiroInput): Pro
       cantidad: String(input.cantidadKg),
       origen: "RETIRO_MP",
       origenId: retiro.id,
-      motivo: `Retiro a máquina${input.inyectora ? ` ${input.inyectora}` : ""}${input.cicloId ? ` · ciclo #${input.cicloId}` : ""}`,
+      motivo: `Retiro a máquina${inyectora ? ` ${inyectora}` : ""}${input.cicloId ? ` · ciclo #${input.cicloId}` : ""}`,
       usuarioId: actor.id,
     });
     await tx
@@ -252,6 +264,8 @@ export async function listarRetiros(filtro?: { cicloId?: number; limite?: number
       loteCodigo: loteMp.codigoBarra,
       numeroLote: loteMp.numeroLote,
       productoNumero: producto.numero,
+      productoCodigo: producto.codigo,
+      partidaNumero: partida.numero,
       retiraNombre: usuario.nombre,
     })
     .from(retiroMp)
@@ -260,6 +274,7 @@ export async function listarRetiros(filtro?: { cicloId?: number; limite?: number
     .leftJoin(loteMp, eq(retiroMp.loteMpId, loteMp.id))
     .leftJoin(cicloProduccion, eq(retiroMp.cicloId, cicloProduccion.id))
     .leftJoin(producto, eq(cicloProduccion.productoId, producto.id))
+    .leftJoin(partida, eq(cicloProduccion.partidaId, partida.id))
     .where(filtro?.cicloId ? eq(retiroMp.cicloId, filtro.cicloId) : undefined)
     .orderBy(desc(retiroMp.creadoEn), desc(retiroMp.id))
     .limit(filtro?.limite ?? 100);
@@ -280,10 +295,12 @@ export async function ciclosParaRetiro() {
       fechaInicio: cicloProduccion.fechaInicio,
       inyectora: cicloProduccion.inyectora,
       productoCodigo: producto.codigo,
+      partidaNumero: partida.numero,
       cerrado: sql<boolean>`${cicloProduccion.fechaFin} is not null`,
     })
     .from(cicloProduccion)
     .leftJoin(producto, eq(cicloProduccion.productoId, producto.id))
+    .leftJoin(partida, eq(cicloProduccion.partidaId, partida.id))
     .orderBy(desc(cicloProduccion.fechaInicio), desc(cicloProduccion.id))
     .limit(30);
 }

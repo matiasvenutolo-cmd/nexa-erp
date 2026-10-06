@@ -6,55 +6,134 @@ import { getUsuarioActual } from "@/lib/session";
 import { puedeIngresarMateriaPrima, puedeRetirarMateriaPrima, puedeVerMateriaPrima } from "@/lib/auth/permisos";
 import { Semaforo } from "@/components/semaforo";
 import { fmtFecha, fmtNumero } from "@/lib/format";
+import { etiquetaInyectora } from "@/lib/inyectoras";
 
-export default async function MateriaPrimaPage() {
+const TIPOS = [
+  { valor: undefined, label: "Todas" },
+  { valor: "VIRGEN", label: "Virgen" },
+  { valor: "MASTER", label: "Master" },
+  { valor: "MOLIENDA", label: "Molienda" },
+  { valor: "SOBRANTE", label: "Sobrante" },
+  { valor: "MUESTRA", label: "Muestra" },
+];
+
+/**
+ * Orden de la pantalla: primero lo operativo de fábrica (qué salió a máquina),
+ * después el stock por tipo y al final los lotes con su certificado.
+ * "Lote de MP" es el lote del proveedor ingresado con certificado (código de
+ * 27 dígitos); no es la partida NEXA, que agrupa la producción.
+ */
+export default async function MateriaPrimaPage({ searchParams }: { searchParams: Promise<{ tipo?: string; texto?: string; alertas?: string }> }) {
   const usuario = await getUsuarioActual();
   if (!puedeVerMateriaPrima(usuario.rol)) redirect("/tablero");
-  const [stock, lotes, retiros] = await Promise.all([listarMinMaxMateriaPrima(), listarLotes({ soloConSaldo: true }), listarRetiros({ limite: 20 })]);
+  const sp = await searchParams;
+  const [stock, lotes, retiros] = await Promise.all([listarMinMaxMateriaPrima(), listarLotes({ soloConSaldo: true }), listarRetiros({ limite: 30 })]);
+
+  const tipo = TIPOS.some((t) => t.valor === sp.tipo) ? sp.tipo : undefined;
+  const texto = sp.texto?.trim().toLowerCase();
+  const soloAlertas = sp.alertas === "1";
+  const stockVisible = stock.filter(
+    (m) =>
+      (!tipo || m.grupo === tipo) &&
+      (!texto || `${m.codigo} ${m.descripcion}`.toLowerCase().includes(texto)) &&
+      (!soloAlertas || m.estado === "critico" || m.estado === "bajo"),
+  );
+  const query = (over: Record<string, string | undefined>) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries({ tipo: sp.tipo, texto: sp.texto, alertas: sp.alertas, ...over })) if (v) p.set(k, v);
+    const qs = p.toString();
+    return `/materia-prima${qs ? `?${qs}` : ""}#stock`;
+  };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold text-brand-azul-oscuro">Materia prima</h1>
         <div className="flex gap-2">
-          {puedeIngresarMateriaPrima(usuario.rol) && (
-            <Link href="/materia-prima/ingreso" className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90">
-              + Ingreso con certificado y lote
+          {puedeRetirarMateriaPrima(usuario.rol) && (
+            <Link href="/materia-prima/retiro" className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90">
+              Retiro a máquina
             </Link>
           )}
-          {puedeRetirarMateriaPrima(usuario.rol) && (
-            <Link href="/materia-prima/retiro" className="rounded-md bg-surface-muted px-3 py-1.5 text-sm font-medium text-foreground">
-              Retiro a máquina
+          {puedeIngresarMateriaPrima(usuario.rol) && (
+            <Link href="/materia-prima/ingreso" className="rounded-md bg-surface-muted px-3 py-1.5 text-sm font-medium text-foreground">
+              + Ingreso con certificado y lote
             </Link>
           )}
         </div>
       </div>
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-foreground-muted">Lotes con saldo</h2>
-        {lotes.length === 0 ? (
-          <p className="text-sm text-foreground-muted">Todavía no hay lotes ingresados. El stock importado del Excel no tiene lote.</p>
+      <section className="space-y-2">
+        <h2 className="text-base font-semibold text-foreground">Movimientos a máquina (retiros del depósito)</h2>
+        <p className="text-xs text-foreground-muted">Últimos 30. Cada retiro con ciclo queda vinculado a la partida NEXA que se produjo.</p>
+        {retiros.length === 0 ? (
+          <p className="text-sm text-foreground-muted">Sin retiros registrados.</p>
         ) : (
           <Tabla
-            cabecera={["Lote", "Materia prima", "Certificado", "Ingreso", "Disponible (kg)"]}
-            filas={lotes.map((l) => [
-              <Link key="l" href={`/trazabilidad?tipo=lote&valor=${l.codigoBarra}`} className="font-mono text-xs text-accent hover:underline">
-                {l.codigoBarra}
-              </Link>,
-              l.materiaPrimaNombre,
-              l.certificadoNumero ? `N° ${l.certificadoNumero} · ${l.proveedor}` : "—",
-              fmtFecha(l.fechaIngreso),
-              fmtNumero(l.disponible, 3),
+            cabecera={["Fecha", "Materia prima", "Kg", "Lote de MP", "Ciclo · producto", "Partida NEXA", "Inyectora", "Retiró"]}
+            filas={retiros.map((r) => [
+              fmtFecha(r.fecha),
+              r.materiaPrimaNombre,
+              fmtNumero(r.cantidad, 3),
+              r.loteCodigo ? (
+                <Link key="l" href={`/trazabilidad?tipo=lote&valor=${r.loteCodigo}`} className="font-mono text-xs text-accent hover:underline">
+                  {r.loteCodigo}
+                </Link>
+              ) : (
+                <span key="l" className="text-foreground-muted">sin lote</span>
+              ),
+              r.cicloId ? (
+                <Link key="c" href={`/produccion/${r.cicloId}`} className="text-accent hover:underline">
+                  #{r.cicloId} · {r.productoCodigo ?? "—"}
+                </Link>
+              ) : (
+                "—"
+              ),
+              r.partidaNumero != null ? (
+                <Link key="p" href={`/trazabilidad?tipo=partida&valor=${r.partidaNumero}`} className="text-accent hover:underline">
+                  N° {r.partidaNumero}
+                </Link>
+              ) : (
+                "—"
+              ),
+              r.inyectora ? etiquetaInyectora(r.inyectora) : "—",
+              r.retiraNombre,
             ])}
           />
         )}
       </section>
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-foreground-muted">Stock</h2>
+      <section id="stock" className="space-y-2">
+        <h2 className="text-base font-semibold text-foreground">Stock de materia prima</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          {TIPOS.map((t) => (
+            <Link
+              key={t.label}
+              href={query({ tipo: t.valor })}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                tipo === t.valor ? "bg-accent text-accent-foreground" : "bg-surface-muted text-foreground-muted hover:text-foreground"
+              }`}
+            >
+              {t.label}
+            </Link>
+          ))}
+          <Link
+            href={query({ alertas: soloAlertas ? undefined : "1" })}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              soloAlertas ? "bg-accent text-accent-foreground" : "bg-surface-muted text-foreground-muted hover:text-foreground"
+            }`}
+          >
+            Solo alertas
+          </Link>
+          <form action="/materia-prima" className="ml-auto">
+            {tipo && <input type="hidden" name="tipo" value={tipo} />}
+            {soloAlertas && <input type="hidden" name="alertas" value="1" />}
+            <input type="search" name="texto" defaultValue={sp.texto ?? ""} placeholder="Buscar materia prima…" className="input w-56" />
+          </form>
+        </div>
         <Tabla
           cabecera={["Código", "Materia prima", "Tipo", "Stock (kg)", "Mínimo", "Máximo", "Estado"]}
-          filas={stock.map((m) => [
+          filas={stockVisible.map((m) => [
             m.codigo,
             m.descripcion,
             m.grupo,
@@ -64,29 +143,33 @@ export default async function MateriaPrimaPage() {
             <Semaforo key="s" estado={m.estado} />,
           ])}
         />
-        <p className="mt-1 text-xs text-foreground-muted">Mínimos y máximos: Panel Admin → Stock → Materia prima.</p>
+        <p className="text-xs text-foreground-muted">
+          {stockVisible.length} de {stock.length}. Mínimos y máximos: Panel Admin → Stock → Materia prima.
+        </p>
       </section>
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-foreground-muted">Últimos retiros a máquina</h2>
-        {retiros.length === 0 ? (
-          <p className="text-sm text-foreground-muted">Sin retiros registrados.</p>
+      <section className="space-y-2">
+        <h2 className="text-base font-semibold text-foreground">Lotes de MP con saldo</h2>
+        <p className="text-xs text-foreground-muted">
+          Lote de MP = el lote del proveedor ingresado con su certificado de calidad. El código de barras tiene 27 dígitos: 3 de
+          producto (000 al ingresar), 4 de materia prima, 8 de proveedor/certificado y 12 del N° de lote del proveedor.
+        </p>
+        {lotes.length === 0 ? (
+          <p className="text-sm text-foreground-muted">Todavía no hay lotes ingresados. El stock importado del Excel no tiene lote.</p>
         ) : (
           <Tabla
-            cabecera={["Fecha", "Materia prima", "Kg", "Lote", "Ciclo", "Retiró"]}
-            filas={retiros.map((r) => [
-              fmtFecha(r.fecha),
-              r.materiaPrimaNombre,
-              fmtNumero(r.cantidad, 3),
-              r.loteCodigo ? <span key="l" className="font-mono text-xs">{r.loteCodigo}</span> : "sin lote",
-              r.cicloId ? (
-                <Link key="c" href={`/produccion/${r.cicloId}`} className="text-accent hover:underline">
-                  #{r.cicloId}
-                </Link>
-              ) : (
-                "—"
-              ),
-              r.retiraNombre,
+            cabecera={["Lote de MP (código)", "N° de lote del proveedor", "Materia prima", "Certificado", "Ingreso", "Disponible (kg)"]}
+            filas={lotes.map((l) => [
+              <Link key="l" href={`/trazabilidad?tipo=lote&valor=${l.codigoBarra}`} className="font-mono text-xs text-accent hover:underline">
+                {l.codigoBarra}
+              </Link>,
+              <span key="n" className="font-mono text-xs">
+                {l.numeroLote}
+              </span>,
+              l.materiaPrimaNombre,
+              l.certificadoNumero ? `N° ${l.certificadoNumero} · ${l.proveedor}` : "—",
+              fmtFecha(l.fechaIngreso),
+              fmtNumero(l.disponible, 3),
             ])}
           />
         )}
@@ -119,6 +202,13 @@ function Tabla({ cabecera, filas }: { cabecera: string[]; filas: React.ReactNode
                 ))}
               </tr>
             ))}
+            {filas.length === 0 && (
+              <tr>
+                <td colSpan={cabecera.length} className="px-4 py-6 text-center text-foreground-muted">
+                  Sin resultados.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

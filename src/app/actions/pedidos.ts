@@ -193,7 +193,12 @@ export async function cambiarPrioridadAction(_prev: FormState, fd: FormData): Pr
 export async function asignarProductoAction(_prev: FormState, fd: FormData): Promise<FormState> {
   const usuario = await getUsuarioActual();
   const pedidoId = Number(fd.get("pedidoId"));
-  const r = await asignarProductoALinea(usuario, Number(fd.get("lineaId")), Number(fd.get("productoId")));
+  const r = await asignarProductoALinea(
+    usuario,
+    Number(fd.get("lineaId")),
+    Number(fd.get("productoId")),
+    String(fd.get("confirmacion") ?? "").trim() || null,
+  );
   if (r.error) return r;
   revalidarPedido(pedidoId);
   return { ok: true };

@@ -437,18 +437,34 @@ describe("Anulación, cancelación y renglones históricos", () => {
     expect(res.estado).toBe("LIBERADA");
   });
 
-  it("un renglón importado sin producto se asigna y queda reservado", async () => {
+  it("un renglón importado sin producto se vincula sólo a un producto de su color y queda reservado", async () => {
     const [p] = await db().insert(schema.pedido).values({ clienteId: s.cliente.id, fechaPedido: "2026-08-01" }).returning();
-    const [l] = await db()
+    const [multi, rojo, sinDato] = await db()
       .insert(schema.pedidoLinea)
-      .values({ pedidoId: p.id, productoId: null, colorTexto: "Gris oscuro y amarillo", unidadesPedidas: 12 })
+      .values([
+        { pedidoId: p.id, productoId: null, colorTexto: "Gris oscuro y amarillo", unidadesPedidas: 1 },
+        { pedidoId: p.id, productoId: null, colorTexto: "ROJO", unidadesPedidas: 12 },
+        { pedidoId: p.id, productoId: null, colorTexto: null, unidadesPedidas: 3 },
+      ])
       .returning();
     expect((await iniciarDespacho(s.usuarios.DESPACHO, p.id)).error).toMatch(/producto asignado/);
-    expect((await asignarProductoALinea(s.usuarios.DESPACHO, l.id, s.productos.rejRojo.id)).error).toMatch(/permiso/);
-    expect((await asignarProductoALinea(s.usuarios.ADMINISTRACION, l.id, s.productos.rejRojo.id)).error).toBeUndefined();
-    const [res] = await db().select().from(schema.reserva).where(and(eq(schema.reserva.pedidoLineaId, l.id), eq(schema.reserva.estado, "ABIERTA")));
+    expect((await asignarProductoALinea(s.usuarios.DESPACHO, rojo.id, s.productos.rejRojo.id)).error).toMatch(/permiso/);
+    // Varios colores para una sola cantidad: dato pendiente, no se vincula a nada.
+    expect((await asignarProductoALinea(s.usuarios.ADMINISTRACION, multi.id, s.productos.rejRojo.id)).error).toMatch(/varios colores/);
+    // Color distinto al del renglón: rechazado en el servidor.
+    expect((await asignarProductoALinea(s.usuarios.ADMINISTRACION, rojo.id, s.productos.rejNegro.id)).error).toMatch(/color Rojo/);
+    expect((await asignarProductoALinea(s.usuarios.ADMINISTRACION, rojo.id, s.productos.rejRojo.id)).error).toBeUndefined();
+    // Sin color en el Excel: hay que decir cómo se confirmó.
+    expect((await asignarProductoALinea(s.usuarios.ADMINISTRACION, sinDato.id, s.productos.rejBlanco.id)).error).toMatch(/cómo se confirmó/);
+    expect((await asignarProductoALinea(s.usuarios.ADMINISTRACION, sinDato.id, s.productos.rejBlanco.id, "confirmado con el cliente")).error).toBeUndefined();
+
+    const [res] = await db().select().from(schema.reserva).where(and(eq(schema.reserva.pedidoLineaId, rojo.id), eq(schema.reserva.estado, "ABIERTA")));
     expect(Number(res.cantidad)).toBe(12);
-    expect((await listarAuditoria({ entidad: "pedido", entidadId: p.id }))[0]).toMatchObject({ valorAnterior: "Gris oscuro y amarillo", valorNuevo: "008B-PR-RO" });
+    const audit = await listarAuditoria({ entidad: "pedido", entidadId: p.id });
+    expect(audit.find((a) => a.valorAnterior === "ROJO")).toMatchObject({ valorNuevo: "008B-PR-RO" });
+    expect(audit.find((a) => a.valorNuevo === "004A-PR-BL")).toMatchObject({ motivo: "confirmado con el cliente" });
+    const [m] = await db().select().from(schema.pedidoLinea).where(eq(schema.pedidoLinea.id, multi.id));
+    expect(m.productoId).toBeNull();
     expect((await iniciarDespacho(s.usuarios.DESPACHO, p.id)).id).toBeDefined();
   });
 });

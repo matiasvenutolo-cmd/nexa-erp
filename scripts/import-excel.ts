@@ -395,7 +395,10 @@ async function main() {
     const estadoNorm = normalizarTexto(estadoOriginal);
     let estado: (typeof schema.estadoPedidoEnum.enumValues)[number];
     if (estadoNorm === "pedido") estado = "PEDIDO";
-    else if (estadoNorm === "listo para retirar") estado = "LISTO_PARA_DESPACHAR";
+    // "Listo para retirar" del Excel no equivale a "Listo para despachar" del
+    // sistema: ése lo pone el armado con primer control. Entra como Pedido
+    // abierto y se arma/controla en el sistema.
+    else if (estadoNorm === "listo para retirar") estado = "PEDIDO";
     else if (["despachado", "entregado", "ganador sorteo"].includes(estadoNorm)) estado = "ENTREGADO";
     else {
       estado = "ENTREGADO";

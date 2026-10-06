@@ -2,14 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import {
-  crearCiclo,
-  cerrarCiclo,
-  partidasAbiertasDe,
-  ultimoCicloDePartida,
-  pedidosQueNecesitan,
-  productosParaCiclo,
-} from "@/lib/data/produccion";
+import { crearCiclo, cerrarCiclo, resumenParaCiclo, ultimoCicloDePartida } from "@/lib/data/produccion";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeCargarProduccion } from "@/lib/auth/permisos";
 
@@ -28,7 +21,6 @@ export async function crearCicloAction(_prev: FormState, fd: FormData): Promise<
   const productoId = Number(fd.get("productoId"));
   if (!productoId) return { error: "Elegí un producto." };
   const inyectora = String(fd.get("inyectora") ?? "").trim();
-  if (!inyectora) return { error: "Falta la inyectora." };
   const fecha = String(fd.get("fecha") ?? "");
   if (!fecha) return { error: "Falta la fecha." };
 
@@ -64,12 +56,8 @@ export async function crearCicloAction(_prev: FormState, fd: FormData): Promise<
  *  sugeridos (= golpes fin del último ciclo de esa partida) y los pedidos
  *  abiertos que lo necesitan (§3.1 de docs/06-comentarios-produccion.md). */
 export async function datosParaProducto(productoId: number) {
-  const producto = (await productosParaCiclo()).find((p) => p.id === productoId) ?? null;
-  const [partidas, pedidos] = await Promise.all([
-    partidasAbiertasDe(productoId),
-    pedidosQueNecesitan(productoId),
-  ]);
-  return { piezasPorGolpe: producto?.piezasPorGolpe ?? null, partidas, pedidos };
+  await getUsuarioActual();
+  return resumenParaCiclo(productoId);
 }
 
 export async function golpesSugeridos(partidaId: number) {

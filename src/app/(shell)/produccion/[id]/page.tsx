@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { cajasDeCiclo, obtenerCiclo } from "@/lib/data/produccion";
+import { cajasDeCiclo, obtenerCiclo, resumenParaCiclo } from "@/lib/data/produccion";
+import { etiquetaInyectora } from "@/lib/inyectoras";
 import { resolverDosificacion } from "@/lib/data/dosificacion";
 import { codigoDeUso, listarRetiros } from "@/lib/data/materia-prima";
 import { fmtNumero, fmtFecha, fmtDia } from "@/lib/format";
@@ -13,7 +14,12 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
   const dosificacion = ciclo.productoFamilia
     ? await resolverDosificacion(ciclo.productoFamilia, ciclo.productoColorId)
     : null;
-  const [cajas, retiros] = await Promise.all([cajasDeCiclo(ciclo.id), listarRetiros({ cicloId: ciclo.id })]);
+  const abierto = ciclo.fechaFin == null;
+  const [cajas, retiros, resumen] = await Promise.all([
+    cajasDeCiclo(ciclo.id),
+    listarRetiros({ cicloId: ciclo.id }),
+    abierto && ciclo.productoId ? resumenParaCiclo(ciclo.productoId) : Promise.resolve(null),
+  ]);
   const kgMp =
     ciclo.piezasProducidas != null && ciclo.productoKgPorUnidad != null
       ? ciclo.piezasProducidas * Number(ciclo.productoKgPorUnidad)
@@ -21,13 +27,23 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
 
   return (
     <div className="max-w-3xl space-y-4">
-      <h1 className="text-xl font-semibold text-brand-azul-oscuro">
-        Ciclo #{ciclo.id} — {ciclo.productoCodigo} · {ciclo.productoDescripcion}
-      </h1>
+      <div>
+        <Link href="/produccion" className="text-sm text-foreground-muted hover:text-foreground">
+          ← Producción
+        </Link>
+        <h1 className="mt-1 text-xl font-semibold text-brand-azul-oscuro">
+          Ciclo #{ciclo.id} — {ciclo.productoCodigo} · {ciclo.productoDescripcion}
+        </h1>
+        <ol className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground-muted">
+          <li>✓ 1. Inicio (partida N° {ciclo.partidaNumero ?? "—"})</li>
+          <li>{retiros.length > 0 ? "✓" : "○"} 2. Retiro de materia prima</li>
+          <li>{abierto ? "○" : "✓"} 3. Cierre del día{abierto ? "" : " — producción ingresada al stock en cajas"}</li>
+        </ol>
+      </div>
 
       <div className="grid gap-3 rounded-lg border border-border bg-surface p-4 text-sm sm:grid-cols-3">
         <Dato label="Inicio" valor={fmtFecha(ciclo.fechaInicio)} />
-        <Dato label="Inyectora" valor={ciclo.inyectora} />
+        <Dato label="Inyectora" valor={etiquetaInyectora(ciclo.inyectora)} />
         <Dato label="Partida" valor={ciclo.partidaNumero != null ? `N° ${ciclo.partidaNumero}` : "—"} />
         <Dato label="Operario" valor={ciclo.operarioNombre ?? "—"} />
         <Dato label="Golpes de inicio" valor={ciclo.golpesInicio != null ? fmtNumero(ciclo.golpesInicio, 0) : "—"} />
@@ -69,12 +85,21 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
       <div className="rounded-lg border border-border bg-surface p-4 text-sm">
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold text-foreground-muted">Materia prima usada</h2>
-          <Link href={`/materia-prima/retiro?ciclo=${ciclo.id}`} className="text-sm font-medium text-accent hover:underline">
-            Registrar retiro de MP para este ciclo
-          </Link>
+          {abierto && (
+            <Link
+              href={`/materia-prima/retiro?ciclo=${ciclo.id}`}
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90"
+            >
+              Retirar materia prima para este ciclo →
+            </Link>
+          )}
         </div>
         {retiros.length === 0 ? (
-          <p className="text-foreground-muted">Sin retiros vinculados a este ciclo.</p>
+          <p className="text-foreground-muted">
+            {abierto
+              ? "Todavía no se retiró materia prima del depósito para este ciclo. El lote retirado queda vinculado a la partida (trazabilidad)."
+              : "No se registró materia prima para este ciclo."}
+          </p>
         ) : (
           <ul className="space-y-1">
             {retiros.map((r) => (
@@ -112,14 +137,15 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
 
       {ciclo.pedidos.length > 0 && (
         <div className="rounded-lg border border-border bg-surface p-4">
-          <h2 className="mb-2 text-sm font-semibold text-foreground-muted">Pedidos que cubre</h2>
+          <h2 className="mb-1 text-sm font-semibold text-foreground-muted">Planificación: pedidos que busca cubrir</h2>
+          <p className="mb-2 text-xs text-foreground-muted">Referencia del inicio del día; no reserva stock.</p>
           <ul className="space-y-1 text-sm">
             {ciclo.pedidos.map((p) => (
               <li key={p.pedidoId} className="flex justify-between">
-                <span className="text-foreground-muted">
+                <Link href={`/pedidos/${p.pedidoId}`} className="text-foreground-muted hover:text-accent">
                   Pedido #{p.pedidoId} · {p.clienteNombre}
-                </span>
-                <span className="text-foreground">{fmtNumero(p.cantidadAsignada, 0)}</span>
+                </Link>
+                <span className="text-foreground">{fmtNumero(p.cantidadAsignada, 0)} planificadas</span>
               </li>
             ))}
           </ul>
@@ -132,7 +158,7 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
           <Dato label="Golpes de fin" valor={ciclo.golpesFin != null ? fmtNumero(ciclo.golpesFin, 0) : "—"} />
           <Dato label="Piezas producidas" valor={ciclo.piezasProducidas != null ? fmtNumero(ciclo.piezasProducidas, 0) : "—"} />
           <Dato label="Piezas descartadas" valor={ciclo.piezasDescartadas != null ? fmtNumero(ciclo.piezasDescartadas, 0) : "—"} />
-          <Dato label="Piezas a stock" valor={ciclo.piezasEntregadas != null ? fmtNumero(ciclo.piezasEntregadas, 0) : "—"} />
+          <Dato label="Piezas que entraron a stock" valor={ciclo.piezasEntregadas != null ? fmtNumero(ciclo.piezasEntregadas, 0) : "—"} />
           <Dato label="Colada (kg)" valor={ciclo.coladaKg ?? "—"} />
           <Dato label="Rebarba (kg)" valor={ciclo.rebarbaKg ?? "—"} />
           <Dato label="Scrap (kg)" valor={ciclo.scrapKg ?? "—"} />
@@ -142,6 +168,8 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
           cicloId={ciclo.id}
           golpesInicio={ciclo.golpesInicio}
           piezasPorGolpe={ciclo.piezasPorGolpe}
+          pendientePedidos={resumen?.pendientePedidos ?? 0}
+          stockActual={resumen?.stock ?? 0}
         />
       )}
     </div>
