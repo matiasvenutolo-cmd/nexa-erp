@@ -12,7 +12,8 @@ import {
 import { resolverClienteDelPedido } from "@/lib/data/clientes";
 import { crearProductoNuevo } from "@/lib/data/catalogo";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeCrearPedido, puedeCrearProducto, puedeVerPrecios } from "@/lib/auth/permisos";
+import { puedeCrearPedido, puedeCrearProducto } from "@/lib/auth/permisos";
+import { verPrecios as verPreciosDe } from "@/lib/vista";
 import type { FamiliaProducto, TipoProducto } from "@/lib/catalogo-normalizacion";
 
 export type FormState = { error?: string; ok?: boolean };
@@ -103,7 +104,7 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
   const numeroOrden = String(fd.get("numeroOrden") ?? "").trim() || null;
   // Igual que arriba: quien no ve precios en la UI tampoco puede fijarlos
   // mandando el campo a mano.
-  const verPrecios = puedeVerPrecios(usuario.rol);
+  const verPrecios = await verPreciosDe(usuario);
   const total = verPrecios ? String(fd.get("total") ?? "").trim() : "";
   const senia = verPrecios ? String(fd.get("senia") ?? "").trim() : "";
   const metodoPago = verPrecios ? String(fd.get("metodoPago") ?? "").trim() || null : null;
@@ -154,7 +155,7 @@ export async function editarPedidoAction(_prev: FormState, fd: FormData): Promis
   if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para modificar pedidos." };
 
   const pedidoId = Number(fd.get("pedidoId"));
-  const verPrecios = puedeVerPrecios(usuario.rol);
+  const verPrecios = await verPreciosDe(usuario);
 
   const r = await editarPedido(pedidoId, {
     fechaEntregaPactada: String(fd.get("fechaEntregaPactada") ?? "").trim() || null,

@@ -12,8 +12,8 @@ import { producto, color, saldo, proveedorMaster } from "@/lib/db/schema";
 import { getDepositoNexaId } from "@/lib/data/depositos";
 import { semaforoStock, type EstadoSemaforo } from "@/lib/data/stock";
 import { obtenerParametros, type Parametros } from "@/lib/data/parametros";
-import { registrarCambios, type Actor } from "@/lib/data/auditoria";
-import { puedeCrearProducto } from "@/lib/auth/permisos";
+import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
+import { puedeCrearProducto, puedeEditarParametrosProduccion } from "@/lib/auth/permisos";
 import { claveColor, generarIniciales, pareceMulticolor, resolverColor, tipoCodigoDe } from "@/lib/catalogo-normalizacion";
 import type { FamiliaProducto, TipoProducto } from "@/lib/catalogo-normalizacion";
 
@@ -25,6 +25,8 @@ export type FilaProducto = {
   familia: (typeof producto.$inferSelect)["familia"];
   tipo: (typeof producto.$inferSelect)["tipo"];
   esAccesorio: boolean;
+  m2PorUnidad: number | null;
+  kgPorUnidad: number | null;
   colorId: number;
   colorNombre: string;
   colorEspecial: boolean;
@@ -60,6 +62,8 @@ export async function listarProductos(filtro?: {
         familia: producto.familia,
         tipo: producto.tipo,
         esAccesorio: producto.esAccesorio,
+        m2: producto.m2PorUnidad,
+        kg: producto.kgPorUnidad,
         colorId: producto.colorId,
         colorNombre: color.nombre,
         colorEspecial: color.especial,
@@ -75,10 +79,12 @@ export async function listarProductos(filtro?: {
     obtenerParametros(),
   ]);
 
-  return filas.map((f) => {
+  return filas.map(({ m2, kg, ...f }) => {
     const stock = Number(f.stock);
     return {
       ...f,
+      m2PorUnidad: m2 != null && Number(m2) > 0 ? Number(m2) : null,
+      kgPorUnidad: kg != null && Number(kg) > 0 ? Number(kg) : null,
       stock,
       estado: semaforoStock(stock, f.minimo, f.maximo, parametros.semaforo_margen_bajo),
     };
@@ -290,5 +296,35 @@ export async function crearProductoNuevo(actor: Actor, input: NuevoProductoInput
     ]);
 
     return { ok: true as const, id: nuevo.id, codigo: nuevo.codigo, descripcion: nuevo.descripcion, colorId, colorNuevo };
+  });
+}
+
+
+/**
+ * Datos técnicos por producto: superficie por pieza (sólo pisos: los
+ * accesorios no suman m²) y peso por pieza (para el rendimiento teórico y el
+ * material necesario). Valor vacío = sin configurar; nunca se estima.
+ */
+export async function actualizarDatosTecnicos(
+  actor: Actor,
+  productoId: number,
+  input: { m2PorUnidad: number | null; kgPorUnidad: number | null; motivo?: string | null },
+): Promise<Resultado> {
+  if (!puedeEditarParametrosProduccion(actor.rol)) return { error: "No tenés permiso para cambiar datos técnicos de productos." };
+  for (const v of [input.m2PorUnidad, input.kgPorUnidad]) {
+    if (v != null && (!Number.isFinite(v) || v <= 0)) return { error: "Los valores tienen que ser mayores que cero (o quedar vacíos)." };
+  }
+  return db.transaction(async (tx) => {
+    const [p] = await tx.select({ esAccesorio: producto.esAccesorio, m2: producto.m2PorUnidad, kg: producto.kgPorUnidad, codigo: producto.codigo }).from(producto).where(eq(producto.id, productoId));
+    if (!p) return { error: "Producto no encontrado." };
+    if (p.esAccesorio && input.m2PorUnidad != null) return { error: `${p.codigo} es un accesorio: no lleva superficie (no suma m²).` };
+    const m2 = input.m2PorUnidad != null ? String(input.m2PorUnidad) : null;
+    const kg = input.kgPorUnidad != null ? String(input.kgPorUnidad) : null;
+    await tx.update(producto).set({ m2PorUnidad: m2, kgPorUnidad: kg }).where(eq(producto.id, productoId));
+    await registrarCambios(tx, actor.id, [
+      { entidad: "producto", entidadId: productoId, campo: "m2_por_unidad", anterior: p.m2, nuevo: m2, motivo: input.motivo },
+      { entidad: "producto", entidadId: productoId, campo: "kg_por_unidad", anterior: p.kg, nuevo: kg, motivo: input.motivo },
+    ]);
+    return {};
   });
 }

@@ -24,10 +24,12 @@ import {
   puedeCrearReclamo,
   puedeOperarDespacho,
   puedeRegistrarRemitoLegal,
-  puedeVerPrecios,
   puedeVerReclamos,
 } from "@/lib/auth/permisos";
 import { EstadoPedido } from "@/components/estado-pedido";
+import { ResumenPedido } from "@/components/resumen-pedido";
+import { resumirPedido } from "@/lib/resumen-pedido";
+import { verPrecios as verPreciosDe } from "@/lib/vista";
 import { CancelarPedido } from "./acciones-pedido";
 import { BotonPrepararDespacho, ControlPrioridad, VincularProducto } from "./urgencia";
 import { RemitoLegal } from "./remito-legal";
@@ -48,6 +50,7 @@ export default async function DetallePedidoPage({
   const [usuario, pedido, parametros] = await Promise.all([getUsuarioActual(), obtenerPedido(pedidoId), obtenerParametros()]);
   if (!pedido) notFound();
   const rol = usuario.rol;
+  const conPrecios = await verPreciosDe(usuario);
   const abierto = pedido.estado !== "ENTREGADO" && pedido.estado !== "CANCELADO";
 
   const [lineas, despachos, cambiosPrioridad, reclamos, cola] = await Promise.all([
@@ -189,10 +192,10 @@ export default async function DetallePedidoPage({
         <Dato label="Entrega comprometida" valor={pedido.fechaEntregaPactada ? fmtFecha(pedido.fechaEntregaPactada) : "—"} />
         <Dato label="Contacto" valor={pedido.contacto ?? "—"} />
         <Dato label="Entrega" valor={pedido.modoEntrega ?? "—"} />
-        {puedeVerPrecios(rol) && <Dato label="Total" valor={fmtMoneda(pedido.total)} />}
-        {puedeVerPrecios(rol) && pedido.senia != null && <Dato label="Seña" valor={fmtMoneda(pedido.senia)} />}
-        {puedeVerPrecios(rol) && pedido.metodoPago && <Dato label="Método de pago" valor={pedido.metodoPago} />}
-        {puedeVerPrecios(rol) && pedido.numeroComprobante && <Dato label="N° de comprobante" valor={pedido.numeroComprobante} />}
+        {conPrecios && <Dato label="Total" valor={fmtMoneda(pedido.total)} />}
+        {conPrecios && pedido.senia != null && <Dato label="Seña" valor={fmtMoneda(pedido.senia)} />}
+        {conPrecios && pedido.metodoPago && <Dato label="Método de pago" valor={pedido.metodoPago} />}
+        {conPrecios && pedido.numeroComprobante && <Dato label="N° de comprobante" valor={pedido.numeroComprobante} />}
         {pedido.domicilioEntrega && (
           <div className="col-span-2 sm:col-span-4">
             <Dato label="Domicilio" valor={pedido.domicilioEntrega} />
@@ -277,6 +280,26 @@ export default async function DetallePedidoPage({
         </div>
       </div>
 
+      <section className="rounded-lg border border-border bg-surface p-4">
+        <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground-muted">Resumen del pedido</h2>
+        <div className="max-w-xl">
+          <ResumenPedido
+            r={resumirPedido(
+              pedido.lineas.map((l) => ({
+                productoId: l.productoId,
+                codigo: l.productoCodigo,
+                familia: l.productoFamilia,
+                tipo: l.productoTipo,
+                esAccesorio: l.productoEsAccesorio,
+                colorNombre: l.productoColorNombre,
+                unidades: l.unidadesPedidas,
+                m2PorUnidad: l.productoM2PorUnidad,
+              })),
+            )}
+          />
+        </div>
+      </section>
+
       {despachos.some((d) => d.estado === "ENTREGADO") && (
         <section className="rounded-lg border border-border bg-surface">
           <h2 className="border-b border-border px-4 py-2.5 text-sm font-semibold uppercase tracking-wide text-foreground-muted">Remitos</h2>
@@ -286,7 +309,9 @@ export default async function DetallePedidoPage({
                 <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
                   <th className="px-4 py-2">Remito interno</th>
                   <th className="px-4 py-2">Fecha</th>
-                  <th className="px-4 py-2">Estado</th>
+                  <th className="px-4 py-2">Despacho</th>
+                  <th className="px-4 py-2">Entregado</th>
+                  <th className="px-4 py-2">Estado / responsable</th>
                   <th className="px-4 py-2">Remito legal</th>
                   <th className="px-4 py-2">Registrado por</th>
                   <th className="px-4 py-2"></th>
@@ -299,8 +324,17 @@ export default async function DetallePedidoPage({
                     <tr key={d.id} className="border-b border-border last:border-0">
                       <td className="px-4 py-2 font-mono font-medium">{remitoInterno(d.numeroInterno)}</td>
                       <td className="px-4 py-2">{d.entregadoEn ? fmtFechaHora(d.entregadoEn) : fmtFecha(d.fecha)}</td>
+                      <td className="px-4 py-2 text-foreground-muted">#{d.id}</td>
+                      <td className="px-4 py-2 text-xs">
+                        {d.lineas.map((l) => (
+                          <div key={l.lineaId}>
+                            {l.productoCodigo ?? "—"} × {fmtNumero(l.unidades, 0)}
+                          </div>
+                        ))}
+                      </td>
                       <td className="px-4 py-2">
                         <span className="badge-estado badge-ok">Entregado</span>
+                        <div className="text-xs text-foreground-muted">control final: {d.controlFinalPorNombre ?? "—"}</div>
                       </td>
                       <td className="px-4 py-2 font-mono">{d.numeroRemito ?? <span className="font-sans text-foreground-muted">sin registrar</span>}</td>
                       <td className="px-4 py-2 text-foreground-muted">

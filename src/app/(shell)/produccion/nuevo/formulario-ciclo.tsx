@@ -37,6 +37,7 @@ export function FormularioCiclo({
   const [golpesInicio, setGolpesInicio] = useState<string>(golpesDe(datosIniciales, partidaPorDefecto(datosIniciales)));
   const [piezasPorGolpe, setPiezasPorGolpe] = useState<string>(datosIniciales?.piezasPorGolpe?.toString() ?? "");
   const [plan, setPlan] = useState<Record<number, { incluido: boolean; cantidad: number }>>(planInicial(datosIniciales));
+  const [deseada, setDeseada] = useState<string>(datosIniciales && datosIniciales.recomendado > 0 ? String(datosIniciales.recomendado) : "");
 
   function elegirProducto(idTexto: string) {
     const id = idTexto ? Number(idTexto) : null;
@@ -51,6 +52,7 @@ export function FormularioCiclo({
       setGolpesInicio(golpesDe(r, p));
       setPiezasPorGolpe(r?.piezasPorGolpe?.toString() ?? "");
       setPlan(planInicial(r));
+      setDeseada(r && r.recomendado > 0 ? String(r.recomendado) : "");
     });
   }
 
@@ -190,12 +192,39 @@ export function FormularioCiclo({
             </Campo>
           </Paso>
 
-          <Paso n={4} titulo="Para qué se produce">
-            <div className="grid grid-cols-3 gap-2 text-sm">
-              <Cifra label="Pendiente de los pedidos" valor={resumen.pendientePedidos} />
-              <Cifra label="Stock actual" valor={resumen.stock} />
-              <Cifra label="Falta producir" valor={resumen.faltaProducir} destacado={resumen.faltaProducir > 0} />
+          <Paso n={4} titulo="Cuánto se produce">
+            <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+              <Cifra label="1. Necesidad de pedidos" valor={resumen.faltaProducir} destacado={resumen.faltaProducir > 0} />
+              <div className="rounded-md bg-surface-muted px-3 py-2">
+                <div className="text-xs text-foreground-muted">2. Reposición hasta el mínimo</div>
+                <div className="text-base font-semibold">{resumen.reposicion != null ? fmtNumero(resumen.reposicion, 0) : "—"}</div>
+                <div className="text-[11px] text-foreground-muted">
+                  {resumen.minimo != null && resumen.minimo > 0 ? `mínimo ${fmtNumero(resumen.minimo, 0)}` : "sin mínimo configurado"}
+                </div>
+              </div>
+              <Cifra label="Recomendado (1 + 2)" valor={resumen.recomendado} />
+              <Campo label="3. Inyección deseada">
+                <input
+                  name="cantidadDeseada"
+                  type="number"
+                  min={1}
+                  className="input"
+                  value={deseada}
+                  onChange={(e) => setDeseada(e.target.value)}
+                  placeholder={resumen.recomendado > 0 ? String(resumen.recomendado) : "piezas"}
+                />
+              </Campo>
             </div>
+            <p className="text-xs text-foreground-muted">
+              Pendiente de los pedidos {fmtNumero(resumen.pendientePedidos, 0)} · stock actual {fmtNumero(resumen.stock, 0)}. La inyección
+              deseada es la decisión de planificación: puede ser mayor o menor que lo recomendado.
+              {Number(deseada) > 0 &&
+                (resumen.kgPorUnidad
+                  ? ` Material estimado: ${fmtNumero(Number(deseada) * resumen.kgPorUnidad, 1)} kg${
+                      resumen.material ? ` y ${fmtNumero(Number(deseada) * resumen.kgPorUnidad * resumen.material.gPorKgMp, 3)} g de master (dosificación configurada)` : ""
+                    }.`
+                  : " Sin peso por pieza configurado: no se puede estimar el material.")}
+            </p>
             {resumen.pedidos.length > 0 && (
               <div className="space-y-2 rounded-md border border-border p-3">
                 <p className="text-xs text-foreground-muted">

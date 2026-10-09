@@ -2,6 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listarMinMaxMateriaPrima } from "@/lib/data/stock-config";
 import { listarLotes, listarRetiros } from "@/lib/data/materia-prima";
+import { numeroRetiro, pieDeMaquina } from "@/lib/data/maquina";
+import { puedeCorregirProduccionMp } from "@/lib/auth/permisos";
+import { CorregirLote } from "./corregir-lote";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeIngresarMateriaPrima, puedeRetirarMateriaPrima, puedeVerMateriaPrima } from "@/lib/auth/permisos";
 import { Semaforo } from "@/components/semaforo";
@@ -27,7 +30,13 @@ export default async function MateriaPrimaPage({ searchParams }: { searchParams:
   const usuario = await getUsuarioActual();
   if (!puedeVerMateriaPrima(usuario.rol)) redirect("/tablero");
   const sp = await searchParams;
-  const [stock, lotes, retiros] = await Promise.all([listarMinMaxMateriaPrima(), listarLotes({ soloConSaldo: true }), listarRetiros({ limite: 30 })]);
+  const [stock, lotes, retiros, pie] = await Promise.all([
+    listarMinMaxMateriaPrima(),
+    listarLotes({ soloConSaldo: true }),
+    listarRetiros({ limite: 30 }),
+    pieDeMaquina(),
+  ]);
+  const corrige = puedeCorregirProduccionMp(usuario.rol);
 
   const tipo = TIPOS.some((t) => t.valor === sp.tipo) ? sp.tipo : undefined;
   const texto = sp.texto?.trim().toLowerCase();
@@ -64,15 +73,50 @@ export default async function MateriaPrimaPage({ searchParams }: { searchParams:
       </div>
 
       <section className="space-y-2">
+        <h2 className="text-base font-semibold text-foreground">Material a pie de máquina (retiros abiertos)</h2>
+        <p className="text-xs text-foreground-muted">
+          Retirado del depósito y todavía no cargado, devuelto ni justificado. Queda registrado entre turnos hasta cerrar el retiro.
+        </p>
+        {pie.length === 0 ? (
+          <p className="text-sm text-foreground-muted">No hay retiros abiertos.</p>
+        ) : (
+          <Tabla
+            cabecera={["Retiro", "Inyectora", "Ciclo · partida", "Retirado", "Cargado en tolva", "Devuelto", "A pie de máquina"]}
+            filas={pie.map((r) => [
+              <Link key="r" href={`/materia-prima/retiros/${r.id}`} className="font-medium text-accent hover:underline">
+                {r.numero}
+              </Link>,
+              etiquetaInyectora(r.inyectora),
+              r.cicloId ? `#${r.cicloId}${r.partidaNumero != null ? ` · N° ${r.partidaNumero}` : ""}` : "sin ciclo",
+              `${fmtNumero(r.totales.retirado, 3)} kg`,
+              `${fmtNumero(r.totales.cargado, 3)} kg`,
+              `${fmtNumero(r.totales.devuelto, 3)} kg`,
+              <span key="p" className={r.totales.pie > 0 ? "font-semibold text-[var(--estado-bajo-fg)]" : ""}>
+                {fmtNumero(r.totales.pie, 3)} kg
+              </span>,
+            ])}
+          />
+        )}
+      </section>
+
+      <section className="space-y-2">
         <h2 className="text-base font-semibold text-foreground">Movimientos a máquina (retiros del depósito)</h2>
         <p className="text-xs text-foreground-muted">Últimos 30. Cada retiro con ciclo queda vinculado a la partida NEXA que se produjo.</p>
         {retiros.length === 0 ? (
           <p className="text-sm text-foreground-muted">Sin retiros registrados.</p>
         ) : (
           <Tabla
-            cabecera={["Fecha", "Materia prima", "Kg", "Lote de MP", "Ciclo · producto", "Partida NEXA", "Inyectora", "Retiró"]}
+            cabecera={["Fecha", "Retiro", "Materia prima", "Kg", "Lote de MP", "Ciclo · producto", "Partida NEXA", "Inyectora", "Retiró"]}
             filas={retiros.map((r) => [
               fmtFecha(r.fecha),
+              r.retiroMaquinaId ? (
+                <Link key="rm" href={`/materia-prima/retiros/${r.retiroMaquinaId}`} className="text-accent hover:underline">
+                  {numeroRetiro(r.retiroMaquinaId)}
+                  {r.anulado ? " (anulado)" : ""}
+                </Link>
+              ) : (
+                <span key="rm" className="text-xs text-foreground-muted">anterior al circuito</span>
+              ),
               r.materiaPrimaNombre,
               fmtNumero(r.cantidad, 3),
               r.loteCodigo ? (
@@ -158,7 +202,7 @@ export default async function MateriaPrimaPage({ searchParams }: { searchParams:
           <p className="text-sm text-foreground-muted">Todavía no hay lotes ingresados. El stock importado del Excel no tiene lote.</p>
         ) : (
           <Tabla
-            cabecera={["Lote de MP (código)", "N° de lote del proveedor", "Materia prima", "Certificado", "Ingreso", "Disponible (kg)"]}
+            cabecera={["Lote de MP (código)", "N° de lote del proveedor", "Materia prima", "Certificado", "Ingreso", "Disponible (kg)", ...(corrige ? [""] : [])]}
             filas={lotes.map((l) => [
               <Link key="l" href={`/trazabilidad?tipo=lote&valor=${l.codigoBarra}`} className="font-mono text-xs text-accent hover:underline">
                 {l.codigoBarra}
@@ -170,6 +214,7 @@ export default async function MateriaPrimaPage({ searchParams }: { searchParams:
               l.certificadoNumero ? `N° ${l.certificadoNumero} · ${l.proveedor}` : "—",
               fmtFecha(l.fechaIngreso),
               fmtNumero(l.disponible, 3),
+              ...(corrige ? [<CorregirLote key="c" loteId={l.id} ingresado={Number(l.ingresado)} />] : []),
             ])}
           />
         )}

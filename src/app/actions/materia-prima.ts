@@ -1,9 +1,8 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getUsuarioActual } from "@/lib/session";
-import { ingresarMateriaPrima, retirarMateriaPrima } from "@/lib/data/materia-prima";
+import { ingresarMateriaPrima } from "@/lib/data/materia-prima";
 
 export type EstadoForm = { error?: string; ok?: string };
 
@@ -27,24 +26,4 @@ export async function ingresoMpAction(_prev: EstadoForm, fd: FormData): Promise<
   if (r.error) return { error: r.error };
   revalidatePath("/materia-prima");
   return { ok: `Lote ingresado${r.certificado ? ` con el certificado N° ${r.certificado}` : ""}.` };
-}
-
-export async function retiroMpAction(_prev: EstadoForm, fd: FormData): Promise<EstadoForm> {
-  const usuario = await getUsuarioActual();
-  const r = await retirarMateriaPrima(usuario, {
-    materiaPrimaId: Number(fd.get("materiaPrimaId")),
-    loteMpId: num(fd, "loteMpId"),
-    cantidadKg: num(fd, "cantidadKg") ?? NaN,
-    inyectora: String(fd.get("inyectora") ?? "") || null,
-    cicloId: num(fd, "cicloId"),
-    entregaId: num(fd, "entregaId"),
-    observaciones: String(fd.get("observaciones") ?? "") || null,
-  });
-  if (r.error) return { error: r.error };
-  revalidatePath("/materia-prima");
-  revalidatePath("/produccion");
-  // Desde un ciclo, se vuelve al ciclo: el paso siguiente es producir y cerrar el día.
-  const cicloId = num(fd, "cicloId");
-  if (cicloId) redirect(`/produccion/${cicloId}`);
-  return { ok: "Retiro registrado." };
 }

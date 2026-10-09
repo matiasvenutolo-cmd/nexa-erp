@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { listarPedidos, contarPedidosPorEstado, materialComprometido, situacionPedidos, ESTADO_LABEL, type SituacionPedido } from "@/lib/data/pedidos";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeVerPrecios, puedeCrearPedido } from "@/lib/auth/permisos";
+import { puedeCrearPedido } from "@/lib/auth/permisos";
+import { verPrecios as verPreciosDe } from "@/lib/vista";
 import { EstadoPedido } from "@/components/estado-pedido";
 import { fmtFecha, fmtMoneda, fmtNumero } from "@/lib/format";
 
@@ -24,7 +25,7 @@ export default async function PedidosPage({
     listarPedidos(estadoValido),
     contarPedidosPorEstado(),
   ]);
-  const verPrecios = puedeVerPrecios(usuario.rol);
+  const verPrecios = await verPreciosDe(usuario);
   const gestion = puedeCrearPedido(usuario.rol);
   const comprometido = gestion ? await materialComprometido() : [];
   const situacion = await situacionPedidos(pedidos.filter((p) => p.estado !== "ENTREGADO" && p.estado !== "CANCELADO").map((p) => p.id));

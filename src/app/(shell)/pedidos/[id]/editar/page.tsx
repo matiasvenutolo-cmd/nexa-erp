@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { obtenerPedido } from "@/lib/data/pedidos";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeVerPrecios, puedeCrearPedido } from "@/lib/auth/permisos";
+import { puedeCrearPedido } from "@/lib/auth/permisos";
+import { verPrecios as verPreciosDe } from "@/lib/vista";
 import { FormularioEdicion } from "./formulario-edicion";
 
 export default async function EditarPedidoPage({ params }: { params: Promise<{ id: string }> }) {
@@ -29,7 +30,7 @@ export default async function EditarPedidoPage({ params }: { params: Promise<{ i
           desde acá — si hace falta agregar o quitar un producto, avisá a quien armó el pedido.
         </p>
       </div>
-      <FormularioEdicion pedido={pedido} puedeVerPrecios={puedeVerPrecios(usuario.rol)} />
+      <FormularioEdicion pedido={pedido} puedeVerPrecios={await verPreciosDe(usuario)} />
     </div>
   );
 }

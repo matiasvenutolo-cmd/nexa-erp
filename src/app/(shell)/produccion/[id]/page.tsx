@@ -4,29 +4,46 @@ import { cajasDeCiclo, obtenerCiclo, resumenParaCiclo } from "@/lib/data/producc
 import { etiquetaInyectora } from "@/lib/inyectoras";
 import { resolverDosificacion } from "@/lib/data/dosificacion";
 import { codigoDeUso, listarRetiros } from "@/lib/data/materia-prima";
+import { ciclosAbiertos, codigosDeSobrante, controlMaterialCiclo, obtenerRetirosMaquina } from "@/lib/data/maquina";
+import { getUsuarioActual } from "@/lib/session";
+import { puedeCorregirProduccionMp, puedeRetirarMateriaPrima } from "@/lib/auth/permisos";
 import { fmtNumero, fmtFecha, fmtDia } from "@/lib/format";
+import { OperacionesRetiro } from "@/components/operaciones-retiro";
 import { FormularioCierre } from "./formulario-cierre";
+import { CorreccionCierre } from "./correccion";
 
+/**
+ * Un ciclo es la producción de una jornada en una inyectora, dentro de una
+ * partida (que puede seguir al día siguiente). Pasos: inicio → retiro de MP a
+ * pie de máquina → carga en tolva → producción, devoluciones y sobrantes →
+ * cierre del día.
+ */
 export default async function CicloPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const usuario = await getUsuarioActual();
   const ciclo = await obtenerCiclo(Number(id));
   if (!ciclo) notFound();
-  const dosificacion = ciclo.productoFamilia
-    ? await resolverDosificacion(ciclo.productoFamilia, ciclo.productoColorId)
-    : null;
+  const dosificacion = ciclo.productoFamilia ? await resolverDosificacion(ciclo.productoFamilia, ciclo.productoColorId) : null;
   const abierto = ciclo.fechaFin == null;
-  const [cajas, retiros, resumen] = await Promise.all([
+  const [cajas, legado, retiros, control, resumen, abiertos, sobrantes] = await Promise.all([
     cajasDeCiclo(ciclo.id),
-    listarRetiros({ cicloId: ciclo.id }),
+    listarRetiros({ cicloId: ciclo.id }).then((rs) => rs.filter((r) => r.retiroMaquinaId == null)),
+    obtenerRetirosMaquina({ cicloId: ciclo.id }),
+    controlMaterialCiclo(ciclo.id),
     abierto && ciclo.productoId ? resumenParaCiclo(ciclo.productoId) : Promise.resolve(null),
+    ciclosAbiertos(),
+    codigosDeSobrante(),
   ]);
-  const kgMp =
-    ciclo.piezasProducidas != null && ciclo.productoKgPorUnidad != null
-      ? ciclo.piezasProducidas * Number(ciclo.productoKgPorUnidad)
-      : null;
+  const inyectora = ciclo.inyectora.replace(/inyectora/i, "").trim();
+  const ciclosCarga = abiertos
+    .filter((c) => c.inyectora.replace(/inyectora/i, "").trim() === inyectora)
+    .map((c) => ({ id: c.id, etiqueta: `Ciclo #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"}` }));
+  const puedeOperar = puedeRetirarMateriaPrima(usuario.rol);
+  const puedeCorregir = puedeCorregirProduccionMp(usuario.rol);
+  const hayCarga = (control?.cargado ?? 0) > 0;
 
   return (
-    <div className="max-w-3xl space-y-4">
+    <div className="max-w-5xl space-y-4">
       <div>
         <Link href="/produccion" className="text-sm text-foreground-muted hover:text-foreground">
           ← Producción
@@ -36,98 +53,111 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
         </h1>
         <ol className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground-muted">
           <li>✓ 1. Inicio (partida N° {ciclo.partidaNumero ?? "—"})</li>
-          <li>{retiros.length > 0 ? "✓" : "○"} 2. Retiro de materia prima</li>
-          <li>{abierto ? "○" : "✓"} 3. Cierre del día{abierto ? "" : " — producción ingresada al stock en cajas"}</li>
+          <li>{retiros.length > 0 || legado.length > 0 ? "✓" : "○"} 2. Retiro de MP a pie de máquina</li>
+          <li>{hayCarga ? "✓" : "○"} 3. Carga en tolva</li>
+          <li>{abierto ? "○" : "✓"} 4. Producción, devoluciones y sobrantes</li>
+          <li>{abierto ? "○" : "✓"} 5. Cierre del día{abierto ? "" : " — producción ingresada al stock en cajas"}</li>
         </ol>
       </div>
 
-      <div className="grid gap-3 rounded-lg border border-border bg-surface p-4 text-sm sm:grid-cols-3">
+      <div className="grid gap-3 rounded-lg border border-border bg-surface p-4 text-sm sm:grid-cols-4">
         <Dato label="Inicio" valor={fmtFecha(ciclo.fechaInicio)} />
         <Dato label="Inyectora" valor={etiquetaInyectora(ciclo.inyectora)} />
         <Dato label="Partida" valor={ciclo.partidaNumero != null ? `N° ${ciclo.partidaNumero}` : "—"} />
         <Dato label="Operario" valor={ciclo.operarioNombre ?? "—"} />
         <Dato label="Golpes de inicio" valor={ciclo.golpesInicio != null ? fmtNumero(ciclo.golpesInicio, 0) : "—"} />
         <Dato label="Piezas por golpe" valor={ciclo.piezasPorGolpe != null ? fmtNumero(ciclo.piezasPorGolpe, 0) : "—"} />
+        <Dato label="Inyección deseada" valor={ciclo.cantidadDeseada != null ? `${fmtNumero(ciclo.cantidadDeseada, 0)} piezas` : "—"} />
+        <Dato
+          label="Master configurado"
+          valor={dosificacion ? `${fmtNumero(dosificacion.gPorKgMp, 4)} g/kg · ${ciclo.productoColorNombre ?? "—"}${dosificacion.origen === "excepcion" ? " (propio del color)" : ""}` : "sin dosificación"}
+        />
       </div>
 
-      <div className="rounded-lg border border-border bg-surface p-4 text-sm">
-        <h2 className="mb-2 text-sm font-semibold text-foreground-muted">Master que aplica el sistema</h2>
-        {dosificacion ? (
-          <div className="space-y-1">
-            <p className="text-base">
-              <span className="font-semibold">Master: {fmtNumero(dosificacion.gPorKgMp, 4)} g/kg</span>
-              <span className="text-foreground-muted">
-                {" "}
-                · Producto: {ciclo.productoFamilia === "REJILLA" ? "Piso Rejilla" : "Piso Ciego"} · Color: {ciclo.productoColorNombre ?? "—"}
-              </span>
-            </p>
-            <p className="text-foreground-muted">
-              {dosificacion.origen === "excepcion"
-                ? `Valor propio del color ${dosificacion.colorNombre}`
-                : "Valor general del tipo de producto (el color no tiene excepción)"}
-              {dosificacion.materiaPrimaBaseNombre ? ` · sobre ${dosificacion.materiaPrimaBaseNombre}` : ""}. Se configura en Panel
-              Admin → Master.
-            </p>
-            {kgMp != null && (
-              <p className="text-foreground-muted">
-                Para {fmtNumero(ciclo.piezasProducidas, 0)} piezas (≈ {fmtNumero(kgMp, 1)} kg de materia prima con el peso
-                teórico por pieza): ≈ {fmtNumero(kgMp * dosificacion.gPorKgMp, 3)} g de master.
-              </p>
-            )}
-          </div>
-        ) : (
-          <p className="text-foreground-muted">
-            Sin dosificación cargada para este tipo de producto — se configura en Panel Admin → Master.
-          </p>
-        )}
-      </div>
-
-      <div className="rounded-lg border border-border bg-surface p-4 text-sm">
-        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold text-foreground-muted">Materia prima usada</h2>
-          {abierto && (
-            <Link
-              href={`/materia-prima/retiro?ciclo=${ciclo.id}`}
-              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90"
-            >
-              Retirar materia prima para este ciclo →
+      <section className="space-y-3 rounded-lg border border-border bg-surface p-4 text-sm">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold text-foreground">Material del ciclo</h2>
+          {abierto && puedeOperar && (
+            <Link href={`/materia-prima/retiro?ciclo=${ciclo.id}`} className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90">
+              Retirar materia prima a pie de máquina →
             </Link>
           )}
         </div>
-        {retiros.length === 0 ? (
+        {retiros.length === 0 && legado.length === 0 && (
           <p className="text-foreground-muted">
-            {abierto
-              ? "Todavía no se retiró materia prima del depósito para este ciclo. El lote retirado queda vinculado a la partida (trazabilidad)."
-              : "No se registró materia prima para este ciclo."}
+            {abierto ? "Todavía no se retiró material del depósito para este ciclo." : "No se registró materia prima para este ciclo."}
           </p>
-        ) : (
-          <ul className="space-y-1">
-            {retiros.map((r) => (
-              <li key={r.id}>
-                {r.materiaPrimaNombre} · {fmtNumero(r.cantidad, 3)} kg ·{" "}
-                {r.loteCodigo ? (
-                  <Link href={`/trazabilidad?tipo=lote&valor=${r.loteCodigo}`} className="font-mono text-accent hover:underline">
-                    {r.productoNumero ? codigoDeUso(r.loteCodigo, r.productoNumero) : r.loteCodigo}
-                  </Link>
-                ) : (
-                  <span className="text-foreground-muted">stock sin lote</span>
-                )}
-              </li>
-            ))}
-          </ul>
         )}
-      </div>
+        {retiros.map((r) => (
+          <div key={r.id} className="rounded-md border border-border p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Link href={`/materia-prima/retiros/${r.id}`} className="font-medium text-accent hover:underline">
+                Retiro {r.numero}
+              </Link>
+              <span className={`badge-estado ${r.estado === "ABIERTO" ? "badge-bajo" : "badge-ok"}`}>{r.estado === "ABIERTO" ? "abierto" : "cerrado"}</span>
+              {r.cicloId !== ciclo.id && <span className="text-xs text-foreground-muted">retirado para el ciclo #{r.cicloId} (misma partida)</span>}
+            </div>
+            <OperacionesRetiro
+              r={r}
+              ciclos={ciclosCarga}
+              codigosSobrante={sobrantes.map((s) => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))}
+              puedeOperar={puedeOperar}
+              puedeCorregir={puedeCorregir}
+            />
+          </div>
+        ))}
+        {legado.length > 0 && (
+          <div>
+            <div className="text-xs text-foreground-muted">Retiros anteriores al circuito de pie de máquina (se consideran cargados):</div>
+            <ul className="space-y-1">
+              {legado.map((r) => (
+                <li key={r.id}>
+                  {r.materiaPrimaNombre} · {fmtNumero(r.cantidad, 3)} kg ·{" "}
+                  {r.loteCodigo ? (
+                    <Link href={`/trazabilidad?tipo=lote&valor=${r.loteCodigo}`} className="font-mono text-accent hover:underline">
+                      {r.productoNumero ? codigoDeUso(r.loteCodigo, r.productoNumero) : r.loteCodigo}
+                    </Link>
+                  ) : (
+                    <span className="text-foreground-muted">stock sin lote</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      {control && (
+        <section className="rounded-lg border border-border bg-surface p-4 text-sm">
+          <h2 className="mb-2 text-sm font-semibold text-foreground">Control de material</h2>
+          <div className="grid gap-3 sm:grid-cols-4">
+            <Dato label="Retirado" valor={`${fmtNumero(control.retirado, 3)} kg`} />
+            <Dato label="Cargado en tolva (virgen)" valor={`${fmtNumero(control.cargadoVirgen, 3)} kg`} />
+            <Dato label="Master incorporado" valor={`${fmtNumero(control.masterIncorporado, 3)} kg`} />
+            <Dato label="Devuelto sin mezclar" valor={`${fmtNumero(control.devuelto, 3)} kg`} />
+            <Dato label="Sobrante mezclado" valor={`${fmtNumero(control.sobrante, 3)} kg`} />
+            <Dato label="Piezas teóricas" valor={control.piezasTeoricas != null ? fmtNumero(control.piezasTeoricas, 0) : "falta dato"} />
+            <Dato label="Piezas buenas / descarte" valor={`${control.piezasBuenas != null ? fmtNumero(control.piezasBuenas, 0) : "—"} / ${control.piezasDescartadas != null ? fmtNumero(control.piezasDescartadas, 0) : "—"}`} />
+            <Dato
+              label="Diferencia a justificar"
+              valor={control.diferenciaKg != null ? `${fmtNumero(control.diferenciaKg, 3)} kg` : control.cerrado ? "falta dato" : "al cerrar el día"}
+            />
+          </div>
+          <p className="mt-2 text-xs text-foreground-muted">
+            Teóricas = (cargado − sobrante) ÷ peso por pieza{control.kgPorPieza ? ` (${fmtNumero(control.kgPorPieza, 4)} kg)` : ""}. Diferencia = cargado −
+            sobrante − producidas × peso − colada/rebarba/scrap ({fmtNumero(control.residuosKg, 3)} kg).
+            {control.faltaDato && <span className="text-[var(--estado-bajo-fg)]"> {control.faltaDato}</span>}
+            {control.legado > 0 && " Incluye retiros anteriores al circuito de pie de máquina."}
+          </p>
+        </section>
+      )}
 
       {cajas.length > 0 && (
         <div className="rounded-lg border border-border bg-surface p-4 text-sm">
           <h2 className="mb-2 text-sm font-semibold text-foreground-muted">Cajas generadas ({cajas.length})</h2>
           <div className="flex flex-wrap gap-2">
             {cajas.map((c) => (
-              <Link
-                key={c.id}
-                href={`/trazabilidad?tipo=caja&valor=${c.codigo}`}
-                className="rounded bg-surface-muted px-2 py-1 font-mono text-xs hover:text-accent"
-              >
+              <Link key={c.id} href={`/trazabilidad?tipo=caja&valor=${c.codigo}`} className="rounded bg-surface-muted px-2 py-1 font-mono text-xs hover:text-accent">
                 {c.codigo} · {c.cantidad} u. · {c.estado === "EN_STOCK" ? "en stock" : c.estado === "ARMADA" ? "armada" : c.estado === "DESPACHADA" ? "despachada" : "baja"}
               </Link>
             ))}
@@ -153,16 +183,31 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
       )}
 
       {ciclo.fechaFin ? (
-        <div className="grid gap-3 rounded-lg border border-border bg-surface p-4 text-sm sm:grid-cols-3">
-          <Dato label="Fin" valor={fmtDia(ciclo.fechaFin)} />
-          <Dato label="Golpes de fin" valor={ciclo.golpesFin != null ? fmtNumero(ciclo.golpesFin, 0) : "—"} />
-          <Dato label="Piezas producidas" valor={ciclo.piezasProducidas != null ? fmtNumero(ciclo.piezasProducidas, 0) : "—"} />
-          <Dato label="Piezas descartadas" valor={ciclo.piezasDescartadas != null ? fmtNumero(ciclo.piezasDescartadas, 0) : "—"} />
-          <Dato label="Piezas que entraron a stock" valor={ciclo.piezasEntregadas != null ? fmtNumero(ciclo.piezasEntregadas, 0) : "—"} />
-          <Dato label="Colada (kg)" valor={ciclo.coladaKg ?? "—"} />
-          <Dato label="Rebarba (kg)" valor={ciclo.rebarbaKg ?? "—"} />
-          <Dato label="Scrap (kg)" valor={ciclo.scrapKg ?? "—"} />
-        </div>
+        <>
+          <div className="grid gap-3 rounded-lg border border-border bg-surface p-4 text-sm sm:grid-cols-4">
+            <Dato label="Fin" valor={fmtDia(ciclo.fechaFin)} />
+            <Dato label="Golpes de fin" valor={ciclo.golpesFin != null ? fmtNumero(ciclo.golpesFin, 0) : "—"} />
+            <Dato label="Piezas producidas" valor={ciclo.piezasProducidas != null ? fmtNumero(ciclo.piezasProducidas, 0) : "—"} />
+            <Dato label="Piezas descartadas" valor={ciclo.piezasDescartadas != null ? fmtNumero(ciclo.piezasDescartadas, 0) : "—"} />
+            <Dato label="Piezas que entraron a stock" valor={ciclo.piezasEntregadas != null ? fmtNumero(ciclo.piezasEntregadas, 0) : "—"} />
+            <Dato label="Colada (kg)" valor={ciclo.coladaKg ?? "—"} />
+            <Dato label="Rebarba (kg)" valor={ciclo.rebarbaKg ?? "—"} />
+            <Dato label="Scrap (kg)" valor={ciclo.scrapKg ?? "—"} />
+          </div>
+          {puedeCorregir && (
+            <CorreccionCierre
+              cicloId={ciclo.id}
+              actual={{
+                golpesFin: ciclo.golpesFin,
+                piezasDescartadas: ciclo.piezasDescartadas,
+                piezasEntregadas: ciclo.piezasEntregadas,
+                coladaKg: ciclo.coladaKg,
+                rebarbaKg: ciclo.rebarbaKg,
+                scrapKg: ciclo.scrapKg,
+              }}
+            />
+          )}
+        </>
       ) : (
         <FormularioCierre
           cicloId={ciclo.id}
@@ -170,6 +215,8 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
           piezasPorGolpe={ciclo.piezasPorGolpe}
           pendientePedidos={resumen?.pendientePedidos ?? 0}
           stockActual={resumen?.stock ?? 0}
+          minimo={resumen?.minimo ?? null}
+          deseada={ciclo.cantidadDeseada}
         />
       )}
     </div>

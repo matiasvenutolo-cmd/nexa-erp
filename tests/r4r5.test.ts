@@ -21,6 +21,7 @@ import * as schema from "@/lib/db/schema";
 import { asignarProductoALinea, cancelarPedido, crearPedido } from "@/lib/data/pedidos";
 import { cerrarCiclo, crearCiclo } from "@/lib/data/produccion";
 import { ingresarMateriaPrima, retirarMateriaPrima, separarCodigoLote } from "@/lib/data/materia-prima";
+import { cargarEnTolva } from "@/lib/data/maquina";
 import {
   anularDespacho,
   confirmarControlFinal,
@@ -174,7 +175,9 @@ describe("Pedido · producción · cajas", () => {
       observaciones: null,
     });
     expect(retiro.error).toBeUndefined();
-    expect((await retirarMateriaPrima(s.usuarios.RETIROS_MP, { materiaPrimaId: s.materiaPrima.copo2240.id, loteMpId: lote.id, cantidadKg: 5000, inyectora: null, cicloId: null, entregaId: null, observaciones: null })).error).toMatch(/disponibles/);
+    expect((await retirarMateriaPrima(s.usuarios.RETIROS_MP, { materiaPrimaId: s.materiaPrima.copo2240.id, loteMpId: lote.id, cantidadKg: 5000, inyectora: "8", cicloId: null, entregaId: null, observaciones: null })).error).toMatch(/disponibles/);
+    // El material retirado queda a pie de máquina; el vínculo lote → ciclo se crea al cargarlo en la tolva.
+    expect((await cargarEnTolva(s.usuarios.RETIROS_MP, { retiroMpId: retiro.id!, cantidadKg: 40, cicloId })).error).toBeUndefined();
 
     const sinStock = await cerrarCiclo(cicloId, {
       golpesFin: 1060,

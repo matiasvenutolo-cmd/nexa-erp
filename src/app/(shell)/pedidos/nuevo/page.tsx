@@ -4,7 +4,8 @@ import { listarProductos } from "@/lib/data/catalogo";
 import { listarProveedoresMaster } from "@/lib/data/proveedores";
 import { coloresParaPedido } from "@/lib/data/colores";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeVerPrecios, puedeCrearProducto } from "@/lib/auth/permisos";
+import { puedeCrearProducto } from "@/lib/auth/permisos";
+import { verPrecios as verPreciosDe } from "@/lib/vista";
 import { FormularioPedido } from "./formulario-pedido";
 
 export default async function NuevoPedidoPage() {
@@ -29,7 +30,7 @@ export default async function NuevoPedidoPage() {
         colores={colores}
         productos={productos}
         proveedores={proveedores.map((p) => ({ id: p.id, nombre: p.nombre }))}
-        puedeVerPrecios={puedeVerPrecios(usuario.rol)}
+        puedeVerPrecios={await verPreciosDe(usuario)}
         puedeCrearProducto={puedeCrearProducto(usuario.rol)}
       />
     </div>

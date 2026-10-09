@@ -7,7 +7,8 @@
  *   ventas y gerencia, ellos pueden ver todo."
  *
  * Es decir: sólo GERENCIA y ADMINISTRACION (ventas — Alejandra) ven precios.
- * Todos los demás roles, de supervisor para abajo, no. Vive en una función,
+ * Todos los demás roles, de supervisor para abajo, no — salvo la vista
+ * completa que se habilitó al Supervisor (ver puedeVerPrecios). Vive en una función,
  * no en una columna del usuario (`schema.ts` lo aclara en el comentario de
  * `usuario`), para que la regla no pueda quedar desincronizada fila por fila.
  */
@@ -17,8 +18,28 @@ type Rol = (typeof usuario.$inferSelect)["rol"];
 
 const ROLES_CON_PRECIOS: readonly Rol[] = ["GERENCIA", "ADMINISTRACION"];
 
-export function puedeVerPrecios(rol: Rol): boolean {
-  return ROLES_CON_PRECIOS.includes(rol);
+/**
+ * CAMBIO DE REGLA (requerimiento de octubre 2026): el Supervisor tiene acceso
+ * a las dos vistas — sin precios (por defecto) y completa (con precios) — y
+ * elige cuál usar. Sólo el Supervisor; el resto de los roles no cambia.
+ */
+export function puedeVerPrecios(rol: Rol, vistaCompleta = false): boolean {
+  return ROLES_CON_PRECIOS.includes(rol) || (rol === "SUPERVISOR" && vistaCompleta);
+}
+
+export function puedeElegirVistaPrecios(rol: Rol): boolean {
+  return rol === "SUPERVISOR";
+}
+
+/**
+ * Corrección de datos de inyección y materia prima por errores de carga
+ * (anular retiros o movimientos de máquina, corregir el cierre de un ciclo o
+ * la cantidad ingresada de un lote). Mismo requerimiento: sólo Supervisor.
+ * Toda corrección queda auditada y, si tocó stock, se regulariza con un
+ * movimiento propio (no se borra historial).
+ */
+export function puedeCorregirProduccionMp(rol: Rol): boolean {
+  return rol === "SUPERVISOR";
 }
 
 /**

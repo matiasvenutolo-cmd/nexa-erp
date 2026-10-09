@@ -142,6 +142,20 @@ export const estadoReclamoEnum = pgEnum("estado_reclamo", ["ABIERTO", "EN_ANALIS
 
 export const tipoAvisoEnum = pgEnum("tipo_aviso", ["PEDIDO_LISTO", "RECLAMO_NUEVO", "INFORME_RECLAMO"]);
 
+/** Retiro de materia prima a pie de máquina: abierto mientras quede material
+ *  sin cargar, devolver o justificar (puede durar varios turnos). */
+export const estadoRetiroEnum = pgEnum("estado_retiro", ["ABIERTO", "CERRADO"]);
+
+/**
+ * Lo que pasa con el material después de retirarlo del depósito:
+ *  CARGA_TOLVA  se carga físicamente en la máquina (sale de pie de máquina);
+ *  DEVOLUCION   vuelve al depósito sin mezclar (sale de pie de máquina);
+ *  SOBRANTE     material ya mezclado con master que se saca de la tolva y entra
+ *               al depósito con su código de sobrante/molienda;
+ *  DIFERENCIA   faltante o sobrante de balanza justificado al cerrar el retiro.
+ */
+export const tipoMovimientoMaquinaEnum = pgEnum("tipo_movimiento_maquina", ["CARGA_TOLVA", "DEVOLUCION", "SOBRANTE", "DIFERENCIA"]);
+
 export const condicionIvaEnum = pgEnum("condicion_iva", [
   "RESPONSABLE_INSCRIPTO",
   "MONOTRIBUTO",
@@ -629,6 +643,17 @@ export const retiroMp = pgTable("retiro_mp", {
   entregaId: integer("entrega_id").references(() => usuario.id),
   observaciones: text("observaciones"),
   creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  /** Cabecera del retiro a pie de máquina. Null = registro anterior al circuito
+   *  de pie de máquina (se consumió directo). */
+  retiroMaquinaId: integer("retiro_maquina_id").references(() => retiroMaquina.id),
+  /** Código de barras leído al retirar (27 dígitos), validado contra el lote. */
+  codigoLeido: text("codigo_leido"),
+  /** Anulación auditada (corrección de Supervisión): el stock se revierte con
+   *  un movimiento propio; la fila no se borra. */
+  anulado: boolean("anulado").notNull().default(false),
+  anuladoPorId: integer("anulado_por_id").references(() => usuario.id),
+  anuladoEn: timestamp("anulado_en", { withTimezone: true }),
+  anuladoMotivo: text("anulado_motivo"),
 });
 
 // ---------------------------------------------------------------------------
@@ -689,6 +714,9 @@ export const cicloProduccion = pgTable(
     scrapKg: numeric("scrap_kg", { precision: 10, scale: 3 }),
     cambioCicloCausa: text("cambio_ciclo_causa"),
     observaciones: text("observaciones"),
+    /** Cantidad que el Encargado decide inyectar (planificación); puede ser
+     *  distinta de la necesidad calculada. */
+    cantidadDeseada: integer("cantidad_deseada"),
 
     creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
     usuarioId: integer("usuario_id").references(() => usuario.id),
@@ -748,8 +776,74 @@ export const cicloMateriaPrima = pgTable(
       .references(() => materiaPrima.id),
     cantidadKg: numeric("cantidad_kg", { precision: 12, scale: 3 }).notNull(),
     esMaster: boolean("es_master").notNull().default(false),
+    /** La carga en tolva que generó este consumo (circuito de pie de máquina). */
+    movimientoMaquinaId: integer("movimiento_maquina_id"),
   },
   (t) => [index("ciclo_mp_idx").on(t.cicloId)],
+);
+
+/**
+ * Retiro de materia prima del depósito a pie de máquina: registro único que
+ * agrupa los materiales (virgen y master) llevados a una inyectora. Sus líneas
+ * son filas de `retiro_mp`. Puede quedar abierto entre turnos.
+ */
+export const retiroMaquina = pgTable(
+  "retiro_maquina",
+  {
+    id: serial("id").primaryKey(),
+    inyectora: text("inyectora").notNull(),
+    cicloId: integer("ciclo_id").references(() => cicloProduccion.id),
+    fechaHora: timestamp("fecha_hora", { withTimezone: true }).notNull().defaultNow(),
+    /** Operario responsable del material en la máquina. */
+    operarioId: integer("operario_id").references(() => usuario.id),
+    /** Quien entrega en el depósito. */
+    entregaId: integer("entrega_id").references(() => usuario.id),
+    productoPrevistoId: integer("producto_previsto_id").references(() => producto.id),
+    piezasPrevistas: integer("piezas_previstas"),
+    observaciones: text("observaciones"),
+    estado: estadoRetiroEnum("estado").notNull().default("ABIERTO"),
+    cerradoPorId: integer("cerrado_por_id").references(() => usuario.id),
+    cerradoEn: timestamp("cerrado_en", { withTimezone: true }),
+    /** Clave de la operación: un doble envío del mismo formulario no duplica. */
+    token: text("token").unique(),
+    creadoPorId: integer("creado_por_id")
+      .notNull()
+      .references(() => usuario.id),
+    creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("retiro_maquina_estado_idx").on(t.estado, t.inyectora)],
+);
+
+/** Carga en tolva, devolución, sobrante o diferencia justificada de un retiro. */
+export const movimientoMaquina = pgTable(
+  "movimiento_maquina",
+  {
+    id: serial("id").primaryKey(),
+    retiroMaquinaId: integer("retiro_maquina_id")
+      .notNull()
+      .references(() => retiroMaquina.id),
+    /** Línea de origen (material concreto). Null sólo en SOBRANTE: el sobrante
+     *  es mezcla de las líneas cargadas. */
+    retiroMpId: integer("retiro_mp_id").references(() => retiroMp.id),
+    tipo: tipoMovimientoMaquinaEnum("tipo").notNull(),
+    cantidad: numeric("cantidad", { precision: 14, scale: 3 }).notNull(),
+    cicloId: integer("ciclo_id").references(() => cicloProduccion.id),
+    /** SOBRANTE: el código de sobrante/molienda con el que entra al depósito. */
+    materiaPrimaDestinoId: integer("materia_prima_destino_id").references(() => materiaPrima.id),
+    /** Movimiento de stock que generó (devolución o sobrante). */
+    movimientoId: integer("movimiento_id").references(() => movimiento.id),
+    observaciones: text("observaciones"),
+    usuarioId: integer("usuario_id")
+      .notNull()
+      .references(() => usuario.id),
+    fecha: timestamp("fecha", { withTimezone: true }).notNull().defaultNow(),
+    token: text("token").unique(),
+    anulado: boolean("anulado").notNull().default(false),
+    anuladoPorId: integer("anulado_por_id").references(() => usuario.id),
+    anuladoEn: timestamp("anulado_en", { withTimezone: true }),
+    anuladoMotivo: text("anulado_motivo"),
+  },
+  (t) => [index("mov_maquina_retiro_idx").on(t.retiroMaquinaId), index("mov_maquina_ciclo_idx").on(t.cicloId)],
 );
 
 /**

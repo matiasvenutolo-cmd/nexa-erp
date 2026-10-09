@@ -14,6 +14,7 @@ import { actualizarMinMaxMateriaPrima, actualizarMinMaxProducto } from "@/lib/da
 import { actualizarParametro } from "@/lib/data/parametros";
 import { actualizarDosificacion, crearDosificacion, eliminarExcepcionDosificacion } from "@/lib/data/dosificacion";
 import { actualizarFichaColor, crearColorEspecial } from "@/lib/data/colores";
+import { actualizarDatosTecnicos } from "@/lib/data/catalogo";
 import { actualizarUsuarioAdmin, cambiarSecretoAdmin, crearUsuarioAdmin } from "@/lib/data/usuarios";
 import type { usuario } from "@/lib/db/schema";
 
@@ -174,4 +175,15 @@ export async function cambiarSecretoAction(fd: FormData) {
   const tipo = fd.get("tipo") === "PIN" ? "PIN" : "contraseña";
   const r = await cambiarSecretoAdmin(usuario, Number(fd.get("id")), String(fd.get("secreto") ?? ""), tipo);
   volver(fd, r, tipo === "PIN" ? "PIN actualizado." : "Contraseña actualizada.");
+}
+
+export async function guardarDatosTecnicosAction(fd: FormData) {
+  const usuario = await getUsuarioActual();
+  const m2 = numero(fd, "m2PorUnidad");
+  const kg = numero(fd, "kgPorUnidad");
+  const r =
+    (m2 != null && Number.isNaN(m2)) || (kg != null && Number.isNaN(kg))
+      ? { error: "Valor inválido." }
+      : await actualizarDatosTecnicos(usuario, Number(fd.get("id")), { m2PorUnidad: m2, kgPorUnidad: kg, motivo: texto(fd, "motivo") });
+  volver(fd, r, "Datos técnicos guardados.");
 }

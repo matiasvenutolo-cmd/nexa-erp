@@ -15,11 +15,10 @@
  * El stock de materia prima importado del Excel no tiene lote: se puede
  * retirar igual, y en la trazabilidad figura como "stock sin lote".
  */
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   certificadoCalidad,
-  cicloMateriaPrima,
   cicloProduccion,
   loteMp,
   materiaPrima,
@@ -31,10 +30,9 @@ import {
   usuario,
 } from "@/lib/db/schema";
 import { getDepositoNexaId } from "@/lib/data/depositos";
-import { puedeIngresarMateriaPrima, puedeRetirarMateriaPrima } from "@/lib/auth/permisos";
+import { puedeIngresarMateriaPrima } from "@/lib/auth/permisos";
 import type { Actor, Resultado } from "@/lib/data/auditoria";
-import { INYECTORAS } from "@/lib/inyectoras";
-import { hoyISO } from "@/lib/format";
+import { disponibleDeLotes, registrarRetiroMaquina } from "@/lib/data/maquina";
 
 export type BloquesCodigo = { producto: string; materiaPrima: string; proveedorCertificado: string; lote: string };
 
@@ -147,14 +145,14 @@ export async function listarLotes(filtro?: { materiaPrimaId?: number; soloConSal
       materiaPrimaNombre: materiaPrima.nombre,
       certificadoNumero: certificadoCalidad.numeroCorrelativo,
       proveedor: certificadoCalidad.proveedor,
-      retirado: sql<string>`coalesce((select sum(${retiroMp.cantidad}) from ${retiroMp} where ${retiroMp.loteMpId} = ${loteMp.id}), 0)`,
     })
     .from(loteMp)
     .innerJoin(materiaPrima, eq(loteMp.materiaPrimaId, materiaPrima.id))
     .leftJoin(certificadoCalidad, eq(loteMp.certificadoId, certificadoCalidad.id))
     .where(filtro?.materiaPrimaId ? eq(loteMp.materiaPrimaId, filtro.materiaPrimaId) : undefined)
     .orderBy(asc(loteMp.fechaIngreso), asc(loteMp.id));
-  const lotes = filas.map((f) => ({ ...f, disponible: Number(f.ingresado) - Number(f.retirado) }));
+  const disponibles = await disponibleDeLotes(db, filas.map((f) => f.id));
+  const lotes = filas.map((f) => ({ ...f, disponible: disponibles.get(f.id) ?? Number(f.ingresado) }));
   return filtro?.soloConSaldo ? lotes.filter((l) => l.disponible > 0) : lotes;
 }
 
@@ -169,87 +167,22 @@ export type RetiroInput = {
   fecha?: string;
 };
 
-export async function retirarMateriaPrima(actor: Actor, input: RetiroInput): Promise<Resultado & { id?: number }> {
-  if (!puedeRetirarMateriaPrima(actor.rol)) return { error: "No tenés permiso para retirar materia prima." };
-  if (!Number.isFinite(input.cantidadKg) || input.cantidadKg <= 0) return { error: "La cantidad tiene que ser mayor que cero." };
-  const depositoId = await getDepositoNexaId();
-
-  return db.transaction(async (tx) => {
-    const [mp] = await tx.select().from(materiaPrima).where(eq(materiaPrima.id, input.materiaPrimaId));
-    if (!mp) return { error: "Materia prima no encontrada." };
-    // Bloquea el saldo de esta MP: dos retiros simultáneos se serializan y el
-    // segundo ve lo que retiró el primero (lote y stock).
-    const [s] = await tx
-      .select({ cantidad: saldo.cantidad })
-      .from(saldo)
-      .where(and(eq(saldo.depositoId, depositoId), eq(saldo.materiaPrimaId, mp.id)))
-      .for("update");
-    if (input.loteMpId != null) {
-      const [lote] = await tx.select().from(loteMp).where(eq(loteMp.id, input.loteMpId));
-      if (!lote || lote.materiaPrimaId !== mp.id) return { error: "El lote no corresponde a esa materia prima." };
-      const [{ retirado }] = await tx
-        .select({ retirado: sql<number>`coalesce(sum(${retiroMp.cantidad}), 0)`.mapWith(Number) })
-        .from(retiroMp)
-        .where(eq(retiroMp.loteMpId, lote.id));
-      const disponible = Number(lote.cantidadIngresada) - retirado;
-      if (input.cantidadKg > disponible + 1e-9) return { error: `El lote tiene ${disponible} kg disponibles.` };
-    }
-    if (input.cantidadKg > Number(s?.cantidad ?? 0) + 1e-9) return { error: `Hay ${Number(s?.cantidad ?? 0)} kg en stock de ${mp.nombre}.` };
-    // Con ciclo, la inyectora es la del ciclo; sin ciclo, una de las máquinas de la planta.
-    let inyectora: string | null = null;
-    if (input.cicloId != null) {
-      const [ciclo] = await tx
-        .select({ id: cicloProduccion.id, inyectora: cicloProduccion.inyectora })
-        .from(cicloProduccion)
-        .where(eq(cicloProduccion.id, input.cicloId));
-      if (!ciclo) return { error: "El ciclo indicado no existe." };
-      inyectora = ciclo.inyectora;
-    } else if (input.inyectora?.trim()) {
-      const v = input.inyectora.replace(/inyectora/i, "").trim();
-      if (!(INYECTORAS as readonly string[]).includes(v)) return { error: `La inyectora ${v} no existe en la planta (1 a 8).` };
-      inyectora = v;
-    }
-
-    const [retiro] = await tx
-      .insert(retiroMp)
-      .values({
-        fecha: input.fecha ?? hoyISO(),
-        materiaPrimaId: mp.id,
-        loteMpId: input.loteMpId,
-        cicloId: input.cicloId,
-        cantidad: String(input.cantidadKg),
-        inyectora,
-        retiraId: actor.id,
-        entregaId: input.entregaId,
-        observaciones: input.observaciones?.trim() || null,
-      })
-      .returning();
-    await tx.insert(movimiento).values({
-      tipo: "SALIDA",
-      depositoId,
-      materiaPrimaId: mp.id,
-      loteMpId: input.loteMpId,
-      cantidad: String(input.cantidadKg),
-      origen: "RETIRO_MP",
-      origenId: retiro.id,
-      motivo: `Retiro a máquina${inyectora ? ` ${inyectora}` : ""}${input.cicloId ? ` · ciclo #${input.cicloId}` : ""}`,
-      usuarioId: actor.id,
-    });
-    await tx
-      .update(saldo)
-      .set({ cantidad: sql`${saldo.cantidad} - ${input.cantidadKg}` })
-      .where(and(eq(saldo.depositoId, depositoId), eq(saldo.materiaPrimaId, mp.id)));
-    if (input.cicloId != null) {
-      await tx.insert(cicloMateriaPrima).values({
-        cicloId: input.cicloId,
-        loteMpId: input.loteMpId,
-        materiaPrimaId: mp.id,
-        cantidadKg: String(input.cantidadKg),
-        esMaster: mp.tipo === "MASTER",
-      });
-    }
-    return { id: retiro.id };
+/**
+ * Retiro de una sola materia prima: crea un retiro a pie de máquina con una
+ * línea (misma lógica que el formulario completo, src/lib/data/maquina.ts).
+ * Devuelve el id de la línea por compatibilidad.
+ */
+export async function retirarMateriaPrima(actor: Actor, input: RetiroInput): Promise<Resultado & { id?: number; retiroMaquinaId?: number }> {
+  const r = await registrarRetiroMaquina(actor, {
+    cicloId: input.cicloId,
+    inyectora: input.inyectora,
+    entregaId: input.entregaId,
+    observaciones: input.observaciones,
+    fecha: input.fecha,
+    lineas: [{ materiaPrimaId: input.materiaPrimaId, loteMpId: input.loteMpId, cantidadKg: input.cantidadKg }],
   });
+  if (r.error) return { error: r.error };
+  return { id: r.lineaIds![0], retiroMaquinaId: r.id };
 }
 
 export async function listarRetiros(filtro?: { cicloId?: number; limite?: number }) {
@@ -260,6 +193,8 @@ export async function listarRetiros(filtro?: { cicloId?: number; limite?: number
       cantidad: retiroMp.cantidad,
       inyectora: retiroMp.inyectora,
       cicloId: retiroMp.cicloId,
+      retiroMaquinaId: retiroMp.retiroMaquinaId,
+      anulado: retiroMp.anulado,
       materiaPrimaNombre: materiaPrima.nombre,
       loteCodigo: loteMp.codigoBarra,
       numeroLote: loteMp.numeroLote,

@@ -40,6 +40,7 @@ export async function crearCicloAction(_prev: FormState, fd: FormData): Promise<
     cicloSegundos: fd.get("cicloSegundos") ? String(fd.get("cicloSegundos")) : null,
     modo: fd.get("modo") ? String(fd.get("modo")) : null,
     partidaId: numOrNull(fd.get("partidaId")),
+    cantidadDeseada: numOrNull(fd.get("cantidadDeseada")),
     pedidos,
     usuarioId: usuario.id,
   });

@@ -12,6 +12,8 @@ export function FormularioCierre({
   piezasPorGolpe,
   pendientePedidos,
   stockActual,
+  minimo,
+  deseada,
 }: {
   cicloId: number;
   golpesInicio: number | null;
@@ -19,6 +21,8 @@ export function FormularioCierre({
   /** Lo que los pedidos abiertos todavía esperan de este producto. */
   pendientePedidos: number;
   stockActual: number;
+  minimo: number | null;
+  deseada: number | null;
 }) {
   const [state, formAction, pendiente] = useActionState<FormState, FormData>(cerrarCicloAction, {});
   const [golpesFin, setGolpesFin] = useState("");
@@ -89,7 +93,7 @@ export function FormularioCierre({
         </label>
       </div>
 
-      <Destino entran={Number(aStock ?? piezasEntregadasSugerida ?? 0) || 0} pendiente={pendientePedidos} stock={stockActual} />
+      <Destino entran={Number(aStock ?? piezasEntregadasSugerida ?? 0) || 0} pendiente={pendientePedidos} stock={stockActual} minimo={minimo} deseada={deseada} producidas={piezasProducidas} />
 
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="block text-sm">
@@ -133,7 +137,21 @@ export function FormularioCierre({
 
 /** Dónde impacta cada número: todo lo que entra va al stock general; los
  *  pedidos lo toman al armar el despacho y el resto queda libre. */
-function Destino({ entran, pendiente, stock }: { entran: number; pendiente: number; stock: number }) {
+function Destino({
+  entran,
+  pendiente,
+  stock,
+  minimo,
+  deseada,
+  producidas,
+}: {
+  entran: number;
+  pendiente: number;
+  stock: number;
+  minimo: number | null;
+  deseada: number | null;
+  producidas: number | null;
+}) {
   const total = stock + entran;
   const cubre = Math.min(total, pendiente);
   const libre = Math.max(0, total - pendiente);
@@ -141,7 +159,9 @@ function Destino({ entran, pendiente, stock }: { entran: number; pendiente: numb
     <div className="rounded-md bg-surface-muted px-3 py-2 text-xs text-foreground-muted">
       <span className="font-medium text-foreground">Destino de lo producido:</span> entran {entran} piezas al stock (en cajas). Stock
       después del cierre: {total}. Los pedidos abiertos esperan {pendiente}: el stock cubre {cubre}
-      {pendiente > total ? ` y siguen faltando ${pendiente - total}` : ""}; quedan {libre} libres para stock.
+      {pendiente > total ? ` y siguen faltando ${pendiente - total}` : ""}; quedan {libre} libres para stock
+      {minimo != null && minimo > 0 ? ` (mínimo configurado ${minimo}${libre < minimo ? `: faltan ${minimo - libre} para reponerlo` : ": cubierto"})` : ""}.
+      {deseada != null && producidas != null && ` Inyección deseada ${deseada}, producidas ${producidas}.`}
     </div>
   );
 }

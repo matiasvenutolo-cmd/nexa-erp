@@ -68,6 +68,8 @@ export async function resumenParaCiclo(productoId: number) {
       colorId: producto.colorId,
       colorNombre: color.nombre,
       piezasPorGolpe: producto.piezasPorGolpe,
+      minimo: producto.minimo,
+      kgPorUnidad: producto.kgPorUnidad,
     })
     .from(producto)
     .leftJoin(color, eq(producto.colorId, color.id))
@@ -89,6 +91,11 @@ export async function resumenParaCiclo(productoId: number) {
   );
   const pendientePedidos = pedidos.reduce((t, x) => t + x.cantidad, 0);
   const stock = Number(s?.cantidad ?? 0);
+  const faltaProducir = Math.max(0, pendientePedidos - stock);
+  // Reposición: lo que falta para que, cubiertos los pedidos, quede el mínimo
+  // configurado. Sin mínimo configurado no se calcula (no se inventa).
+  const stockLibre = Math.max(0, stock - pendientePedidos);
+  const reposicion = p.minimo != null && p.minimo > 0 ? Math.max(0, p.minimo - stockLibre) : null;
   return {
     esAccesorio: p.esAccesorio,
     familia: p.familia,
@@ -100,7 +107,12 @@ export async function resumenParaCiclo(productoId: number) {
     pedidos,
     pendientePedidos,
     stock,
-    faltaProducir: Math.max(0, pendientePedidos - stock),
+    faltaProducir,
+    minimo: p.minimo,
+    reposicion,
+    /** Necesidad de pedidos + reposición: la cantidad recomendada. */
+    recomendado: faltaProducir + (reposicion ?? 0),
+    kgPorUnidad: p.kgPorUnidad != null && Number(p.kgPorUnidad) > 0 ? Number(p.kgPorUnidad) : null,
   };
 }
 
@@ -136,6 +148,8 @@ export type NuevoCicloInput = {
   partidaId: number | null; // null = crear una nueva
   pedidos: { pedidoId: number; cantidadAsignada: number }[];
   usuarioId: number;
+  /** Cantidad que se decide inyectar (planificación). */
+  cantidadDeseada?: number | null;
 };
 
 /** Alta del día — Paso 1 (inicio). Si no se elige una partida abierta para
@@ -147,6 +161,9 @@ export async function crearCiclo(input: NuevoCicloInput): Promise<{ id: number }
     // Baldosas sólo en la inyectora 8; accesorios en una inyectora existente.
     const iny = resolverInyectora(prod.esAccesorio, input.inyectora);
     if ("error" in iny) return iny;
+    if (input.cantidadDeseada != null && (!Number.isInteger(input.cantidadDeseada) || input.cantidadDeseada <= 0)) {
+      return { error: "La cantidad de inyección deseada tiene que ser un número entero mayor que cero." };
+    }
 
     let partidaId = input.partidaId;
     if (partidaId) {
@@ -177,6 +194,7 @@ export async function crearCiclo(input: NuevoCicloInput): Promise<{ id: number }
         partidaId,
         productoId: input.productoId,
         inyectora: iny.inyectora,
+        cantidadDeseada: input.cantidadDeseada ?? null,
         fechaInicio: new Date(`${input.fecha}T00:00:00`),
         golpesInicio: input.golpesInicio,
         piezasPorGolpe: input.piezasPorGolpe,
@@ -313,7 +331,7 @@ export function codigoCaja(partidaNumero: number, numeroCaja: number): string {
  * producto) y una caja abierta con el resto. Accesorios: no se embalan hasta
  * la venta (respuesta 4), quedan como un bulto sin embalar de la partida.
  */
-async function generarCajas(tx: Tx, input: { cicloId: number; partidaId: number; productoId: number; piezas: number }) {
+export async function generarCajas(tx: Tx, input: { cicloId: number; partidaId: number; productoId: number; piezas: number }) {
   const [prod] = await tx
     .select({ esAccesorio: producto.esAccesorio, unidadesPorCaja: producto.unidadesPorCaja })
     .from(producto)

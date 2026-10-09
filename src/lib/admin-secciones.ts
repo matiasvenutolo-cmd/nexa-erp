@@ -14,6 +14,7 @@ type Rol = (typeof usuario.$inferSelect)["rol"];
 export const SECCIONES_ADMIN: { href: string; label: string; permiso: (rol: Rol) => boolean }[] = [
   { href: "/admin/stock", label: "Stock", permiso: puedeEditarMinMax },
   { href: "/admin/master", label: "Master", permiso: puedeEditarParametrosProduccion },
+  { href: "/admin/productos", label: "Productos", permiso: puedeEditarParametrosProduccion },
   { href: "/admin/colores", label: "Colores", permiso: puedeGestionarColores },
   { href: "/admin/parametros", label: "Parámetros", permiso: puedeEditarParametrosProduccion },
   { href: "/admin/usuarios", label: "Usuarios", permiso: puedeAdministrarUsuarios },

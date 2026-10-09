@@ -5,6 +5,9 @@ import { NAV_POR_ROL, ROL_LABEL, ROLES_CON_AVISOS } from "@/lib/nav";
 import { contarAvisosPendientes } from "@/lib/data/avisos";
 import { cerrarSesionAction } from "@/app/actions/sesion";
 import { SidebarNav } from "@/components/sidebar-nav";
+import { puedeElegirVistaPrecios } from "@/lib/auth/permisos";
+import { vistaCompleta } from "@/lib/vista";
+import { cambiarVistaAction } from "@/app/actions/vista";
 
 /**
  * Menú lateral en desktop — "siempre es más cómodo el menú al costado, como
@@ -19,9 +22,23 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     ? { "/avisos": await contarAvisosPendientes(usuario.rol) }
     : {};
 
+  const eligeVista = puedeElegirVistaPrecios(usuario.rol);
+  const completa = eligeVista && (await vistaCompleta());
+
   const usuarioInfo = (
     <>
       <span className="badge-estado bg-surface-muted text-foreground-muted">{ROL_LABEL[usuario.rol]}</span>
+      {eligeVista && (
+        <form action={cambiarVistaAction}>
+          <button
+            type="submit"
+            title="El Supervisor puede trabajar sin precios o con la vista completa"
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${completa ? "bg-accent text-accent-foreground" : "bg-surface-muted text-foreground-muted"}`}
+          >
+            {completa ? "Vista completa (con precios)" : "Vista sin precios"}
+          </button>
+        </form>
+      )}
       <span className="text-sm font-medium">{usuario.nombre}</span>
       <form action={cerrarSesionAction}>
         <button

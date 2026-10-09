@@ -175,6 +175,10 @@ export type LineaPedidoConProducto = typeof pedidoLinea.$inferSelect & {
   productoDescripcion: string | null;
   productoEsAccesorio: boolean | null;
   productoUnidadesPorCaja: number | null;
+  productoFamilia: (typeof producto.$inferSelect)["familia"] | null;
+  productoTipo: (typeof producto.$inferSelect)["tipo"] | null;
+  productoM2PorUnidad: number | null;
+  productoColorNombre: string | null;
 };
 
 export type PedidoConDetalle = typeof pedido.$inferSelect & {
@@ -197,9 +201,14 @@ export async function obtenerPedido(id: number): Promise<PedidoConDetalle | null
       productoDescripcion: producto.descripcion,
       productoEsAccesorio: producto.esAccesorio,
       productoUnidadesPorCaja: producto.unidadesPorCaja,
+      productoFamilia: producto.familia,
+      productoTipo: producto.tipo,
+      productoM2PorUnidad: producto.m2PorUnidad,
+      productoColorNombre: color.nombre,
     })
     .from(pedidoLinea)
     .leftJoin(producto, eq(pedidoLinea.productoId, producto.id))
+    .leftJoin(color, eq(producto.colorId, color.id))
     .where(eq(pedidoLinea.pedidoId, id));
 
 
@@ -212,6 +221,10 @@ export async function obtenerPedido(id: number): Promise<PedidoConDetalle | null
       productoDescripcion: l.productoDescripcion,
       productoEsAccesorio: l.productoEsAccesorio,
       productoUnidadesPorCaja: l.productoUnidadesPorCaja,
+      productoFamilia: l.productoFamilia,
+      productoTipo: l.productoTipo,
+      productoM2PorUnidad: l.productoM2PorUnidad != null && Number(l.productoM2PorUnidad) > 0 ? Number(l.productoM2PorUnidad) : null,
+      productoColorNombre: l.productoColorNombre,
     })),
   };
 }

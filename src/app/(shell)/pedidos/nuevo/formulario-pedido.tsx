@@ -6,6 +6,8 @@ import { GRUPOS, coloresDeGrupo } from "@/lib/pedido-grupos";
 import type { FilaProducto } from "@/lib/data/catalogo";
 import { fmtNumero, hoyISO } from "@/lib/format";
 import { claveColor } from "@/lib/catalogo-normalizacion";
+import { resumirPedido } from "@/lib/resumen-pedido";
+import { ResumenPedido } from "@/components/resumen-pedido";
 
 const LIBRE = "LIBRE";
 const METODOS_PAGO = [
@@ -127,8 +129,20 @@ export function FormularioPedido({
       })),
   );
 
-  const totalBaldosas = filasResueltas.filter((r) => r.grupo.esPiso).reduce((s, r) => s + r.cantidad, 0);
-  const totalAccesorios = filasResueltas.filter((r) => !r.grupo.esPiso).reduce((s, r) => s + r.cantidad, 0);
+  const resumen = resumirPedido(
+    filasResueltas
+      .filter((r) => r.cantidad > 0 && (r.prod || (r.fila.productoId === LIBRE && r.fila.colorLibre.trim())))
+      .map((r) => ({
+        productoId: r.prod?.id ?? -1,
+        codigo: r.prod?.codigo ?? null,
+        familia: r.grupo.familia,
+        tipo: r.grupo.tipo,
+        esAccesorio: !r.grupo.esPiso,
+        colorNombre: r.prod?.colorNombre ?? r.fila.colorLibre.trim(),
+        unidades: r.cantidad,
+        m2PorUnidad: r.prod?.m2PorUnidad ?? null,
+      })),
+  );
 
   return (
     <form action={formAction} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -339,14 +353,7 @@ export function FormularioPedido({
 
       <aside className="h-fit space-y-3 rounded-lg border border-border bg-surface p-4 text-sm">
         <div className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Resumen</div>
-        <div className="flex justify-between">
-          <span className="text-foreground-muted">Baldosas de piso</span>
-          <span className="font-medium">{fmtNumero(totalBaldosas, 0)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-foreground-muted">Unidades de accesorios</span>
-          <span className="font-medium">{fmtNumero(totalAccesorios, 0)}</span>
-        </div>
+        <ResumenPedido r={resumen} />
       </aside>
     </form>
   );
