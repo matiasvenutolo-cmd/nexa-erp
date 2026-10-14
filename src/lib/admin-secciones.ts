@@ -1,6 +1,6 @@
 import type { usuario } from "@/lib/db/schema";
 import {
-  puedeAdministrarUsuarios,
+  puedeAdministrarOperarios,
   puedeEditarMinMax,
   puedeEditarParametrosProduccion,
   puedeGestionarColores,
@@ -17,6 +17,6 @@ export const SECCIONES_ADMIN: { href: string; label: string; permiso: (rol: Rol)
   { href: "/admin/productos", label: "Productos", permiso: puedeEditarParametrosProduccion },
   { href: "/admin/colores", label: "Colores", permiso: puedeGestionarColores },
   { href: "/admin/parametros", label: "Parámetros", permiso: puedeEditarParametrosProduccion },
-  { href: "/admin/usuarios", label: "Usuarios", permiso: puedeAdministrarUsuarios },
+  { href: "/admin/usuarios", label: "Usuarios", permiso: puedeAdministrarOperarios },
   { href: "/admin/historial", label: "Historial", permiso: puedeVerPanelAdmin },
 ];

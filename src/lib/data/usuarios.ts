@@ -2,7 +2,7 @@ import { asc, desc, eq, isNotNull, or } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { rolEnum, usuario } from "@/lib/db/schema";
 import { hashSecret } from "@/lib/auth/hash";
-import { puedeAdministrarUsuarios } from "@/lib/auth/permisos";
+import { puedeAdministrarOperarios, puedeAdministrarUsuarios } from "@/lib/auth/permisos";
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
 
 export type Usuario = typeof usuario.$inferSelect;
@@ -55,12 +55,17 @@ export type FilaUsuarioAdmin = Pick<Usuario, "id" | "nombre" | "email" | "rol" |
 };
 
 /** Personas que pueden entrar al sistema. Los usuarios técnicos que creó el
- *  importador ("Importación (sistema)", sin email ni PIN) no se listan. */
-export async function listarUsuariosAdmin(): Promise<FilaUsuarioAdmin[]> {
+ *  importador ("Importación (sistema)", sin email ni PIN) no se listan. Quien
+ *  sólo administra operarios ve sólo operarios. */
+export async function listarUsuariosAdmin(soloOperarios = false): Promise<FilaUsuarioAdmin[]> {
   const filas = await db
     .select()
     .from(usuario)
-    .where(or(isNotNull(usuario.email), isNotNull(usuario.pinHash)))
+    .where(
+      soloOperarios
+        ? eq(usuario.rol, "OPERARIO")
+        : or(isNotNull(usuario.email), isNotNull(usuario.pinHash)),
+    )
     .orderBy(desc(usuario.activo), asc(usuario.nombre));
   return filas.map((u) => ({
     id: u.id,
@@ -73,13 +78,23 @@ export async function listarUsuariosAdmin(): Promise<FilaUsuarioAdmin[]> {
   }));
 }
 
+/** Gerencia administra a todos; Administración y Supervisión, sólo operarios. */
+function permisoSobre(actor: Actor, ...roles: Usuario["rol"][]): string | null {
+  if (puedeAdministrarUsuarios(actor.rol)) return null;
+  if (puedeAdministrarOperarios(actor.rol) && roles.every((r) => r === "OPERARIO")) return null;
+  return puedeAdministrarOperarios(actor.rol)
+    ? "Sólo Gerencia administra usuarios que no son Operario."
+    : "No tenés permiso para administrar usuarios.";
+}
+
 function validarSecreto(rol: Usuario["rol"], secreto: string): string | null {
   if (rol === "OPERARIO") return /^\d{4,8}$/.test(secreto) ? null : "El PIN tiene que tener entre 4 y 8 números.";
   return secreto.length >= 8 ? null : "La contraseña tiene que tener al menos 8 caracteres.";
 }
 
 export async function crearUsuarioAdmin(actor: Actor, input: NuevoUsuarioInput): Promise<Resultado> {
-  if (!puedeAdministrarUsuarios(actor.rol)) return { error: "No tenés permiso para administrar usuarios." };
+  const sinPermiso = permisoSobre(actor, input.rol);
+  if (sinPermiso) return { error: sinPermiso };
   const nombre = input.nombre.trim();
   if (!nombre) return { error: "Falta el nombre." };
   if (!(rolEnum.enumValues as string[]).includes(input.rol)) return { error: "Rol inválido." };
@@ -101,10 +116,11 @@ export async function actualizarUsuarioAdmin(
   id: number,
   input: { nombre: string; email: string | null; rol: Usuario["rol"]; activo: boolean },
 ): Promise<Resultado> {
-  if (!puedeAdministrarUsuarios(actor.rol)) return { error: "No tenés permiso para administrar usuarios." };
   if (!(rolEnum.enumValues as string[]).includes(input.rol)) return { error: "Rol inválido." };
   const actual = await getUsuario(id);
   if (!actual) return { error: "Usuario no encontrado." };
+  const sinPermiso = permisoSobre(actor, actual.rol, input.rol);
+  if (sinPermiso) return { error: sinPermiso };
   if (id === actor.id && (!input.activo || input.rol !== actual.rol)) {
     return { error: "No podés desactivarte ni cambiarte el rol a vos mismo." };
   }
@@ -137,9 +153,10 @@ export async function actualizarUsuarioAdmin(
 
 /** Nueva contraseña (o PIN, para operarios). Nunca se guarda el valor en la auditoría. */
 export async function cambiarSecretoAdmin(actor: Actor, id: number, secreto: string, tipo: "contraseña" | "PIN"): Promise<Resultado> {
-  if (!puedeAdministrarUsuarios(actor.rol)) return { error: "No tenés permiso para administrar usuarios." };
   const actual = await getUsuario(id);
   if (!actual) return { error: "Usuario no encontrado." };
+  const sinPermiso = permisoSobre(actor, actual.rol);
+  if (sinPermiso) return { error: sinPermiso };
   const errorSecreto = validarSecreto(tipo === "PIN" ? "OPERARIO" : "ADMINISTRACION", secreto);
   if (errorSecreto) return { error: errorSecreto };
   const hash = await hashSecret(secreto);

@@ -27,7 +27,7 @@ import { listarAuditoria } from "@/lib/data/auditoria";
 import { cambiarPrioridad, crearPedido, obtenerPedido } from "@/lib/data/pedidos";
 import { colaProduccion } from "@/lib/data/produccion";
 import { resolverClienteDelPedido } from "@/lib/data/clientes";
-import { actualizarUsuarioAdmin, crearUsuarioAdmin } from "@/lib/data/usuarios";
+import { actualizarUsuarioAdmin, cambiarSecretoAdmin, crearUsuarioAdmin } from "@/lib/data/usuarios";
 import { claveColor, pareceMulticolor } from "@/lib/catalogo-normalizacion";
 
 let s: Semilla;
@@ -380,6 +380,21 @@ describe("9-10. Permisos", () => {
     const g = s.usuarios.GERENCIA;
     const r = await actualizarUsuarioAdmin(g, g.id, { nombre: "Usuario GERENCIA", email: "gerencia@test", rol: "GERENCIA", activo: false });
     expect(r.error).toMatch(/vos mismo/);
+  });
+
+  it("Administración y Supervisión dan de alta usuarios de taller, y sólo de taller", async () => {
+    for (const rol of ["ADMINISTRACION", "SUPERVISOR"] as const) {
+      const actor = s.usuarios[rol];
+      const nombre = `Taller ${rol}`;
+      expect((await crearUsuarioAdmin(actor, { nombre, rol: "OPERARIO", secreto: "0000" })).error, rol).toBeUndefined();
+      const [nuevo] = await db().select().from(schema.usuario).where(eq(schema.usuario.nombre, nombre));
+      expect(nuevo.pinHash).not.toBeNull();
+      // Puede darlo de baja, pero no subirlo a otro rol ni crear usuarios con contraseña.
+      expect((await actualizarUsuarioAdmin(actor, nuevo.id, { nombre, email: null, rol: "OPERARIO", activo: false })).error).toBeUndefined();
+      expect((await actualizarUsuarioAdmin(actor, nuevo.id, { nombre, email: "t@test", rol: "GERENCIA", activo: true })).error).toMatch(/Gerencia/);
+      expect((await crearUsuarioAdmin(actor, { nombre: "Z", email: `z-${rol}@test`, rol: "SUPERVISOR", secreto: "12345678" })).error).toMatch(/Gerencia/);
+      expect((await cambiarSecretoAdmin(actor, s.usuarios.GERENCIA.id, "12345678", "contraseña")).error).toMatch(/Gerencia/);
+    }
   });
 
   it("prioridad manual: sólo Encargado o Supervisor, con motivo", async () => {

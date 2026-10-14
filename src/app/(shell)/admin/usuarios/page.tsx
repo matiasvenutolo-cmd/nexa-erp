@@ -2,6 +2,7 @@ import { listarUsuariosAdmin, type FilaUsuarioAdmin } from "@/lib/data/usuarios"
 import { actualizarUsuarioAction, cambiarSecretoAction, crearUsuarioAction } from "@/app/actions/admin";
 import { ROL_LABEL } from "@/lib/nav";
 import { rolEnum } from "@/lib/db/schema";
+import { puedeAdministrarUsuarios } from "@/lib/auth/permisos";
 import { Aviso, BOTON, TD, TH, exigirSeccion } from "../comunes";
 
 const VOLVER = "/admin/usuarios";
@@ -9,14 +10,17 @@ const VOLVER = "/admin/usuarios";
 export default async function AdminUsuariosPage({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
   const actual = await exigirSeccion("/admin/usuarios");
   const sp = await searchParams;
-  const usuarios = await listarUsuariosAdmin();
+  // Administración y Supervisión sólo administran operarios (usuarios de taller, con PIN).
+  const soloOperarios = !puedeAdministrarUsuarios(actual.rol);
+  const usuarios = await listarUsuariosAdmin(soloOperarios);
 
   return (
     <div className="space-y-4">
       <Aviso ok={sp.ok} error={sp.error} />
       <p className="text-sm text-foreground-muted">
-        Los permisos salen del rol: de supervisor para abajo nadie ve precios. Los operarios entran con PIN; el
-        resto, con email y contraseña. Un usuario dado de baja no puede entrar, pero su historial se conserva.
+        {soloOperarios
+          ? "Usuarios de taller: entran desde la PC de planta eligiendo su nombre y su PIN. Los demás usuarios los administra Gerencia. Un usuario dado de baja no puede entrar, pero su historial se conserva."
+          : "Los permisos salen del rol: de supervisor para abajo nadie ve precios. Los operarios entran con PIN; el resto, con email y contraseña. Un usuario dado de baja no puede entrar, pero su historial se conserva."}
       </p>
 
       <div className="overflow-hidden rounded-lg border border-border bg-surface">
@@ -31,8 +35,15 @@ export default async function AdminUsuariosPage({ searchParams }: { searchParams
               </tr>
             </thead>
             <tbody>
+              {usuarios.length === 0 && (
+                <tr>
+                  <td colSpan={4} className={`${TD} text-foreground-muted`}>
+                    Todavía no hay usuarios de taller.
+                  </td>
+                </tr>
+              )}
               {usuarios.map((u) => (
-                <FilaUsuario key={u.id} u={u} esUsted={u.id === actual.id} />
+                <FilaUsuario key={u.id} u={u} esUsted={u.id === actual.id} soloOperarios={soloOperarios} />
               ))}
             </tbody>
           </table>
@@ -40,21 +51,34 @@ export default async function AdminUsuariosPage({ searchParams }: { searchParams
       </div>
 
       <details className="rounded-lg border border-border bg-surface p-4">
-        <summary className="cursor-pointer text-sm font-semibold text-foreground">Dar de alta un usuario</summary>
+        <summary className="cursor-pointer text-sm font-semibold text-foreground">
+          {soloOperarios ? "Dar de alta un usuario de taller" : "Dar de alta un usuario"}
+        </summary>
         <form action={crearUsuarioAction} className="mt-3 grid gap-3 sm:grid-cols-4">
           <input type="hidden" name="volver" value={VOLVER} />
           <Campo label="Nombre *">
             <input name="nombre" required className="input" />
           </Campo>
-          <Campo label="Email (no hace falta para operarios)">
-            <input name="email" type="email" className="input" />
-          </Campo>
-          <Campo label="Rol *">
-            <SelectRol />
-          </Campo>
-          <Campo label="Contraseña (8+) o PIN (4-8 números) *">
-            <input name="secreto" type="password" required className="input" autoComplete="new-password" />
-          </Campo>
+          {soloOperarios ? (
+            <>
+              <input type="hidden" name="rol" value="OPERARIO" />
+              <Campo label="PIN (4 a 8 números) *">
+                <input name="secreto" inputMode="numeric" pattern="[0-9]{4,8}" required className="input" autoComplete="off" />
+              </Campo>
+            </>
+          ) : (
+            <>
+              <Campo label="Email (no hace falta para operarios)">
+                <input name="email" type="email" className="input" />
+              </Campo>
+              <Campo label="Rol *">
+                <SelectRol />
+              </Campo>
+              <Campo label="Contraseña (8+) o PIN (4-8 números) *">
+                <input name="secreto" type="password" required className="input" autoComplete="new-password" />
+              </Campo>
+            </>
+          )}
           <div>
             <button type="submit" className={BOTON}>
               Dar de alta
@@ -66,7 +90,7 @@ export default async function AdminUsuariosPage({ searchParams }: { searchParams
   );
 }
 
-function FilaUsuario({ u, esUsted }: { u: FilaUsuarioAdmin; esUsted: boolean }) {
+function FilaUsuario({ u, esUsted, soloOperarios }: { u: FilaUsuarioAdmin; esUsted: boolean; soloOperarios: boolean }) {
   return (
     <tr id={`u-${u.id}`} className="border-b border-border last:border-0">
       <td className={TD}>
@@ -83,12 +107,18 @@ function FilaUsuario({ u, esUsted }: { u: FilaUsuarioAdmin; esUsted: boolean }) 
               <Campo label="Nombre">
                 <input name="nombre" defaultValue={u.nombre} required className="input" />
               </Campo>
-              <Campo label="Email">
-                <input name="email" type="email" defaultValue={u.email ?? ""} className="input" />
-              </Campo>
-              <Campo label="Rol">
-                <SelectRol valor={u.rol} />
-              </Campo>
+              {soloOperarios ? (
+                <input type="hidden" name="rol" value="OPERARIO" />
+              ) : (
+                <>
+                  <Campo label="Email">
+                    <input name="email" type="email" defaultValue={u.email ?? ""} className="input" />
+                  </Campo>
+                  <Campo label="Rol">
+                    <SelectRol valor={u.rol} />
+                  </Campo>
+                </>
+              )}
               <Campo label="Estado">
                 <select name="activo" defaultValue={u.activo ? "1" : "0"} className="input">
                   <option value="1">Activo</option>

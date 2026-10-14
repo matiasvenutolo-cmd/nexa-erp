@@ -166,3 +166,11 @@ la base real, ver informe de estado.
    Encargado, Supervisor, Gerencia).
 5. Si corresponde registrar OC, remito y código del proveedor en el ingreso.
 6. Confirmar que "ángulo" de la planilla equivale a "esquinero".
+7. Usuarios de taller (14/10/2026): se dio de alta el operario genérico
+   "Taller" (PIN provisorio) y se habilitó a Administración y Supervisión a dar
+   de alta, dar de baja y cambiar el PIN de usuarios **Operario** (sólo
+   operarios; los usuarios con contraseña siguen siendo de Gerencia).
+   Confirmar con el cliente: quién da de alta operarios, si hay un usuario por
+   persona o uno por turno/PC, y qué debe poder hacer el operario (hoy sólo ve
+   Tablero y Pedidos; la carga en tolva y el cierre los hacen otros roles, ver
+   punto 4). Responde: Gerencia CPS.

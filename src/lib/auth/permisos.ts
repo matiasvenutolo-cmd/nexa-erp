@@ -116,6 +116,18 @@ export function puedeAdministrarUsuarios(rol: Rol): boolean {
 }
 
 /**
+ * Usuarios de taller (Operario, entran con PIN): además de gerencia, los dan de
+ * alta Administración y Supervisión, para no depender de gerencia cada vez que
+ * entra alguien a planta. Sólo operarios: no pueden crear ni tocar usuarios con
+ * contraseña, ni pasar a nadie a otro rol.
+ */
+const ROLES_OPERARIOS: readonly Rol[] = ["GERENCIA", "ADMINISTRACION", "SUPERVISOR"];
+
+export function puedeAdministrarOperarios(rol: Rol): boolean {
+  return ROLES_OPERARIOS.includes(rol);
+}
+
+/**
  * Cambiar la prioridad de inyección de un pedido. Definiciones pendientes:
  * "con opción a ser cambiada por el encargado o supervisor en base a
  * planificación".
@@ -131,7 +143,7 @@ export function puedeVerPanelAdmin(rol: Rol): boolean {
     puedeEditarMinMax(rol) ||
     puedeEditarParametrosProduccion(rol) ||
     puedeGestionarColores(rol) ||
-    puedeAdministrarUsuarios(rol)
+    puedeAdministrarOperarios(rol)
   );
 }
 
