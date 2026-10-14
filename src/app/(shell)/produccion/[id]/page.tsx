@@ -6,7 +6,7 @@ import { resolverDosificacion } from "@/lib/data/dosificacion";
 import { codigoDeUso, listarRetiros } from "@/lib/data/materia-prima";
 import { ciclosAbiertos, codigosDeSobrante, controlMaterialCiclo, obtenerRetirosMaquina } from "@/lib/data/maquina";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeCorregirProduccionMp, puedeRetirarMateriaPrima } from "@/lib/auth/permisos";
+import { puedeCargarTolva, puedeCerrarCiclo, puedeCorregirProduccionMp, puedeRetirarMateriaPrima, puedeVerMateriaPrima } from "@/lib/auth/permisos";
 import { fmtNumero, fmtFecha, fmtDia } from "@/lib/format";
 import { OperacionesRetiro } from "@/components/operaciones-retiro";
 import { FormularioCierre } from "./formulario-cierre";
@@ -40,6 +40,8 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
     .map((c) => ({ id: c.id, etiqueta: `Ciclo #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"}` }));
   const puedeOperar = puedeRetirarMateriaPrima(usuario.rol);
   const puedeCorregir = puedeCorregirProduccionMp(usuario.rol);
+  const puedeCargar = puedeCargarTolva(usuario.rol);
+  const verRetiro = puedeVerMateriaPrima(usuario.rol) || puedeCorregir;
   const hayCarga = (control?.cargado ?? 0) > 0;
 
   return (
@@ -91,9 +93,13 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
         {retiros.map((r) => (
           <div key={r.id} className="rounded-md border border-border p-3">
             <div className="mb-2 flex flex-wrap items-center gap-2">
-              <Link href={`/materia-prima/retiros/${r.id}`} className="font-medium text-accent hover:underline">
-                Retiro {r.numero}
-              </Link>
+              {verRetiro ? (
+                <Link href={`/materia-prima/retiros/${r.id}`} className="font-medium text-accent hover:underline">
+                  Retiro {r.numero}
+                </Link>
+              ) : (
+                <span className="font-medium">Retiro {r.numero}</span>
+              )}
               <span className={`badge-estado ${r.estado === "ABIERTO" ? "badge-bajo" : "badge-ok"}`}>{r.estado === "ABIERTO" ? "abierto" : "cerrado"}</span>
               {r.cicloId !== ciclo.id && <span className="text-xs text-foreground-muted">retirado para el ciclo #{r.cicloId} (misma partida)</span>}
             </div>
@@ -102,6 +108,7 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
               ciclos={ciclosCarga}
               codigosSobrante={sobrantes.map((s) => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))}
               puedeOperar={puedeOperar}
+              puedeCargar={puedeCargar}
               puedeCorregir={puedeCorregir}
             />
           </div>
@@ -208,7 +215,7 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
             />
           )}
         </>
-      ) : (
+      ) : puedeCerrarCiclo(usuario.rol) ? (
         <FormularioCierre
           cicloId={ciclo.id}
           golpesInicio={ciclo.golpesInicio}
@@ -218,7 +225,7 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
           minimo={resumen?.minimo ?? null}
           deseada={ciclo.cantidadDeseada}
         />
-      )}
+      ) : null}
     </div>
   );
 }

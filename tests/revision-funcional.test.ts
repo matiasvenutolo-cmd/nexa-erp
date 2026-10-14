@@ -24,7 +24,7 @@ import { resolverInyectora } from "@/lib/inyectoras";
 import { NAV_POR_ROL, ROLES_CON_AVISOS, rutaPermitida } from "@/lib/nav";
 import {
   ROLES_GESTION,
-  puedeCargarProduccion,
+  puedeVerProduccion,
   puedeVerMateriaPrima,
   puedeVerPanelAdmin,
   puedeVerReclamos,
@@ -191,7 +191,7 @@ describe("Menú por áreas: mismas rutas y permisos que antes", () => {
           ROLES_GESTION.includes(rol) && "/catalogo",
           ROLES_GESTION.includes(rol) && "/clientes",
           puedeVerReclamos(rol) && "/reclamos",
-          puedeCargarProduccion(rol) && "/produccion",
+          puedeVerProduccion(rol) && "/produccion",
           puedeVerMateriaPrima(rol) && "/materia-prima",
           puedeVerTrazabilidad(rol) && "/trazabilidad",
           puedeVerPanelAdmin(rol) && "/admin",

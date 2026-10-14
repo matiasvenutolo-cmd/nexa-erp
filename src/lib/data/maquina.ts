@@ -33,7 +33,7 @@ import {
   usuario,
 } from "@/lib/db/schema";
 import { getDepositoNexaId } from "@/lib/data/depositos";
-import { puedeRetirarMateriaPrima } from "@/lib/auth/permisos";
+import { puedeCargarTolva, puedeRetirarMateriaPrima } from "@/lib/auth/permisos";
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
 import { INYECTORAS } from "@/lib/inyectoras";
 import { hoyISO } from "@/lib/format";
@@ -334,7 +334,7 @@ export async function cargarEnTolva(
   actor: Actor,
   input: { retiroMpId: number; cantidadKg: number; cicloId: number; observaciones?: string | null; token?: string | null },
 ): Promise<Resultado & { id?: number; repetido?: boolean }> {
-  if (!puedeRetirarMateriaPrima(actor.rol)) return { error: "No tenés permiso para operar la carga de máquina." };
+  if (!puedeCargarTolva(actor.rol)) return { error: "No tenés permiso para operar la carga de máquina." };
   if (!Number.isFinite(input.cantidadKg) || input.cantidadKg <= 0) return { error: "La cantidad cargada tiene que ser mayor que cero." };
   return db.transaction(async (tx) => {
     const ya = await porToken(tx, input.token);

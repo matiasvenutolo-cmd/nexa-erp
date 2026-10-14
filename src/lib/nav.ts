@@ -13,6 +13,7 @@ import type { usuario } from "@/lib/db/schema";
 import {
   ROLES_GESTION,
   puedeCargarProduccion,
+  puedeVerProduccion,
   puedeVerMateriaPrima,
   puedeVerPanelAdmin,
   puedeVerReclamos,
@@ -58,7 +59,7 @@ export const NAV_POR_ROL: Record<Rol, ItemNav[]> = Object.fromEntries(
       gestion && { href: "/catalogo", label: "Stock / Productos", seccion: "Ventas" },
       gestion && { href: "/clientes", label: "Clientes", seccion: "Ventas" },
       puedeVerReclamos(r) && { href: "/reclamos", label: "Reclamos", seccion: "Ventas" },
-      puedeCargarProduccion(r) && { href: "/produccion", label: "Producción", seccion: "Fábrica" },
+      puedeVerProduccion(r) && { href: "/produccion", label: "Producción", seccion: "Fábrica" },
       puedeVerMateriaPrima(r) && { href: "/materia-prima", label: "Materia prima", seccion: "Fábrica" },
       puedeVerTrazabilidad(r) && { href: "/trazabilidad", label: "Trazabilidad", seccion: "Fábrica" },
       puedeVerPanelAdmin(r) && { href: "/admin", label: "Panel Admin", seccion: "Administración" },
@@ -81,6 +82,10 @@ export const HOME_POR_ROL: Record<Rol, string> = Object.fromEntries(
 export function rutaPermitida(rol: Rol, pathname: string): boolean {
   if (pathname === "/pedidos/nuevo" || pathname.startsWith("/pedidos/nuevo/")) {
     return ROLES_GESTION.includes(rol);
+  }
+  // El taller ve Producción pero no inicia ciclos.
+  if (pathname === "/produccion/nuevo" || pathname.startsWith("/produccion/nuevo/")) {
+    return puedeCargarProduccion(rol);
   }
   return NAV_POR_ROL[rol].some(
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),

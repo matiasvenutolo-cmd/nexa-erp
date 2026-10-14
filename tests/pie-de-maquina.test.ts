@@ -35,7 +35,16 @@ import { crearPedido } from "@/lib/data/pedidos";
 import { trazarLote } from "@/lib/data/trazabilidad";
 import { listarAuditoria } from "@/lib/data/auditoria";
 import { resumirPedido } from "@/lib/resumen-pedido";
-import { puedeVerPrecios } from "@/lib/auth/permisos";
+import {
+  puedeCargarProduccion,
+  puedeCargarTolva,
+  puedeCerrarCiclo,
+  puedeRetirarMateriaPrima,
+  puedeVerMateriaPrima,
+  puedeVerPrecios,
+  puedeVerProduccion,
+} from "@/lib/auth/permisos";
+import { rutaPermitida } from "@/lib/nav";
 import { actualizarDatosTecnicos } from "@/lib/data/catalogo";
 
 let s: Semilla;
@@ -175,7 +184,8 @@ describe("Circuito completo: retiro → tolva → producción → devolución �
     const [p] = await db().select().from(schema.cicloProduccion).where(eq(schema.cicloProduccion.id, c1));
     const c2 = await crearCiclo(ciclo({ partidaId: p.partidaId, golpesInicio: 95, fecha: "2026-10-10" }));
     if ("error" in c2) throw new Error(c2.error);
-    expect((await cargarEnTolva(s.usuarios.OPERARIO.rol === "OPERARIO" ? s.usuarios.RETIROS_MP : s.usuarios.RETIROS_MP, { retiroMpId: lineaVirgen, cantidadKg: 20, cicloId: c2.id })).error).toBeUndefined();
+    // La carga del día siguiente la registra el operario de la máquina (taller).
+    expect((await cargarEnTolva(s.usuarios.OPERARIO, { retiroMpId: lineaVirgen, cantidadKg: 20, cicloId: c2.id })).error).toBeUndefined();
     // Otra producción (otra partida/producto) en la misma inyectora: hay que devolver, no cargar.
     expect((await cerrarCiclo(c2.id, cierre(120, 25))).error).toBeUndefined();
     const otro = await crearCiclo(ciclo({ productoId: s.productos.rejRojo.id, fecha: "2026-10-10" }));
@@ -233,6 +243,18 @@ describe("Concurrencia y permisos", () => {
     expect((await cargarEnTolva(op, { retiroMpId: 1, cantidadKg: 1, cicloId: 1 })).error).toMatch(/permiso/);
     expect((await anularLineaRetiro(s.usuarios.ENCARGADO, 1, "x")).error).toMatch(/Supervisión/);
     expect((await corregirCierreCiclo(s.usuarios.GERENCIA, 1, { piezasEntregadas: 1 }, "x")).error).toMatch(/Supervisión/);
+  });
+
+  it("el taller (Operario) carga en tolva y cierra el día, pero no retira, devuelve, cierra retiros ni inicia ciclos", async () => {
+    const op = s.usuarios.OPERARIO;
+    expect((await registrarRetiroMaquina(op, { cicloId: null, inyectora: "8", lineas: [{ materiaPrimaId: masterId, loteMpId: null, cantidadKg: 1 }] })).error).toMatch(/permiso/);
+    expect((await devolverADeposito(op, { retiroMpId: 1, cantidadKg: 1 })).error).toMatch(/permiso/);
+    expect(puedeCargarTolva("OPERARIO") && puedeCerrarCiclo("OPERARIO") && puedeVerProduccion("OPERARIO")).toBe(true);
+    expect(puedeCargarProduccion("OPERARIO") || puedeRetirarMateriaPrima("OPERARIO") || puedeVerMateriaPrima("OPERARIO")).toBe(false);
+    expect(rutaPermitida("OPERARIO", "/produccion/12")).toBe(true);
+    expect(rutaPermitida("OPERARIO", "/produccion/nuevo")).toBe(false);
+    expect(rutaPermitida("OPERARIO", "/materia-prima")).toBe(false);
+    expect(rutaPermitida("ENCARGADO", "/produccion/nuevo")).toBe(true);
   });
 });
 

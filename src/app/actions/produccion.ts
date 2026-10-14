@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { crearCiclo, cerrarCiclo, resumenParaCiclo, ultimoCicloDePartida } from "@/lib/data/produccion";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeCargarProduccion } from "@/lib/auth/permisos";
+import { puedeCargarProduccion, puedeCerrarCiclo } from "@/lib/auth/permisos";
 
 export type FormState = { error?: string };
 
@@ -68,7 +68,7 @@ export async function golpesSugeridos(partidaId: number) {
 
 export async function cerrarCicloAction(_prev: FormState, fd: FormData): Promise<FormState> {
   const usuario = await getUsuarioActual();
-  if (!puedeCargarProduccion(usuario.rol)) return { error: "No tenés permiso para cargar producción." };
+  if (!puedeCerrarCiclo(usuario.rol)) return { error: "No tenés permiso para cerrar el ciclo." };
 
   const cicloId = Number(fd.get("cicloId"));
   const cerrarPartida = fd.get("cerrarPartida") === "on";

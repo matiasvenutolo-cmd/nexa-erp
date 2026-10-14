@@ -170,7 +170,10 @@ la base real, ver informe de estado.
    "Taller" (PIN provisorio) y se habilitó a Administración y Supervisión a dar
    de alta, dar de baja y cambiar el PIN de usuarios **Operario** (sólo
    operarios; los usuarios con contraseña siguen siendo de Gerencia).
+   El taller (Operario) ve Producción y registra la **carga en tolva** y el
+   **cierre del día** del ciclo (docs/06: "el operario cierra el ciclo al final
+   de cada jornada"); no inicia ciclos, no retira ni devuelve material, no
+   cierra retiros ni corrige. Esto responde provisoriamente el punto 4.
    Confirmar con el cliente: quién da de alta operarios, si hay un usuario por
-   persona o uno por turno/PC, y qué debe poder hacer el operario (hoy sólo ve
-   Tablero y Pedidos; la carga en tolva y el cierre los hacen otros roles, ver
-   punto 4). Responde: Gerencia CPS.
+   persona o uno por turno/PC, y si el operario también debe registrar
+   devoluciones y sobrantes. Responde: Gerencia CPS.

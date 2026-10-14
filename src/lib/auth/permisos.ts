@@ -82,6 +82,24 @@ export function puedeCargarProduccion(rol: Rol): boolean {
   return ROLES_PRODUCCION.includes(rol);
 }
 
+/**
+ * Taller (Operario, PIN): el operario de inyección trabaja en la máquina, así
+ * que ve Producción y registra lo que pasa en ella — la carga en tolva y el
+ * cierre del día del ciclo ("el operario cierra el ciclo al final de cada
+ * jornada", docs/06-comentarios-produccion.md, decisión del 29/09). No inicia
+ * ciclos (planificación del Encargado), no retira ni devuelve material, no
+ * cierra retiros ni corrige. Pregunta abierta en docs/12 §6 punto 7.
+ */
+const ROLES_TALLER: readonly Rol[] = [...ROLES_PRODUCCION, "OPERARIO"];
+
+export function puedeVerProduccion(rol: Rol): boolean {
+  return ROLES_TALLER.includes(rol);
+}
+
+export function puedeCerrarCiclo(rol: Rol): boolean {
+  return ROLES_TALLER.includes(rol);
+}
+
 // ---------------------------------------------------------------------------
 // Panel Admin — docs/08-configuracion-y-panel-admin.md §permisos
 // ---------------------------------------------------------------------------
@@ -181,6 +199,11 @@ const ROLES_RETIRO_MP: readonly Rol[] = ["RETIROS_MP", "MATERIA_PRIMA", "ENCARGA
 
 export function puedeRetirarMateriaPrima(rol: Rol): boolean {
   return ROLES_RETIRO_MP.includes(rol);
+}
+
+/** Carga en tolva: quien retira el material y el operario de la máquina. */
+export function puedeCargarTolva(rol: Rol): boolean {
+  return puedeRetirarMateriaPrima(rol) || rol === "OPERARIO";
 }
 
 export function puedeVerMateriaPrima(rol: Rol): boolean {

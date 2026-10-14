@@ -2,9 +2,13 @@ import Link from "next/link";
 import { colaProduccion, listarCiclos } from "@/lib/data/produccion";
 import { etiquetaPrioridad } from "@/lib/data/pedidos";
 import { fmtNumero, fmtFecha } from "@/lib/format";
+import { getUsuarioActual } from "@/lib/session";
+import { puedeCargarProduccion } from "@/lib/auth/permisos";
 
 export default async function ProduccionPage() {
-  const [faltantes, ciclos] = await Promise.all([colaProduccion(), listarCiclos(30)]);
+  const [usuario, faltantes, ciclos] = await Promise.all([getUsuarioActual(), colaProduccion(), listarCiclos(30)]);
+  // El taller ve la cola y los ciclos, pero no inicia ciclos.
+  const puedeIniciar = puedeCargarProduccion(usuario.rol);
 
   return (
     <div className="space-y-6">
@@ -68,12 +72,14 @@ export default async function ProduccionPage() {
                       {fmtNumero(f.faltaProducir, 0)}
                     </td>
                     <td className="p-3 text-right">
-                      <Link
-                        href={`/produccion/nuevo?productoId=${f.productoId}`}
-                        className="font-medium text-accent hover:underline"
-                      >
-                        Producir →
-                      </Link>
+                      {puedeIniciar && (
+                        <Link
+                          href={`/produccion/nuevo?productoId=${f.productoId}`}
+                          className="font-medium text-accent hover:underline"
+                        >
+                          Producir →
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -88,9 +94,11 @@ export default async function ProduccionPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground-muted">
             Ciclos
           </h2>
-          <Link href="/produccion/nuevo" className="text-sm font-medium text-accent hover:underline">
-            + Nuevo ciclo
-          </Link>
+          {puedeIniciar && (
+            <Link href="/produccion/nuevo" className="text-sm font-medium text-accent hover:underline">
+              + Nuevo ciclo
+            </Link>
+          )}
         </div>
         {ciclos.length === 0 ? (
           <p className="text-sm text-foreground-muted">Todavía no se cargó ningún ciclo.</p>

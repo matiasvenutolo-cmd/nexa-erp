@@ -82,13 +82,17 @@ export function OperacionesRetiro({
   ciclos,
   codigosSobrante,
   puedeOperar,
+  puedeCargar = puedeOperar,
   puedeCorregir,
 }: {
   r: RetiroVista;
   /** Ciclos en curso de la misma inyectora (destino de la carga). */
   ciclos: { id: number; etiqueta: string }[];
   codigosSobrante: { id: number; codigo: string; nombre: string }[];
+  /** Retiro, devolución, sobrante y cierre del retiro. */
   puedeOperar: boolean;
+  /** Carga en tolva: también el operario de la máquina. */
+  puedeCargar?: boolean;
   puedeCorregir: boolean;
 }) {
   const abierto = r.estado === "ABIERTO";
@@ -121,9 +125,9 @@ export function OperacionesRetiro({
                     {l.certificadoNumero != null ? ` · certificado N° ${l.certificadoNumero}` : ""}
                   </div>
                   {l.anulado && <div className="text-xs text-[var(--estado-critico-fg)]">Anulada: {l.anuladoMotivo}</div>}
-                  {!l.anulado && abierto && puedeOperar && l.saldo.pie > 0 && (
+                  {!l.anulado && abierto && (puedeOperar || puedeCargar) && l.saldo.pie > 0 && (
                     <div className="mt-2 space-y-1.5">
-                      {ciclos.length > 0 ? (
+                      {!puedeCargar ? null : ciclos.length > 0 ? (
                         <Mini accion={cargarTolvaAction} boton="Cargar en tolva" ocultos={{ ...base, retiroMpId: l.id }}>
                           <input name="cantidadKg" type="number" step="any" min="0" required placeholder="kg" className="input w-24 text-xs" aria-label="Kg a cargar" />
                           <select name="cicloId" defaultValue={ciclos.find((c) => c.id === r.cicloId)?.id ?? ciclos[0].id} className="input w-56 text-xs" aria-label="Ciclo">
@@ -137,9 +141,11 @@ export function OperacionesRetiro({
                       ) : (
                         <p className="text-xs text-foreground-muted">No hay un ciclo en curso en esta inyectora para cargar.</p>
                       )}
-                      <Mini accion={devolverAction} boton="Devolver sin mezclar" ocultos={{ ...base, retiroMpId: l.id }}>
-                        <input name="cantidadKg" type="number" step="any" min="0" required placeholder="kg" className="input w-24 text-xs" aria-label="Kg a devolver" />
-                      </Mini>
+                      {puedeOperar && (
+                        <Mini accion={devolverAction} boton="Devolver sin mezclar" ocultos={{ ...base, retiroMpId: l.id }}>
+                          <input name="cantidadKg" type="number" step="any" min="0" required placeholder="kg" className="input w-24 text-xs" aria-label="Kg a devolver" />
+                        </Mini>
+                      )}
                     </div>
                   )}
                   {!l.anulado && puedeCorregir && (
