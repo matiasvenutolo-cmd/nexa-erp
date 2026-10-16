@@ -407,7 +407,7 @@ describe("9-10. Permisos", () => {
 });
 
 describe("Prioridad automática por fecha y excepción manual", () => {
-  it("ordena la cola por fecha de entrega y respeta la urgencia", async () => {
+  it("ordena la cola por fecha de ingreso y respeta la urgencia (minuta 15/10)", async () => {
     const base = {
       clienteId: s.cliente.id,
       numeroOrden: null,
@@ -422,9 +422,9 @@ describe("Prioridad automática por fecha y excepción manual", () => {
       observaciones: null,
       usuarioId: s.usuarios.ADMINISTRACION.id,
     };
-    // Ciego negro (stock 230): dos pedidos, el segundo entrega antes.
-    const tarde = await crearPedido({ ...base, fechaPedido: "2026-10-01", fechaEntregaPactada: "2026-10-30", lineas: [{ productoId: s.productos.ciegoNegro.id, colorTexto: null, unidadesPedidas: 200 }] });
-    const pronto = await crearPedido({ ...base, fechaPedido: "2026-10-03", fechaEntregaPactada: "2026-10-10", lineas: [{ productoId: s.productos.ciegoNegro.id, colorTexto: null, unidadesPedidas: 200 }] });
+    // Ciego negro (stock 230): dos pedidos; el que ingresó después ("tarde") entrega antes.
+    const tarde = await crearPedido({ ...base, fechaPedido: "2026-10-03", fechaEntregaPactada: "2026-10-10", lineas: [{ productoId: s.productos.ciegoNegro.id, colorTexto: null, unidadesPedidas: 200 }] });
+    const pronto = await crearPedido({ ...base, fechaPedido: "2026-10-01", fechaEntregaPactada: "2026-10-30", lineas: [{ productoId: s.productos.ciegoNegro.id, colorTexto: null, unidadesPedidas: 200 }] });
     if (!("id" in tarde) || !("id" in pronto)) throw new Error("pedido no creado");
 
     let fila = (await colaProduccion()).find((f) => f.productoId === s.productos.ciegoNegro.id)!;
@@ -434,7 +434,7 @@ describe("Prioridad automática por fecha y excepción manual", () => {
     fila = (await colaProduccion()).find((f) => f.productoId === s.productos.ciegoNegro.id)!;
     expect(fila.pedidos[0]).toMatchObject({ pedidoId: tarde.id, prioridad: -2 });
     const historial = await listarAuditoria({ entidad: "pedido", entidadId: tarde.id });
-    expect(historial[0]).toMatchObject({ campo: "prioridad", valorAnterior: "Automática (por fecha)", valorNuevo: "Urgente", motivo: "Urgencia — Cliente reprogramó la obra", usuarioNombre: "Usuario ENCARGADO" });
+    expect(historial[0]).toMatchObject({ campo: "prioridad", valorAnterior: "Automática (por fecha de ingreso)", valorNuevo: "Urgente", motivo: "Urgencia — Cliente reprogramó la obra", usuarioNombre: "Usuario ENCARGADO" });
 
     // La urgencia es una excepción: al quitarla vuelve el orden automático.
     await cambiarPrioridad(s.usuarios.ENCARGADO, tarde.id, 0, "Planificación productiva");

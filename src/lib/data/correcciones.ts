@@ -24,7 +24,8 @@ import {
   retiroMp,
   saldo,
 } from "@/lib/db/schema";
-import { getDepositoNexaId } from "@/lib/data/depositos";
+import { getDepositoNexaId, ubicacionesMp } from "@/lib/data/depositos";
+import { ErrorStock, moverEnUbicacion, trasladarMp } from "@/lib/data/ubicaciones";
 import { puedeCorregirProduccionMp } from "@/lib/auth/permisos";
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
 import { disponibleDeLotes, numeroRetiro } from "@/lib/data/maquina";
@@ -68,7 +69,7 @@ async function moverMp(tx: Tx, depositoId: number, actor: Actor, mpId: number, d
 
 function ejecutar<T extends Resultado>(fn: (tx: Tx) => Promise<T>): Promise<T | { error: string }> {
   return db.transaction(fn).catch((e) => {
-    if (e instanceof ErrorCorreccion) return { error: e.message };
+    if (e instanceof ErrorCorreccion || e instanceof ErrorStock) return { error: e.message };
     throw e;
   });
 }
@@ -77,7 +78,8 @@ function ejecutar<T extends Resultado>(fn: (tx: Tx) => Promise<T>): Promise<T | 
 export async function anularLineaRetiro(actor: Actor, retiroMpId: number, motivo: string | null): Promise<Resultado> {
   const m = exigir(actor, motivo);
   if (typeof m !== "string") return m;
-  const depositoId = await getDepositoNexaId();
+  const ub = await ubicacionesMp();
+  const depositoId = ub.deposito;
   return ejecutar(async (tx) => {
     const [l] = await tx.select().from(retiroMp).where(eq(retiroMp.id, retiroMpId)).for("update");
     if (!l) return { error: "Línea de retiro no encontrada." };
@@ -106,10 +108,17 @@ export async function anularLineaRetiro(actor: Actor, retiroMpId: number, motivo
       if (cmp) await tx.delete(cicloMateriaPrima).where(eq(cicloMateriaPrima.id, cmp.id));
     }
     const cantidad = Number(l.cantidad);
-    await moverMp(tx, depositoId, actor, l.materiaPrimaId, cantidad, `Anulación de retiro (línea ${l.id}${l.retiroMaquinaId ? `, ${numeroRetiro(l.retiroMaquinaId)}` : ""}): ${m}`, {
-      loteMpId: l.loteMpId,
-      origenId: l.id,
-    });
+    const motivoMov = `Anulación de retiro (línea ${l.id}${l.retiroMaquinaId ? `, ${numeroRetiro(l.retiroMaquinaId)}` : ""}): ${m}`;
+    const [traslado] = await tx
+      .select({ id: movimiento.id })
+      .from(movimiento)
+      .where(and(eq(movimiento.origen, "RETIRO_MP"), eq(movimiento.origenId, l.id), eq(movimiento.tipo, "TRANSFERENCIA"), eq(movimiento.depositoId, ub.pie)));
+    if (traslado) {
+      // Circuito de ubicaciones: el material vuelve del pie de máquina al depósito.
+      await trasladarMp(tx, { desdeId: ub.pie, haciaId: depositoId, mpId: l.materiaPrimaId, loteMpId: l.loteMpId, kg: cantidad, origen: "MANUAL", origenId: l.id, motivo: motivoMov, usuarioId: actor.id, nombreDesde: "A pie de máquina" });
+    } else {
+      await moverMp(tx, depositoId, actor, l.materiaPrimaId, cantidad, motivoMov, { loteMpId: l.loteMpId, origenId: l.id });
+    }
     await tx.update(retiroMp).set({ anulado: true, anuladoPorId: actor.id, anuladoEn: new Date(), anuladoMotivo: m }).where(eq(retiroMp.id, l.id));
     await registrarCambios(tx, actor.id, [
       { entidad: "retiro_mp", entidadId: l.id, campo: "anulación", anterior: `${cantidad} kg retirados`, nuevo: "anulado (vuelve al depósito)", motivo: m },
@@ -122,7 +131,8 @@ export async function anularLineaRetiro(actor: Actor, retiroMpId: number, motivo
 export async function anularMovimientoMaquina(actor: Actor, id: number, motivo: string | null): Promise<Resultado> {
   const m = exigir(actor, motivo);
   if (typeof m !== "string") return m;
-  const depositoId = await getDepositoNexaId();
+  const ub = await ubicacionesMp();
+  const depositoId = ub.deposito;
   return ejecutar(async (tx) => {
     const [mm] = await tx.select().from(movimientoMaquina).where(eq(movimientoMaquina.id, id)).for("update");
     if (!mm) return { error: "Movimiento no encontrado." };
@@ -130,15 +140,52 @@ export async function anularMovimientoMaquina(actor: Actor, id: number, motivo: 
     const [cab] = await tx.select().from(retiroMaquina).where(eq(retiroMaquina.id, mm.retiroMaquinaId)).for("update");
     const cantidad = Number(mm.cantidad);
 
+    const [orig] = mm.movimientoId ? await tx.select().from(movimiento).where(eq(movimiento.id, mm.movimientoId)) : [];
+    const [linea] = mm.retiroMpId ? await tx.select().from(retiroMp).where(eq(retiroMp.id, mm.retiroMpId)) : [];
+    const [ciclo] = mm.cicloId ? await tx.select({ fechaFin: cicloProduccion.fechaFin }).from(cicloProduccion).where(eq(cicloProduccion.id, mm.cicloId)) : [];
+    const cerrada = ciclo?.fechaFin != null;
+    const motivoMov = (que: string) => `Anulación de ${que} del ${numeroRetiro(cab.id)}: ${m}`;
+
     if (mm.tipo === "CARGA_TOLVA") {
       await tx.delete(cicloMateriaPrima).where(eq(cicloMateriaPrima.movimientoMaquinaId, mm.id));
+      if (orig?.tipo === "TRANSFERENCIA" && linea) {
+        if (!cerrada) {
+          // Todavía en la tolva: vuelve a pie de máquina.
+          await trasladarMp(tx, { desdeId: ub.proceso, haciaId: ub.pie, mpId: linea.materiaPrimaId, loteMpId: linea.loteMpId, kg: cantidad, origen: "MANUAL", origenId: mm.id, motivo: motivoMov("carga"), usuarioId: actor.id, nombreDesde: "En la tolva" });
+        } else {
+          // La producción ya registró el consumo: el material no cargado reaparece a pie de máquina.
+          await moverEnUbicacion(tx, { depositoId: ub.pie, tipo: "AJUSTE", mpId: linea.materiaPrimaId, loteMpId: linea.loteMpId, delta: cantidad, origen: "MANUAL", origenId: mm.id, motivo: `${motivoMov("carga")} (la producción ya estaba cerrada)`, usuarioId: actor.id });
+        }
+      }
     }
-    if ((mm.tipo === "DEVOLUCION" || mm.tipo === "SOBRANTE") && mm.movimientoId) {
-      const [orig] = await tx.select().from(movimiento).where(eq(movimiento.id, mm.movimientoId));
-      await moverMp(tx, depositoId, actor, orig.materiaPrimaId!, -cantidad, `Anulación de ${mm.tipo === "DEVOLUCION" ? "devolución" : "sobrante"} del ${numeroRetiro(cab.id)}: ${m}`, {
-        loteMpId: orig.loteMpId,
-        origenId: mm.id,
-      });
+    if (mm.tipo === "DEVOLUCION" && orig) {
+      if (orig.tipo === "TRANSFERENCIA") {
+        await trasladarMp(tx, { desdeId: depositoId, haciaId: ub.pie, mpId: orig.materiaPrimaId!, loteMpId: orig.loteMpId, kg: cantidad, origen: "MANUAL", origenId: mm.id, motivo: motivoMov("devolución"), usuarioId: actor.id, nombreDesde: "En el depósito" });
+      } else {
+        await moverMp(tx, depositoId, actor, orig.materiaPrimaId!, -cantidad, motivoMov("devolución"), { loteMpId: orig.loteMpId, origenId: mm.id });
+      }
+    }
+    if (mm.tipo === "SOBRANTE" && orig) {
+      if (orig.tipo === "TRANSFORMACION") {
+        await moverEnUbicacion(tx, { depositoId, tipo: "TRANSFORMACION", mpId: orig.materiaPrimaId!, delta: -cantidad, origen: "MANUAL", origenId: mm.id, motivo: motivoMov("sobrante"), usuarioId: actor.id, nombreUbicacion: "En el depósito" });
+        // Las patas que salieron de la tolva vuelven; si la producción ya cerró, se consumieron.
+        const patas = await tx
+          .select()
+          .from(movimiento)
+          .where(and(eq(movimiento.origen, "TRANSFORMACION"), eq(movimiento.origenId, mm.id), eq(movimiento.depositoId, ub.proceso)));
+        for (const pata of patas) {
+          const kg = Math.abs(Number(pata.cantidad));
+          await moverEnUbicacion(tx, { depositoId: ub.proceso, tipo: "TRANSFORMACION", mpId: pata.materiaPrimaId!, loteMpId: pata.loteMpId, delta: kg, origen: "MANUAL", origenId: mm.id, motivo: motivoMov("sobrante"), usuarioId: actor.id });
+          if (cerrada) {
+            await moverEnUbicacion(tx, { depositoId: ub.proceso, tipo: "SALIDA", mpId: pata.materiaPrimaId!, loteMpId: pata.loteMpId, delta: -kg, origen: "CONSUMO", origenId: mm.cicloId, motivo: `${motivoMov("sobrante")} (consumido en la producción cerrada)`, usuarioId: actor.id });
+          }
+        }
+      } else {
+        await moverMp(tx, depositoId, actor, orig.materiaPrimaId!, -cantidad, motivoMov("sobrante"), { loteMpId: orig.loteMpId, origenId: mm.id });
+      }
+    }
+    if (mm.tipo === "DIFERENCIA" && orig?.tipo === "AJUSTE") {
+      await moverEnUbicacion(tx, { depositoId: ub.pie, tipo: "AJUSTE", mpId: orig.materiaPrimaId!, loteMpId: orig.loteMpId, delta: -Number(orig.cantidad), origen: "MANUAL", origenId: mm.id, motivo: motivoMov("diferencia"), usuarioId: actor.id });
     }
     await tx.update(movimientoMaquina).set({ anulado: true, anuladoPorId: actor.id, anuladoEn: new Date(), anuladoMotivo: m }).where(eq(movimientoMaquina.id, mm.id));
     // Si cambia lo que hay a pie de máquina, un retiro cerrado vuelve a quedar abierto.

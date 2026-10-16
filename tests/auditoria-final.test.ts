@@ -312,9 +312,10 @@ describe("Permisos en el servidor: la acción se rechaza aunque se llame sin la 
     expect(p).toMatchObject({ estado: "PEDIDO", prioridad: 0 });
   });
 
-  it("Encargado y Supervisor sí cambian la prioridad, con auditoría, y la cola respeta la fecha", async () => {
-    const tarde = await nuevoPedido([{ productoId: s.productos.rejRojo.id, unidadesPedidas: 5000 }], "2026-12-30");
-    const pronto = await nuevoPedido([{ productoId: s.productos.rejRojo.id, unidadesPedidas: 5000 }], "2026-10-10");
+  it("Encargado y Supervisor sí cambian la prioridad, con auditoría, y la cola respeta el orden de ingreso", async () => {
+    // Mismo día de ingreso: va primero el que se cargó antes, aunque entregue después.
+    const pronto = await nuevoPedido([{ productoId: s.productos.rejRojo.id, unidadesPedidas: 5000 }], "2026-12-30");
+    const tarde = await nuevoPedido([{ productoId: s.productos.rejRojo.id, unidadesPedidas: 5000 }], "2026-10-10");
     const { colaProduccion } = await import("@/lib/data/produccion");
     const orden = async () => (await colaProduccion()).find((f) => f.productoId === s.productos.rejRojo.id)!.pedidos.map((p) => p.pedidoId);
     let o = await orden();

@@ -53,8 +53,9 @@ let masterId: number;
 let sobranteId: number;
 const LOTE = `0000031${"44444444"}${"000000000123"}`;
 
-async function stockMp(id: number) {
-  const [f] = await db().select().from(schema.saldo).where(eq(schema.saldo.materiaPrimaId, id));
+/** Saldo en el DEPÓSITO (ubicación "NEXA"): pie de máquina y tolva son otras ubicaciones. */
+async function stockMp(id: number, depositoId = s.deposito.id) {
+  const [f] = await db().select().from(schema.saldo).where(and(eq(schema.saldo.materiaPrimaId, id), eq(schema.saldo.depositoId, depositoId)));
   return Number(f?.cantidad ?? 0);
 }
 async function stockProd(id: number) {
@@ -208,7 +209,11 @@ describe("Circuito completo: retiro → tolva → producción → devolución �
     expect((await registrarSobrante(s.usuarios.RETIROS_MP, { retiroMaquinaId: retiroId, materiaPrimaDestinoId: sobranteId, cantidadKg: 500 })).error).toMatch(/se cargaron/);
     expect((await registrarSobrante(s.usuarios.RETIROS_MP, { retiroMaquinaId: retiroId, materiaPrimaDestinoId: sobranteId, cantidadKg: 3.2 })).error).toBeUndefined();
     expect(await stockMp(sobranteId)).toBe(3.2);
-    const [mov] = await db().select().from(schema.movimiento).where(and(eq(schema.movimiento.materiaPrimaId, sobranteId), eq(schema.movimiento.tipo, "ENTRADA")));
+    // Entra al depósito como transformación (no como materia prima virgen).
+    const [mov] = await db()
+      .select()
+      .from(schema.movimiento)
+      .where(and(eq(schema.movimiento.materiaPrimaId, sobranteId), eq(schema.movimiento.tipo, "TRANSFORMACION"), eq(schema.movimiento.depositoId, s.deposito.id)));
     expect(mov.motivo).toMatch(/composición: 31-COPOLIMERO 2240 P \+ 24-Master negro 951/);
   });
 

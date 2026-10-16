@@ -543,15 +543,14 @@ export const ESTADO_LABEL: Record<(typeof pedido.$inferSelect)["estado"], string
  * pedidos, con opción a ser cambiada por el encargado o supervisor en base a
  * planificación. En ocasiones surgen urgencias...".
  *
- * Automática = orden por fecha de entrega comprometida (o fecha del pedido si
- * no tiene). El ajuste manual reutiliza `pedido.prioridad` (ya existía):
+ * Automática = orden por fecha de ingreso del pedido (minuta 15/10). El ajuste manual reutiliza `pedido.prioridad` (ya existía):
  * 0 = automática; valores negativos adelantan, positivos postergan. Cada
  * cambio queda auditado con valor anterior, nuevo, motivo, quién y cuándo.
  */
 export const NIVELES_PRIORIDAD = [
   { valor: -2, etiqueta: "Urgente" },
   { valor: -1, etiqueta: "Adelantado" },
-  { valor: 0, etiqueta: "Automática (por fecha)" },
+  { valor: 0, etiqueta: "Automática (por fecha de ingreso)" },
   { valor: 1, etiqueta: "Postergado" },
 ] as const;
 
@@ -570,13 +569,15 @@ export function etiquetaPrioridad(valor: number): string {
   return NIVELES_PRIORIDAD.find((n) => n.valor === valor)?.etiqueta ?? `Manual (${valor})`;
 }
 
-/** Orden de la cola: ajuste manual primero, después por fecha efectiva de entrega. */
-export const ordenPrioridad = [
-  pedido.prioridad,
-  sql`coalesce(${pedido.fechaEntregaPactada}, ${pedido.fechaPedido})`,
-  pedido.fechaPedido,
-  pedido.id,
-];
+/**
+ * Orden de la cola: ajuste manual primero (urgente, adelantado; postergado al
+ * final) y después la FECHA DE INGRESO del pedido. Minuta 15/10/2026: "fecha
+ * de ingreso del pedido (orden por defecto); urgencia marcada por ventas: un
+ * pedido urgente sube aunque sea más nuevo". Reemplaza el orden anterior por
+ * fecha de entrega; las entregas comprometidas se controlan con alertas
+ * (src/lib/data/planificacion.ts).
+ */
+export const ordenPrioridad = [pedido.prioridad, pedido.fechaPedido, pedido.id];
 
 export async function cambiarPrioridad(
   actor: Actor,

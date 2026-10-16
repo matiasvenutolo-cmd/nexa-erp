@@ -24,8 +24,13 @@ import {
   caja,
   parametro,
   color,
+  movimientoMaquina,
+  retiroMp,
+  materiaPrima,
+  tanda,
 } from "@/lib/db/schema";
-import { getDepositoNexaId } from "@/lib/data/depositos";
+import { getDepositoNexaId, ubicacionesMp } from "@/lib/data/depositos";
+import { ErrorStock, moverEnUbicacion, repartirProporcional } from "@/lib/data/ubicaciones";
 import { materialComprometido, ordenPrioridad, type FilaComprometido } from "@/lib/data/pedidos";
 import { unidadesPorCaja } from "@/lib/data/catalogo";
 import { PARAMETROS } from "@/lib/data/parametros";
@@ -253,10 +258,20 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
   }
 
   const depositoId = await getDepositoNexaId();
+  const ub = await ubicacionesMp();
   const [part] = ciclo.partidaId
     ? await db.select({ numero: partida.numero }).from(partida).where(eq(partida.id, ciclo.partidaId))
     : [];
   const numeroPartida = part?.numero ?? null;
+  // Colada automática: "el recorrido hasta la pieza pesa siempre lo mismo"
+  // (minuta 15/10). Sólo si el producto tiene configurada la colada por golpe.
+  let coladaKg = input.coladaKg;
+  if ((coladaKg == null || coladaKg === "") && ciclo.productoId != null && input.golpesFin != null && ciclo.golpesInicio != null) {
+    const [prod] = await db.select({ colada: producto.coladaKgPorGolpe }).from(producto).where(eq(producto.id, ciclo.productoId));
+    if (prod?.colada != null && Number(prod.colada) > 0) {
+      coladaKg = String(Math.round((input.golpesFin - ciclo.golpesInicio) * Number(prod.colada) * 1000) / 1000);
+    }
+  }
 
   return db.transaction(async (tx) => {
     // El "abierto" se vuelve a comprobar dentro de la transacción y de forma
@@ -269,7 +284,7 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
         piezasProducidas,
         piezasDescartadas: input.piezasDescartadas,
         piezasEntregadas: input.piezasEntregadas,
-        coladaKg: input.coladaKg,
+        coladaKg,
         rebarbaKg: input.rebarbaKg,
         scrapKg: input.scrapKg,
         cambioCicloCausa: input.cambioCicloCausa,
@@ -312,8 +327,84 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
     if (input.cerrarPartida && ciclo.partidaId) {
       await tx.update(partida).set({ fechaCierre: hoyISO() }).where(eq(partida.id, ciclo.partidaId));
     }
+    await registrarConsumo(tx, cicloId, ub.proceso, input.usuarioId);
+    if (ciclo.tandaId) {
+      await tx.update(tanda).set({ estado: "COMPLETADA", actualizadoEn: new Date() }).where(eq(tanda.id, ciclo.tandaId));
+    }
     return {};
+  }).catch((e) => {
+    if (e instanceof ErrorStock) return { error: e.message };
+    throw e;
   });
+}
+
+/**
+ * Consumo real de la producción: lo cargado en tolva (con el circuito de
+ * ubicaciones) menos lo que se bajó como sobrante sale de "Tolva / en
+ * proceso". Es la única baja definitiva del material virgen y del master.
+ */
+async function registrarConsumo(tx: Tx, cicloId: number, procesoId: number, usuarioId: number) {
+  const cargas = await tx
+    .select({ mpId: retiroMp.materiaPrimaId, loteMpId: retiroMp.loteMpId, cantidad: movimientoMaquina.cantidad, nombre: materiaPrima.nombre })
+    .from(movimientoMaquina)
+    .innerJoin(retiroMp, eq(movimientoMaquina.retiroMpId, retiroMp.id))
+    .innerJoin(materiaPrima, eq(retiroMp.materiaPrimaId, materiaPrima.id))
+    .where(
+      and(
+        eq(movimientoMaquina.cicloId, cicloId),
+        eq(movimientoMaquina.tipo, "CARGA_TOLVA"),
+        eq(movimientoMaquina.anulado, false),
+        sql`${movimientoMaquina.movimientoId} is not null`,
+      ),
+    );
+  if (cargas.length === 0) return;
+  // Lo bajado de la tolva como sobrante de esta producción, por material.
+  const sobrante = await tx
+    .select({ mpId: movimiento.materiaPrimaId, total: sql<number>`coalesce(sum(${movimiento.cantidad}), 0)`.mapWith(Number) })
+    .from(movimiento)
+    .innerJoin(movimientoMaquina, eq(movimiento.origenId, movimientoMaquina.id))
+    .where(
+      and(
+        eq(movimiento.depositoId, procesoId),
+        eq(movimiento.origen, "TRANSFORMACION"),
+        eq(movimientoMaquina.tipo, "SOBRANTE"),
+        eq(movimientoMaquina.cicloId, cicloId),
+        eq(movimientoMaquina.anulado, false),
+      ),
+    )
+    .groupBy(movimiento.materiaPrimaId);
+  const porClave = new Map<string, { mpId: number; loteMpId: number | null; kg: number; nombre: string }>();
+  for (const c of cargas) {
+    const k = `${c.mpId}-${c.loteMpId ?? ""}`;
+    const a = porClave.get(k) ?? { mpId: c.mpId, loteMpId: c.loteMpId, kg: 0, nombre: c.nombre };
+    a.kg = Math.round((a.kg + Number(c.cantidad)) * 1000) / 1000;
+    porClave.set(k, a);
+  }
+  const grupos = [...porClave.values()];
+  for (const mpId of new Set(grupos.map((g) => g.mpId))) {
+    const delMp = grupos.filter((g) => g.mpId === mpId);
+    const cargado = delMp.reduce((t, g) => t + g.kg, 0);
+    const bajado = Math.abs(sobrante.find((x) => x.mpId === mpId)?.total ?? 0);
+    const consumo = Math.max(0, Math.round((cargado - bajado) * 1000) / 1000);
+    if (consumo <= 0) continue;
+    const partes = repartirProporcional(consumo, delMp.map((g) => g.kg));
+    for (let i = 0; i < delMp.length; i++) {
+      if (partes[i] <= 0) continue;
+      await moverEnUbicacion(tx, {
+        depositoId: procesoId,
+        tipo: "SALIDA",
+        mpId,
+        loteMpId: delMp[i].loteMpId,
+        delta: -partes[i],
+        origen: "CONSUMO",
+        origenId: cicloId,
+        motivo: `Consumo de la producción #${cicloId}`,
+        usuarioId,
+        nombreMp: delMp[i].nombre,
+        nombreUbicacion: "En la tolva",
+      });
+    }
+  }
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];

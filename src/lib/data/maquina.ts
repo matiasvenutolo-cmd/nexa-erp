@@ -5,10 +5,14 @@
  *                           │                        │
  *                           └─devolución (sin mezclar)┘─sobrante (mezclado con master)
  *
- * - El depósito es el ledger de siempre (movimiento + saldo): el retiro le
- *   descuenta; la devolución y el sobrante le suman. Nada más lo toca.
+ * - Minuta 15/10/2026: depósito, pie de máquina y tolva/en proceso son
+ *   UBICACIONES del ledger (src/lib/data/ubicaciones.ts). El retiro traslada
+ *   del depósito al pie de máquina; la carga, del pie a la tolva; la
+ *   devolución, del pie al depósito. El inventario baja recién con el consumo
+ *   (cierre de producción), el sobrante (transformación) o un ajuste.
  * - El saldo a pie de máquina de cada línea de retiro se calcula de sus
- *   registros: retirado − cargado − devuelto − diferencia justificada. Las
+ *   registros: retirado − cargado − devuelto − diferencia justificada, y
+ *   coincide con el saldo de la ubicación "Pie de máquina". Las
  *   operaciones bloquean la línea (FOR UPDATE) y aceptan una clave (`token`)
  *   para que un doble envío no cargue ni devuelva dos veces.
  * - Un retiro queda ABIERTO entre turnos y jornadas; se cierra sólo cuando el
@@ -23,7 +27,6 @@ import {
   cicloProduccion,
   loteMp,
   materiaPrima,
-  movimiento,
   movimientoMaquina,
   partida,
   producto,
@@ -32,7 +35,8 @@ import {
   saldo,
   usuario,
 } from "@/lib/db/schema";
-import { getDepositoNexaId } from "@/lib/data/depositos";
+import { ubicacionesMp } from "@/lib/data/depositos";
+import { ErrorStock, moverEnUbicacion, repartirProporcional, trasladarMp } from "@/lib/data/ubicaciones";
 import { puedeCargarTolva, puedeRetirarMateriaPrima } from "@/lib/auth/permisos";
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
 import { INYECTORAS } from "@/lib/inyectoras";
@@ -195,7 +199,8 @@ export async function registrarRetiroMaquina(
   if (input.piezasPrevistas != null && (!Number.isInteger(input.piezasPrevistas) || input.piezasPrevistas <= 0)) {
     return { error: "Las piezas previstas tienen que ser un número entero mayor que cero." };
   }
-  const depositoId = await getDepositoNexaId();
+  const ub = await ubicacionesMp();
+  const depositoId = ub.deposito;
 
   return db.transaction(async (tx) => {
     if (input.token) {
@@ -285,26 +290,26 @@ export async function registrarRetiroMaquina(
           codigoLeido: l.codigoLeido?.replace(/\s+/g, "") || null,
         })
         .returning();
-      await tx.insert(movimiento).values({
-        tipo: "SALIDA",
-        depositoId,
-        materiaPrimaId: mp.id,
+      // Traslado depósito → pie de máquina: el material sigue siendo de la
+      // empresa hasta que se consume.
+      await trasladarMp(tx, {
+        desdeId: depositoId,
+        haciaId: ub.pie,
+        mpId: mp.id,
         loteMpId: l.loteMpId,
-        cantidad: String(l.cantidadKg),
+        kg: l.cantidadKg,
         origen: "RETIRO_MP",
         origenId: linea.id,
-        motivo: `Retiro ${numeroRetiro(cab.id)} a pie de máquina · inyectora ${inyectora}${input.cicloId ? ` · ciclo #${input.cicloId}` : ""}`,
+        motivo: `Retiro ${numeroRetiro(cab.id)} a pie de máquina · inyectora ${inyectora}${input.cicloId ? ` · producción #${input.cicloId}` : ""}`,
         usuarioId: actor.id,
+        nombreMp: mp.nombre,
+        nombreDesde: "En el depósito",
       });
-      await tx
-        .update(saldo)
-        .set({ cantidad: sql`${saldo.cantidad} - ${l.cantidadKg}` })
-        .where(and(eq(saldo.depositoId, depositoId), eq(saldo.materiaPrimaId, mp.id)));
       lineaIds.push(linea.id);
     }
     return { id: cab.id, lineaIds };
   }).catch((e) => {
-    if (e instanceof ErrorRetiro) return { error: e.message };
+    if (e instanceof ErrorRetiro || e instanceof ErrorStock) return { error: e.message };
     throw e;
   });
 }
@@ -330,119 +335,169 @@ async function porToken(tx: Tx, token: string | null | undefined) {
   return m ?? null;
 }
 
-export async function cargarEnTolva(
-  actor: Actor,
-  input: { retiroMpId: number; cantidadKg: number; cicloId: number; observaciones?: string | null; token?: string | null },
-): Promise<Resultado & { id?: number; repetido?: boolean }> {
+export type CargaTolvaInput = {
+  retiroMpId: number;
+  cantidadKg: number;
+  cicloId: number;
+  observaciones?: string | null;
+  token?: string | null;
+  turnoId?: number | null;
+  /** Carga distinta de la receta: lo que pedía la receta y el motivo. */
+  planificadoKg?: number | null;
+  motivoExcepcion?: string | null;
+};
+
+export async function cargarEnTolva(actor: Actor, input: CargaTolvaInput): Promise<Resultado & { id?: number; repetido?: boolean }> {
   if (!puedeCargarTolva(actor.rol)) return { error: "No tenés permiso para operar la carga de máquina." };
   if (!Number.isFinite(input.cantidadKg) || input.cantidadKg <= 0) return { error: "La cantidad cargada tiene que ser mayor que cero." };
-  return db.transaction(async (tx) => {
-    const ya = await porToken(tx, input.token);
-    if (ya) return { id: ya.id, repetido: true };
-    const b = await lineaBloqueada(tx, input.retiroMpId);
-    if (!b) return { error: "Línea de retiro no encontrada en el circuito de pie de máquina." };
-    const { linea, cab } = b;
-    if (cab.estado !== "ABIERTO") return { error: `El retiro ${numeroRetiro(cab.id)} está cerrado.` };
-    if (linea.anulado) return { error: "La línea de retiro está anulada." };
-
-    const [c] = await tx.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
-    if (!c) return { error: "Ciclo no encontrado." };
-    if (c.fechaFin) return { error: `El ciclo #${c.id} está cerrado: la carga va al ciclo en curso.` };
-    if (c.inyectora.replace(/inyectora/i, "").trim() !== cab.inyectora) {
-      return { error: `El material está en la inyectora ${cab.inyectora} y el ciclo #${c.id} es de la ${c.inyectora}.` };
-    }
-    if (cab.cicloId != null && cab.cicloId !== c.id) {
-      // Entre jornadas sigue la misma partida; con otro producto hay que devolver o registrar sobrante.
-      const [origen] = await tx.select({ partidaId: cicloProduccion.partidaId }).from(cicloProduccion).where(eq(cicloProduccion.id, cab.cicloId));
-      if (origen?.partidaId !== c.partidaId) {
-        return { error: "El material se retiró para otra producción (otra partida): devolvelo al depósito o registralo como sobrante." };
-      }
-    }
-    const saldoLinea = (await saldosDeLineas(tx, [linea.id])).get(linea.id)!;
-    if (input.cantidadKg > saldoLinea.pie + EPS) return { error: `A pie de máquina quedan ${saldoLinea.pie} kg de esta línea.` };
-
-    const [mp] = await tx.select({ tipo: materiaPrima.tipo }).from(materiaPrima).where(eq(materiaPrima.id, linea.materiaPrimaId));
-    const [m] = await tx
-      .insert(movimientoMaquina)
-      .values({
-        retiroMaquinaId: cab.id,
-        retiroMpId: linea.id,
-        tipo: "CARGA_TOLVA",
-        cantidad: String(input.cantidadKg),
-        cicloId: c.id,
-        observaciones: input.observaciones?.trim() || null,
-        usuarioId: actor.id,
-        token: input.token || null,
-      })
-      .returning();
-    // Eslabón de trazabilidad lote → ciclo → partida: lo que efectivamente entró a la máquina.
-    await tx.insert(cicloMateriaPrima).values({
-      cicloId: c.id,
-      loteMpId: linea.loteMpId,
-      materiaPrimaId: linea.materiaPrimaId,
-      cantidadKg: String(input.cantidadKg),
-      esMaster: mp.tipo === "MASTER",
-      movimientoMaquinaId: m.id,
+  const ub = await ubicacionesMp();
+  return db
+    .transaction(async (tx) => {
+      const ya = await porToken(tx, input.token);
+      if (ya) return { id: ya.id, repetido: true };
+      return cargarEnTolvaTx(tx, actor, input, ub);
+    })
+    .catch((e) => {
+      if (e instanceof ErrorStock || e instanceof ErrorCarga) return { error: e.message };
+      throw e;
     });
-    return { id: m.id };
-  });
 }
 
-/** Material sin mezclar que vuelve al depósito (cambio de producto, parada). */
+/** Error de validación de una carga dentro de una transacción mayor. */
+export class ErrorCarga extends Error {}
+
+/**
+ * Carga en tolva dentro de una transacción (la usa también la pantalla del
+ * operario, que carga toda la receta de una vez). Traslada pie de máquina →
+ * tolva y vincula lote → producción → partida.
+ */
+export async function cargarEnTolvaTx(
+  tx: Tx,
+  actor: Actor,
+  input: CargaTolvaInput,
+  ub: { deposito: number; pie: number; proceso: number },
+): Promise<{ id: number }> {
+  const b = await lineaBloqueada(tx, input.retiroMpId);
+  if (!b) throw new ErrorCarga("Línea de retiro no encontrada en el circuito de pie de máquina.");
+  const { linea, cab } = b;
+  if (cab.estado !== "ABIERTO") throw new ErrorCarga(`El retiro ${numeroRetiro(cab.id)} está cerrado.`);
+  if (linea.anulado) throw new ErrorCarga("La línea de retiro está anulada.");
+
+  const [c] = await tx.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
+  if (!c) throw new ErrorCarga("Producción no encontrada.");
+  if (c.fechaFin) throw new ErrorCarga(`La producción #${c.id} está cerrada: la carga va a la producción en curso.`);
+  if (c.inyectora.replace(/inyectora/i, "").trim() !== cab.inyectora) {
+    throw new ErrorCarga(`El material está en la inyectora ${cab.inyectora} y la producción #${c.id} es de la ${c.inyectora}.`);
+  }
+  if (cab.cicloId != null && cab.cicloId !== c.id) {
+    // Entre jornadas sigue la misma partida; con otro producto hay que devolver o registrar sobrante.
+    const [origen] = await tx.select({ partidaId: cicloProduccion.partidaId }).from(cicloProduccion).where(eq(cicloProduccion.id, cab.cicloId));
+    if (origen?.partidaId !== c.partidaId) {
+      throw new ErrorCarga("El material se retiró para otra producción (otra partida): devolvelo al depósito o registralo como sobrante.");
+    }
+  }
+  const saldoLinea = (await saldosDeLineas(tx, [linea.id])).get(linea.id)!;
+  if (input.cantidadKg > saldoLinea.pie + EPS) throw new ErrorCarga(`A pie de máquina quedan ${saldoLinea.pie} kg de esta línea.`);
+
+  const [mp] = await tx.select({ tipo: materiaPrima.tipo, nombre: materiaPrima.nombre }).from(materiaPrima).where(eq(materiaPrima.id, linea.materiaPrimaId));
+  const traslado = await trasladarMp(tx, {
+    desdeId: ub.pie,
+    haciaId: ub.proceso,
+    mpId: linea.materiaPrimaId,
+    loteMpId: linea.loteMpId,
+    kg: input.cantidadKg,
+    origen: "CARGA_TOLVA",
+    origenId: c.id,
+    motivo: `Carga en tolva · producción #${c.id} · ${numeroRetiro(cab.id)}${input.motivoExcepcion ? ` · excepción: ${input.motivoExcepcion}` : ""}`,
+    usuarioId: actor.id,
+    nombreMp: mp.nombre,
+    nombreDesde: "A pie de máquina",
+  });
+  const [m] = await tx
+    .insert(movimientoMaquina)
+    .values({
+      retiroMaquinaId: cab.id,
+      retiroMpId: linea.id,
+      tipo: "CARGA_TOLVA",
+      cantidad: String(input.cantidadKg),
+      cicloId: c.id,
+      movimientoId: traslado.entradaId,
+      observaciones: input.observaciones?.trim() || null,
+      turnoId: input.turnoId ?? null,
+      planificadoKg: input.planificadoKg != null ? String(input.planificadoKg) : null,
+      motivoExcepcion: input.motivoExcepcion?.trim() || null,
+      usuarioId: actor.id,
+      token: input.token || null,
+    })
+    .returning();
+  // Eslabón de trazabilidad lote → producción → partida: lo que efectivamente entró a la máquina.
+  await tx.insert(cicloMateriaPrima).values({
+    cicloId: c.id,
+    loteMpId: linea.loteMpId,
+    materiaPrimaId: linea.materiaPrimaId,
+    cantidadKg: String(input.cantidadKg),
+    esMaster: mp.tipo === "MASTER",
+    movimientoMaquinaId: m.id,
+  });
+  return { id: m.id };
+}
+
+/** Material sin mezclar que vuelve al depósito como reutilizable (cambio de
+ *  producto, parada, bolsitas de master sin usar): traslado pie → depósito. */
 export async function devolverADeposito(
   actor: Actor,
   input: { retiroMpId: number; cantidadKg: number; observaciones?: string | null; token?: string | null },
 ): Promise<Resultado & { id?: number; repetido?: boolean }> {
   if (!puedeRetirarMateriaPrima(actor.rol)) return { error: "No tenés permiso para devolver materia prima." };
   if (!Number.isFinite(input.cantidadKg) || input.cantidadKg <= 0) return { error: "La cantidad devuelta tiene que ser mayor que cero." };
-  const depositoId = await getDepositoNexaId();
-  return db.transaction(async (tx) => {
-    const ya = await porToken(tx, input.token);
-    if (ya) return { id: ya.id, repetido: true };
-    const b = await lineaBloqueada(tx, input.retiroMpId);
-    if (!b) return { error: "Línea de retiro no encontrada en el circuito de pie de máquina." };
-    const { linea, cab } = b;
-    if (cab.estado !== "ABIERTO") return { error: `El retiro ${numeroRetiro(cab.id)} está cerrado.` };
-    if (linea.anulado) return { error: "La línea de retiro está anulada." };
-    const saldoLinea = (await saldosDeLineas(tx, [linea.id])).get(linea.id)!;
-    if (input.cantidadKg > saldoLinea.pie + EPS) {
-      return { error: `A pie de máquina quedan ${saldoLinea.pie} kg sin cargar de esta línea; lo cargado en tolva sólo vuelve como sobrante.` };
-    }
-    const [mp] = await tx.select({ nombre: materiaPrima.nombre }).from(materiaPrima).where(eq(materiaPrima.id, linea.materiaPrimaId));
-    const [mov] = await tx
-      .insert(movimiento)
-      .values({
-        tipo: "ENTRADA",
-        depositoId,
-        materiaPrimaId: linea.materiaPrimaId,
+  const ub = await ubicacionesMp();
+  return db
+    .transaction(async (tx) => {
+      const ya = await porToken(tx, input.token);
+      if (ya) return { id: ya.id, repetido: true };
+      const b = await lineaBloqueada(tx, input.retiroMpId);
+      if (!b) return { error: "Línea de retiro no encontrada en el circuito de pie de máquina." };
+      const { linea, cab } = b;
+      if (cab.estado !== "ABIERTO") return { error: `El retiro ${numeroRetiro(cab.id)} está cerrado.` };
+      if (linea.anulado) return { error: "La línea de retiro está anulada." };
+      const saldoLinea = (await saldosDeLineas(tx, [linea.id])).get(linea.id)!;
+      if (input.cantidadKg > saldoLinea.pie + EPS) {
+        return { error: `A pie de máquina quedan ${saldoLinea.pie} kg sin cargar de esta línea; lo cargado en tolva sólo vuelve como sobrante.` };
+      }
+      const [mp] = await tx.select({ nombre: materiaPrima.nombre }).from(materiaPrima).where(eq(materiaPrima.id, linea.materiaPrimaId));
+      const traslado = await trasladarMp(tx, {
+        desdeId: ub.pie,
+        haciaId: ub.deposito,
+        mpId: linea.materiaPrimaId,
         loteMpId: linea.loteMpId,
-        cantidad: String(input.cantidadKg),
+        kg: input.cantidadKg,
         origen: "DEVOLUCION",
         origenId: linea.id,
         motivo: `Devolución sin mezclar del retiro ${numeroRetiro(cab.id)} · ${mp.nombre}`,
         usuarioId: actor.id,
-      })
-      .returning();
-    await tx
-      .insert(saldo)
-      .values({ depositoId, materiaPrimaId: linea.materiaPrimaId, cantidad: String(input.cantidadKg) })
-      .onConflictDoUpdate({ target: [saldo.depositoId, saldo.materiaPrimaId], set: { cantidad: sql`${saldo.cantidad} + ${input.cantidadKg}` } });
-    const [m] = await tx
-      .insert(movimientoMaquina)
-      .values({
-        retiroMaquinaId: cab.id,
-        retiroMpId: linea.id,
-        tipo: "DEVOLUCION",
-        cantidad: String(input.cantidadKg),
-        cicloId: cab.cicloId,
-        movimientoId: mov.id,
-        observaciones: input.observaciones?.trim() || null,
-        usuarioId: actor.id,
-        token: input.token || null,
-      })
-      .returning();
-    return { id: m.id };
-  });
+        nombreMp: mp.nombre,
+        nombreDesde: "A pie de máquina",
+      });
+      const [m] = await tx
+        .insert(movimientoMaquina)
+        .values({
+          retiroMaquinaId: cab.id,
+          retiroMpId: linea.id,
+          tipo: "DEVOLUCION",
+          cantidad: String(input.cantidadKg),
+          cicloId: cab.cicloId,
+          movimientoId: traslado.entradaId,
+          observaciones: input.observaciones?.trim() || null,
+          usuarioId: actor.id,
+          token: input.token || null,
+        })
+        .returning();
+      return { id: m.id };
+    })
+    .catch((e) => {
+      if (e instanceof ErrorStock) return { error: e.message };
+      throw e;
+    });
 }
 
 /** Códigos de depósito válidos para material mezclado que sale de la tolva. */
@@ -455,73 +510,115 @@ export async function codigosDeSobrante() {
 }
 
 /**
- * Material ya mezclado con master que se retira de la tolva: entra al depósito
- * con el código de sobrante/molienda elegido (no vuelve como virgen). Queda la
- * composición (materiales cargados del retiro) en el registro.
+ * Material ya mezclado con master que se baja de la tolva: sale de "Tolva / en
+ * proceso" (en la proporción de lo que se cargó) y entra al depósito con el
+ * código de sobrante/molienda elegido — nunca como materia prima virgen. Queda
+ * la composición en el registro.
  */
 export async function registrarSobrante(
   actor: Actor,
-  input: { retiroMaquinaId: number; materiaPrimaDestinoId: number; cantidadKg: number; observaciones?: string | null; token?: string | null },
+  input: { retiroMaquinaId: number; materiaPrimaDestinoId: number; cantidadKg: number; cicloId?: number | null; observaciones?: string | null; token?: string | null },
 ): Promise<Resultado & { id?: number; repetido?: boolean }> {
   if (!puedeRetirarMateriaPrima(actor.rol)) return { error: "No tenés permiso para registrar sobrantes." };
   if (!Number.isFinite(input.cantidadKg) || input.cantidadKg <= 0) return { error: "La cantidad tiene que ser mayor que cero." };
-  const depositoId = await getDepositoNexaId();
-  return db.transaction(async (tx) => {
-    const ya = await porToken(tx, input.token);
-    if (ya) return { id: ya.id, repetido: true };
-    const [cab] = await tx.select().from(retiroMaquina).where(eq(retiroMaquina.id, input.retiroMaquinaId)).for("update");
-    if (!cab) return { error: "Retiro no encontrado." };
-    if (cab.estado !== "ABIERTO") return { error: `El retiro ${numeroRetiro(cab.id)} está cerrado.` };
-    const [destino] = await tx.select().from(materiaPrima).where(eq(materiaPrima.id, input.materiaPrimaDestinoId));
-    if (!destino || (destino.tipo !== "SOBRANTE" && destino.tipo !== "MOLIENDA")) {
-      return { error: "Elegí un código de sobrante o molienda existente en el depósito." };
-    }
-    const movs = await tx
-      .select({ tipo: movimientoMaquina.tipo, cantidad: movimientoMaquina.cantidad, mp: materiaPrima.nombre })
-      .from(movimientoMaquina)
-      .leftJoin(retiroMp, eq(movimientoMaquina.retiroMpId, retiroMp.id))
-      .leftJoin(materiaPrima, eq(retiroMp.materiaPrimaId, materiaPrima.id))
-      .where(and(eq(movimientoMaquina.retiroMaquinaId, cab.id), eq(movimientoMaquina.anulado, false)));
-    const cargado = movs.filter((m) => m.tipo === "CARGA_TOLVA").reduce((t, m) => t + Number(m.cantidad), 0);
-    const sobrantes = movs.filter((m) => m.tipo === "SOBRANTE").reduce((t, m) => t + Number(m.cantidad), 0);
-    if (cargado <= EPS) return { error: "Este retiro no tiene material cargado en tolva: lo que está a pie de máquina se devuelve sin mezclar." };
-    if (input.cantidadKg > cargado - sobrantes + EPS) {
-      return { error: `Del retiro se cargaron ${r3(cargado)} kg y ya se registraron ${r3(sobrantes)} kg de sobrante.` };
-    }
-    const composicion = [...new Set(movs.filter((m) => m.tipo === "CARGA_TOLVA" && m.mp).map((m) => m.mp))].join(" + ");
-    const [mov] = await tx
-      .insert(movimiento)
-      .values({
-        tipo: "ENTRADA",
-        depositoId,
-        materiaPrimaId: destino.id,
-        cantidad: String(input.cantidadKg),
+  const ub = await ubicacionesMp();
+  return db
+    .transaction(async (tx) => {
+      const ya = await porToken(tx, input.token);
+      if (ya) return { id: ya.id, repetido: true };
+      const [cab] = await tx.select().from(retiroMaquina).where(eq(retiroMaquina.id, input.retiroMaquinaId)).for("update");
+      if (!cab) return { error: "Retiro no encontrado." };
+      if (cab.estado !== "ABIERTO") return { error: `El retiro ${numeroRetiro(cab.id)} está cerrado.` };
+      const [destino] = await tx.select().from(materiaPrima).where(eq(materiaPrima.id, input.materiaPrimaDestinoId));
+      if (!destino || (destino.tipo !== "SOBRANTE" && destino.tipo !== "MOLIENDA")) {
+        return { error: "Elegí un código de sobrante o molienda existente en el depósito." };
+      }
+      const movs = await tx
+        .select({ id: movimientoMaquina.id, tipo: movimientoMaquina.tipo, cantidad: movimientoMaquina.cantidad, mpId: retiroMp.materiaPrimaId, mp: materiaPrima.nombre, movimientoId: movimientoMaquina.movimientoId })
+        .from(movimientoMaquina)
+        .leftJoin(retiroMp, eq(movimientoMaquina.retiroMpId, retiroMp.id))
+        .leftJoin(materiaPrima, eq(retiroMp.materiaPrimaId, materiaPrima.id))
+        .where(and(eq(movimientoMaquina.retiroMaquinaId, cab.id), eq(movimientoMaquina.anulado, false)));
+      const cargas = movs.filter((m) => m.tipo === "CARGA_TOLVA");
+      const cargado = cargas.reduce((t, m) => t + Number(m.cantidad), 0);
+      const sobrantes = movs.filter((m) => m.tipo === "SOBRANTE").reduce((t, m) => t + Number(m.cantidad), 0);
+      if (cargado <= EPS) return { error: "Este retiro no tiene material cargado en tolva: lo que está a pie de máquina se devuelve sin mezclar." };
+      if (input.cantidadKg > cargado - sobrantes + EPS) {
+        return { error: `Del retiro se cargaron ${r3(cargado)} kg y ya se registraron ${r3(sobrantes)} kg de sobrante.` };
+      }
+      const composicion = [...new Set(cargas.filter((m) => m.mp).map((m) => m.mp))].join(" + ");
+      // De qué producción sale: la indicada o la última que recibió cargas de este retiro.
+      const [ultima] = await tx
+        .select({ id: cicloProduccion.id, fechaFin: cicloProduccion.fechaFin })
+        .from(movimientoMaquina)
+        .innerJoin(cicloProduccion, eq(movimientoMaquina.cicloId, cicloProduccion.id))
+        .where(and(eq(movimientoMaquina.retiroMaquinaId, cab.id), eq(movimientoMaquina.tipo, "CARGA_TOLVA"), eq(movimientoMaquina.anulado, false)))
+        .orderBy(desc(cicloProduccion.id))
+        .limit(1);
+      const cicloId = input.cicloId ?? ultima?.id ?? cab.cicloId;
+      const [destinoCiclo] = cicloId ? await tx.select({ fechaFin: cicloProduccion.fechaFin }).from(cicloProduccion).where(eq(cicloProduccion.id, cicloId)) : [];
+      const enCurso = destinoCiclo != null && destinoCiclo.fechaFin == null;
+
+      const [m] = await tx
+        .insert(movimientoMaquina)
+        .values({
+          retiroMaquinaId: cab.id,
+          tipo: "SOBRANTE",
+          cantidad: String(input.cantidadKg),
+          cicloId,
+          materiaPrimaDestinoId: destino.id,
+          observaciones: [`Composición: ${composicion}`, input.observaciones?.trim()].filter(Boolean).join(" · "),
+          usuarioId: actor.id,
+          token: input.token || null,
+        })
+        .returning();
+      const entradaId = await moverEnUbicacion(tx, {
+        depositoId: ub.deposito,
+        tipo: "TRANSFORMACION",
+        mpId: destino.id,
+        delta: input.cantidadKg,
         origen: "TRANSFORMACION",
-        origenId: cab.id,
+        origenId: m.id,
         motivo: `Sobrante de tolva del retiro ${numeroRetiro(cab.id)} · composición: ${composicion}`,
         usuarioId: actor.id,
-      })
-      .returning();
-    await tx
-      .insert(saldo)
-      .values({ depositoId, materiaPrimaId: destino.id, cantidad: String(input.cantidadKg) })
-      .onConflictDoUpdate({ target: [saldo.depositoId, saldo.materiaPrimaId], set: { cantidad: sql`${saldo.cantidad} + ${input.cantidadKg}` } });
-    const [m] = await tx
-      .insert(movimientoMaquina)
-      .values({
-        retiroMaquinaId: cab.id,
-        tipo: "SOBRANTE",
-        cantidad: String(input.cantidadKg),
-        cicloId: cab.cicloId,
-        materiaPrimaDestinoId: destino.id,
-        movimientoId: mov.id,
-        observaciones: [`Composición: ${composicion}`, input.observaciones?.trim()].filter(Boolean).join(" · "),
-        usuarioId: actor.id,
-        token: input.token || null,
-      })
-      .returning();
-    return { id: m.id };
-  });
+      });
+      // Si la producción sigue en curso, el material sale de la tolva en la
+      // proporción de lo cargado. Si ya cerró, su consumo ya se registró: el
+      // sobrante entra al depósito y corrige ese consumo (no hay nada en tolva).
+      const cargasUbic = enCurso ? cargas.filter((c) => c.movimientoId != null) : [];
+      if (cargasUbic.length) {
+        const porMp = new Map<number, { kg: number; nombre: string }>();
+        for (const c of cargasUbic) {
+          const a = porMp.get(c.mpId!) ?? { kg: 0, nombre: c.mp ?? "" };
+          a.kg += Number(c.cantidad);
+          porMp.set(c.mpId!, a);
+        }
+        const ids = [...porMp.keys()];
+        const partes = repartirProporcional(input.cantidadKg, ids.map((id) => porMp.get(id)!.kg));
+        for (let i = 0; i < ids.length; i++) {
+          if (partes[i] <= 0) continue;
+          await moverEnUbicacion(tx, {
+            depositoId: ub.proceso,
+            tipo: "TRANSFORMACION",
+            mpId: ids[i],
+            delta: -partes[i],
+            origen: "TRANSFORMACION",
+            origenId: m.id,
+            contrapartidaId: entradaId,
+            motivo: `Sale de la tolva como sobrante (${destino.nombre}) · retiro ${numeroRetiro(cab.id)}`,
+            usuarioId: actor.id,
+            nombreMp: porMp.get(ids[i])!.nombre,
+            nombreUbicacion: "En la tolva",
+          });
+        }
+      }
+      await tx.update(movimientoMaquina).set({ movimientoId: entradaId }).where(eq(movimientoMaquina.id, m.id));
+      return { id: m.id };
+    })
+    .catch((e) => {
+      if (e instanceof ErrorStock) return { error: e.message };
+      throw e;
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +636,7 @@ export async function cerrarRetiro(
   justificaciones: Record<number, string>,
 ): Promise<Resultado & { pendientes?: { retiroMpId: number; pie: number }[] }> {
   if (!puedeRetirarMateriaPrima(actor.rol)) return { error: "No tenés permiso para cerrar retiros." };
+  const ub = await ubicacionesMp();
   return db.transaction(async (tx) => {
     const [cab] = await tx.select().from(retiroMaquina).where(eq(retiroMaquina.id, retiroMaquinaId)).for("update");
     if (!cab) return { error: "Retiro no encontrado." };
@@ -554,12 +652,33 @@ export async function cerrarRetiro(
       };
     }
     for (const p of pendientes) {
+      const l = lineas.find((x) => x.id === p.retiroMpId)!;
+      // La diferencia de balanza ajusta el saldo de pie de máquina (no se
+      // toca ninguna cantidad ya registrada).
+      const movId = await moverEnUbicacion(tx, {
+        depositoId: ub.pie,
+        tipo: "AJUSTE",
+        mpId: l.materiaPrimaId,
+        loteMpId: l.loteMpId,
+        delta: -p.pie,
+        origen: "DIFERENCIA_BALANZA",
+        origenId: l.id,
+        motivo: `Diferencia al cerrar el retiro ${numeroRetiro(cab.id)}: ${justificaciones[p.retiroMpId].trim()}`,
+        usuarioId: actor.id,
+        nombreUbicacion: "A pie de máquina",
+      }).catch((e) => {
+        // Retiros anteriores al circuito de ubicaciones: su material ya se había
+        // descontado del depósito y no figura a pie de máquina.
+        if (e instanceof ErrorStock) return null;
+        throw e;
+      });
       await tx.insert(movimientoMaquina).values({
         retiroMaquinaId: cab.id,
         retiroMpId: p.retiroMpId,
         tipo: "DIFERENCIA",
         cantidad: String(p.pie),
         cicloId: cab.cicloId,
+        movimientoId: movId,
         observaciones: justificaciones[p.retiroMpId].trim(),
         usuarioId: actor.id,
       });
