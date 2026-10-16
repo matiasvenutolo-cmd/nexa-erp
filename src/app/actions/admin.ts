@@ -184,6 +184,6 @@ export async function guardarDatosTecnicosAction(fd: FormData) {
   const r =
     (m2 != null && Number.isNaN(m2)) || (kg != null && Number.isNaN(kg))
       ? { error: "Valor inválido." }
-      : await actualizarDatosTecnicos(usuario, Number(fd.get("id")), { m2PorUnidad: m2, kgPorUnidad: kg, motivo: texto(fd, "motivo") });
+      : await actualizarDatosTecnicos(usuario, Number(fd.get("id")), { m2PorUnidad: m2, kgPorUnidad: kg, coladaKgPorGolpe: numero(fd, "coladaKgPorGolpe"), motivo: texto(fd, "motivo") });
   volver(fd, r, "Datos técnicos guardados.");
 }

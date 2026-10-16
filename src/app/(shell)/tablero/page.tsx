@@ -1,141 +1,204 @@
 import Link from "next/link";
 import { obtenerTablero } from "@/lib/data/tablero";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeCrearPedido } from "@/lib/auth/permisos";
+import { puedeCrearPedido, puedeVerProduccion } from "@/lib/auth/permisos";
 import { ESTADO_LABEL } from "@/lib/data/pedidos";
+import { gruposParaPlanificar, listarTandas, necesidadDeCompra, etiquetaTurno } from "@/lib/data/planificacion";
+import { relevosRecientes } from "@/lib/data/taller";
 import { Semaforo } from "@/components/semaforo";
-import { fmtNumero } from "@/lib/format";
+import { fmtFechaHora, fmtNumero } from "@/lib/format";
+import { fmtPeso } from "@/lib/presentaciones";
 import type { EstadoSemaforo } from "@/lib/data/stock";
 
-const ESTADOS_PEDIDO = ["PEDIDO", "EN_ARMADO", "LISTO_PARA_DESPACHAR", "ENTREGADO"] as const;
+const ESTADOS_PEDIDO = ["PEDIDO", "EN_ARMADO", "LISTO_PARA_DESPACHAR", "PARCIALMENTE_DESPACHADO"] as const;
 const ESTADOS_SEMAFORO: EstadoSemaforo[] = ["critico", "bajo", "ok", "exceso"];
 
+/**
+ * Inicio. Para quien coordina o supervisa (minuta 15/10: "gerencia y
+ * administración ven el estado de pedidos y producción, también de forma
+ * remota; el encargado puede revisar desde su casa si se cumplió lo
+ * planificado"): pedidos, producción en curso, entregas urgentes, novedades
+ * de máquina y compras. Los indicadores gerenciales quedan para la última
+ * etapa.
+ */
 export default async function TableroPage() {
   const usuario = await getUsuarioActual();
   const gestion = puedeCrearPedido(usuario.rol);
+  const fabrica = puedeVerProduccion(usuario.rol);
   const t = await obtenerTablero();
+  const [tandas, grupos, compras, relevos] = fabrica || gestion
+    ? await Promise.all([listarTandas(), gruposParaPlanificar(), necesidadDeCompra(), relevosRecientes(8)])
+    : [[], [], [], { turnos: [], novedades: [], excepciones: [] }];
+  const enCurso = tandas.filter((x) => x.estado === "EN_CURSO");
+  const proximas = tandas.filter((x) => x.estado === "PLANIFICADA").slice(0, 5);
+  const urgentes = [
+    ...grupos.flatMap((g) => g.lineas.filter((l) => l.alerta && l.aPlanificar > 0).map((l) => ({ ...l, producto: `${g.colorNombre ?? ""} · ${g.matriz}`, planificada: false }))),
+    ...tandas.flatMap((x) => x.pedidos.filter((p) => p.alerta).map((p) => ({ ...p, producto: `${x.colorNombre ?? ""} · ${x.matriz}`, planificada: true }))),
+  ]
+    .sort((a, b) => a.alerta!.dias - b.alerta!.dias)
+    .slice(0, 8);
+  const faltaComprar = compras.filter((c) => c.faltanteKg > 0);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-brand-azul-oscuro">Tablero</h1>
+      <div className="encabezado mb-0">
+        <div>
+          <h1>Inicio</h1>
+          <p>Hola, {usuario.nombre.split(" ")[0]}. Así está la operación ahora.</p>
+        </div>
+      </div>
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-foreground-muted">
-          Pedidos
-        </h2>
+        <h2 className="panel-titulo">Pedidos</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {ESTADOS_PEDIDO.map((e) => (
-            <Link
-              key={e}
-              href={`/pedidos?estado=${e}`}
-              className="rounded-lg border border-border bg-surface p-4 hover:bg-surface-muted"
-            >
-              <div className="text-2xl font-semibold text-foreground">{t.pedidosPorEstado[e]}</div>
-              <div className="text-sm text-foreground-muted">{ESTADO_LABEL[e]}</div>
+            <Link key={e} href={`/pedidos?estado=${e}`} className="stat-card hover:bg-surface-muted">
+              <div className="stat-valor">{t.pedidosPorEstado[e]}</div>
+              <div className="stat-label">{ESTADO_LABEL[e]}</div>
             </Link>
           ))}
         </div>
       </section>
 
+      {(fabrica || gestion) && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel titulo="Producción en curso" verMas={fabrica ? "/produccion?vista=curso" : undefined}>
+            {enCurso.length === 0 ? (
+              <p className="text-sm text-foreground-muted">No hay producciones en curso.</p>
+            ) : (
+              <ul className="space-y-3 text-sm">
+                {enCurso.map((x) => {
+                  const pct = x.objetivo ? Math.min(100, Math.round((x.producido / x.objetivo) * 100)) : 0;
+                  return (
+                    <li key={x.id}>
+                      <div className="flex justify-between gap-2">
+                        <span className="font-semibold">
+                          Iny. {x.inyectora} · {x.colorNombre} · {x.matriz}
+                        </span>
+                        <span className="text-foreground-muted">
+                          {fmtNumero(x.producido, 0)} / {fmtNumero(x.objetivo, 0)}
+                        </span>
+                      </div>
+                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-surface-muted">
+                        <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {proximas.length > 0 && (
+              <div className="mt-4 border-t border-border pt-3 text-sm">
+                <div className="stat-label mb-1">Próximas en la secuencia</div>
+                <ol className="space-y-1">
+                  {proximas.map((x, i) => (
+                    <li key={x.id} className="flex justify-between gap-2">
+                      <span>
+                        {i + 1}. {x.colorNombre} · {x.matriz}
+                      </span>
+                      <span className="text-foreground-muted">
+                        {fmtNumero(x.objetivo, 0)} u.{x.inyectora ? ` · iny. ${x.inyectora}` : ""}
+                        {x.turno ? ` · ${etiquetaTurno(x.turno)}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </Panel>
+
+          <Panel titulo="Entregas comprometidas próximas" verMas={fabrica ? "/produccion" : "/pedidos"}>
+            {urgentes.length === 0 ? (
+              <p className="text-sm text-foreground-muted">No hay entregas en riesgo esta semana.</p>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {urgentes.map((u) => (
+                  <li key={`${u.pedidoLineaId}-${u.planificada}`} className="flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      <Link href={`/pedidos/${u.pedidoId}`} className="font-semibold text-accent hover:underline">
+                        #{u.pedidoId}
+                      </Link>{" "}
+                      {u.clienteNombre} · <span className="text-foreground-muted">{u.producto}</span>
+                    </span>
+                    <span className="flex gap-1">
+                      <span className={`badge-estado ${u.alerta!.nivel === "semana" ? "badge-bajo" : "badge-critico"}`}>{u.alerta!.texto}</span>
+                      <span className={`badge-estado ${u.planificada ? "badge-info" : "badge-exceso"}`}>{u.planificada ? "En la secuencia" : "Sin planificar"}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          <Panel titulo="Novedades de máquina y relevos" verMas={fabrica ? "/produccion?vista=relevos" : undefined}>
+            {relevos.novedades.length === 0 && relevos.turnos.length === 0 ? (
+              <p className="text-sm text-foreground-muted">Sin novedades.</p>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {relevos.novedades.slice(0, 4).map(({ n, usuarioNombre }) => (
+                  <li key={`n${n.id}`}>
+                    <b>{n.motivo}</b> · Iny. {n.inyectora}
+                    <div className="text-xs text-foreground-muted">
+                      {fmtFechaHora(n.fecha)} · {usuarioNombre}
+                    </div>
+                  </li>
+                ))}
+                {relevos.turnos.slice(0, 3).map(({ t: tu, usuarioNombre, productoCodigo }) => (
+                  <li key={`t${tu.id}`} className="text-foreground-muted">
+                    Turno {etiquetaTurno(tu.turno)} iny. {tu.inyectora} · {tu.operarioNombre ?? usuarioNombre} · {productoCodigo ?? "—"} ·{" "}
+                    {tu.estado === "ABIERTO" ? "en curso" : `${tu.piezas ?? 0} piezas`}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          <Panel titulo="Material que falta comprar" verMas={fabrica ? "/produccion?vista=compras" : undefined}>
+            {faltaComprar.length === 0 ? (
+              <p className="text-sm text-foreground-muted">El material alcanza para la planificación actual (con receta definida).</p>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {faltaComprar.slice(0, 6).map((c) => (
+                  <li key={c.materiaPrimaId} className="flex justify-between gap-2">
+                    <span>{c.nombre}</span>
+                    <span className="font-semibold text-[var(--estado-critico-fg)]">faltan {fmtPeso(c.faltanteKg, { gramos: c.esMaster && c.faltanteKg < 10 })}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </div>
+      )}
+
       {gestion && (
-        <>
-          <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-foreground-muted">
-              Estado del catálogo
-            </h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {ESTADOS_SEMAFORO.map((e) => (
-                <Link
-                  key={e}
-                  href={e === "critico" || e === "bajo" ? "/catalogo?alertas=1" : "/catalogo"}
-                  className="rounded-lg border border-border bg-surface p-4 hover:bg-surface-muted"
-                >
-                  <div className="text-2xl font-semibold text-foreground">{t.alertasPorEstado[e]}</div>
-                  <Semaforo estado={e} />
-                </Link>
-              ))}
-            </div>
-          </section>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Panel titulo="Productos bajo mínimo" verMas="/catalogo?alertas=1">
-              {t.productosEnAlerta.length === 0 ? (
-                <p className="text-sm text-foreground-muted">Nada en alerta.</p>
-              ) : (
-                <FilaLista
-                  items={t.productosEnAlerta.map((p) => ({
-                    key: p.id,
-                    izquierda: `${p.codigo} · ${p.descripcion}`,
-                    derecha: `${fmtNumero(p.stock, 0)} / mín ${fmtNumero(p.minimo, 0)}`,
-                  }))}
-                />
-              )}
-            </Panel>
-
-            <Panel titulo="Falta producir para cubrir pedidos" verMas="/pedidos">
-              {t.comprometidoTop.length === 0 ? (
-                <p className="text-sm text-foreground-muted">No hay faltantes hoy.</p>
-              ) : (
-                <FilaLista
-                  items={t.comprometidoTop.map((c) => ({
-                    key: c.productoId,
-                    izquierda: `${c.codigo} · ${c.descripcion}`,
-                    derecha: `${fmtNumero(c.faltaProducir, 0)} u.`,
-                    resaltado: true,
-                  }))}
-                />
-              )}
-            </Panel>
+        <section>
+          <h2 className="panel-titulo">Stock de productos</h2>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {ESTADOS_SEMAFORO.map((e) => (
+              <Link key={e} href={e === "critico" || e === "bajo" ? "/catalogo?alertas=1" : "/catalogo"} className="stat-card hover:bg-surface-muted">
+                <div className="stat-valor">{t.alertasPorEstado[e]}</div>
+                <Semaforo estado={e} />
+              </Link>
+            ))}
           </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:w-64">
-            <StatChica label="Productos" valor={t.totalProductos} />
-            <StatChica label="Clientes" valor={t.totalClientes} />
-          </div>
-        </>
+        </section>
       )}
     </div>
   );
 }
 
-function Panel({ titulo, verMas, children }: { titulo: string; verMas: string; children: React.ReactNode }) {
+function Panel({ titulo, verMas, children }: { titulo: string; verMas?: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
-      <div className="mb-3 flex items-baseline justify-between">
-        <h3 className="text-sm font-semibold text-foreground">{titulo}</h3>
-        <Link href={verMas} className="text-xs font-medium text-accent hover:underline">
-          Ver más →
-        </Link>
+    <section className="panel">
+      <div className="mb-3 flex items-baseline justify-between gap-2 border-b-2 border-[rgba(0,32,148,0.12)] pb-2">
+        <h2 className="font-[family-name:var(--font-display)] text-[0.95rem] font-semibold text-brand-azul">{titulo}</h2>
+        {verMas && (
+          <Link href={verMas} className="text-xs font-semibold text-accent hover:underline">
+            Ver más →
+          </Link>
+        )}
       </div>
       {children}
-    </div>
-  );
-}
-
-function FilaLista({
-  items,
-}: {
-  items: { key: number; izquierda: string; derecha: string; resaltado?: boolean }[];
-}) {
-  return (
-    <ul className="space-y-2 text-sm">
-      {items.map((it) => (
-        <li key={it.key} className="flex items-baseline justify-between gap-3">
-          <span className="truncate text-foreground-muted">{it.izquierda}</span>
-          <span className={it.resaltado ? "shrink-0 font-medium text-[var(--estado-critico-fg)]" : "shrink-0 text-foreground"}>
-            {it.derecha}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function StatChica({ label, valor }: { label: string; valor: number }) {
-  return (
-    <div className="rounded-lg border border-border bg-surface p-3">
-      <div className="text-lg font-semibold text-foreground">{fmtNumero(valor, 0)}</div>
-      <div className="text-xs text-foreground-muted">{label}</div>
-    </div>
+    </section>
   );
 }

@@ -20,7 +20,8 @@ export default async function AdminProductosPage({ searchParams }: { searchParam
       <Aviso ok={sp.ok} error={sp.error} />
       <div className="rounded-lg border border-border bg-surface p-4 text-sm text-foreground-muted">
         <p>
-          <strong>m² por pieza</strong> (sólo pisos; los accesorios no suman superficie) y <strong>kg por pieza</strong>. Un valor vacío
+          <strong>m² por pieza</strong> (sólo pisos; los accesorios no suman superficie), <strong>kg por pieza</strong> y <strong>colada por golpe</strong>
+          (el recorrido hasta la pieza pesa siempre lo mismo: con este dato la colada se calcula sola al cerrar la producción). Un valor vacío
           significa “sin configurar”: el sistema lo informa en vez de estimarlo.
         </p>
         <p className="mt-1">{faltan.length ? `${faltan.length} productos con datos sin configurar.` : "Todos los productos tienen sus datos configurados."}</p>
@@ -33,6 +34,7 @@ export default async function AdminProductosPage({ searchParams }: { searchParam
                 <th className={TH}>Producto</th>
                 <th className={TH}>m² por pieza</th>
                 <th className={TH}>kg por pieza</th>
+                <th className={TH}>Colada por golpe (kg)</th>
                 <th className={TH}>Motivo</th>
                 <th className={TH} />
               </tr>
@@ -44,8 +46,8 @@ export default async function AdminProductosPage({ searchParams }: { searchParam
                     <div className="font-mono text-xs text-foreground-muted">{p.codigo}</div>
                     <div className="text-xs">{p.descripcion}</div>
                   </td>
-                  <td className={TD} colSpan={4}>
-                    <form action={guardarDatosTecnicosAction} className="grid grid-cols-[7rem_7rem_1fr_auto] items-center gap-2">
+                  <td className={TD} colSpan={5}>
+                    <form action={guardarDatosTecnicosAction} className="grid grid-cols-[7rem_7rem_7rem_1fr_auto] items-center gap-2">
                       <input type="hidden" name="id" value={p.id} />
                       <input type="hidden" name="volver" value={VOLVER} />
                       <input type="hidden" name="ancla" value={`p${p.id}`} />
@@ -55,6 +57,7 @@ export default async function AdminProductosPage({ searchParams }: { searchParam
                         <input name="m2PorUnidad" type="number" step="any" min="0" defaultValue={p.m2PorUnidad ?? ""} placeholder="sin configurar" className="input text-xs" aria-label="m² por pieza" />
                       )}
                       <input name="kgPorUnidad" type="number" step="any" min="0" defaultValue={p.kgPorUnidad ?? ""} placeholder="sin configurar" className="input text-xs" aria-label="kg por pieza" />
+                      <input name="coladaKgPorGolpe" type="number" step="any" min="0" defaultValue={p.coladaKgPorGolpe ?? ""} placeholder="sin configurar" className="input text-xs" aria-label="colada por golpe" />
                       <input name="motivo" placeholder="opcional" className="input text-xs" aria-label="Motivo" />
                       <button type="submit" className={BOTON} id={`p${p.id}`}>
                         Guardar

@@ -44,3 +44,6 @@ next-env.d.ts
 
 # Claude Code (local)
 .claude/settings.local.json
+
+# Respaldos de la puesta en marcha (datos reales: no se versionan)
+/respaldos/

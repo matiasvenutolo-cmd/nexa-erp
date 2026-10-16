@@ -20,7 +20,7 @@ export default async function NuevoCicloPage({
     <div className="max-w-3xl space-y-4">
       <h1 className="text-xl font-semibold text-brand-azul-oscuro">Inicio de producción</h1>
       <p className="text-sm text-foreground-muted">
-        Cargá el arranque del día. El cierre (golpes finales, producidas, colada) se carga aparte,
+        Para producir algo que no está en la planificación. Lo normal es iniciar desde la tanda (Producción → Planificación). El cierre se carga aparte,
         al terminar la jornada.
       </p>
       <FormularioCiclo

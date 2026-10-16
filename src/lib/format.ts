@@ -40,6 +40,12 @@ export function fmtFechaHora(d: Date | string): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hourCycle: "h23",
     timeZone: "America/Argentina/Buenos_Aires",
   });
+}
+
+/** "14:05", hora argentina, 24 h. */
+export function fmtHora(d: Date | string): string {
+  return new Date(d).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "America/Argentina/Buenos_Aires" });
 }

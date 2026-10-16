@@ -27,6 +27,7 @@ export type FilaProducto = {
   esAccesorio: boolean;
   m2PorUnidad: number | null;
   kgPorUnidad: number | null;
+  coladaKgPorGolpe: number | null;
   colorId: number;
   colorNombre: string;
   colorEspecial: boolean;
@@ -64,6 +65,7 @@ export async function listarProductos(filtro?: {
         esAccesorio: producto.esAccesorio,
         m2: producto.m2PorUnidad,
         kg: producto.kgPorUnidad,
+        colada: producto.coladaKgPorGolpe,
         colorId: producto.colorId,
         colorNombre: color.nombre,
         colorEspecial: color.especial,
@@ -79,12 +81,13 @@ export async function listarProductos(filtro?: {
     obtenerParametros(),
   ]);
 
-  return filas.map(({ m2, kg, ...f }) => {
+  return filas.map(({ m2, kg, colada, ...f }) => {
     const stock = Number(f.stock);
     return {
       ...f,
       m2PorUnidad: m2 != null && Number(m2) > 0 ? Number(m2) : null,
       kgPorUnidad: kg != null && Number(kg) > 0 ? Number(kg) : null,
+      coladaKgPorGolpe: colada != null && Number(colada) > 0 ? Number(colada) : null,
       stock,
       estado: semaforoStock(stock, f.minimo, f.maximo, parametros.semaforo_margen_bajo),
     };
@@ -208,6 +211,7 @@ export async function crearProductoNuevo(actor: Actor, input: NuevoProductoInput
     .select({
       m2PorUnidad: producto.m2PorUnidad,
       kgPorUnidad: producto.kgPorUnidad,
+      coladaKgPorGolpe: producto.coladaKgPorGolpe,
       piezasPorGolpe: producto.piezasPorGolpe,
       pesoCajaKg: producto.pesoCajaKg,
       esAccesorio: producto.esAccesorio,
@@ -281,6 +285,7 @@ export async function crearProductoNuevo(actor: Actor, input: NuevoProductoInput
         proveedorMasterId: input.proveedorMasterId,
         m2PorUnidad: modelo?.m2PorUnidad ?? null,
         kgPorUnidad: modelo?.kgPorUnidad ?? null,
+        coladaKgPorGolpe: modelo?.coladaKgPorGolpe ?? null,
         piezasPorGolpe: modelo?.piezasPorGolpe ?? null,
         pesoCajaKg: modelo?.pesoCajaKg ?? null,
         esAccesorio: modelo?.esAccesorio ?? TIPOS_ACCESORIO.includes(input.tipo),
@@ -308,22 +313,24 @@ export async function crearProductoNuevo(actor: Actor, input: NuevoProductoInput
 export async function actualizarDatosTecnicos(
   actor: Actor,
   productoId: number,
-  input: { m2PorUnidad: number | null; kgPorUnidad: number | null; motivo?: string | null },
+  input: { m2PorUnidad: number | null; kgPorUnidad: number | null; coladaKgPorGolpe?: number | null; motivo?: string | null },
 ): Promise<Resultado> {
   if (!puedeEditarParametrosProduccion(actor.rol)) return { error: "No tenés permiso para cambiar datos técnicos de productos." };
-  for (const v of [input.m2PorUnidad, input.kgPorUnidad]) {
+  for (const v of [input.m2PorUnidad, input.kgPorUnidad, input.coladaKgPorGolpe ?? null]) {
     if (v != null && (!Number.isFinite(v) || v <= 0)) return { error: "Los valores tienen que ser mayores que cero (o quedar vacíos)." };
   }
   return db.transaction(async (tx) => {
-    const [p] = await tx.select({ esAccesorio: producto.esAccesorio, m2: producto.m2PorUnidad, kg: producto.kgPorUnidad, codigo: producto.codigo }).from(producto).where(eq(producto.id, productoId));
+    const [p] = await tx.select({ esAccesorio: producto.esAccesorio, m2: producto.m2PorUnidad, kg: producto.kgPorUnidad, colada: producto.coladaKgPorGolpe, codigo: producto.codigo }).from(producto).where(eq(producto.id, productoId));
     if (!p) return { error: "Producto no encontrado." };
     if (p.esAccesorio && input.m2PorUnidad != null) return { error: `${p.codigo} es un accesorio: no lleva superficie (no suma m²).` };
     const m2 = input.m2PorUnidad != null ? String(input.m2PorUnidad) : null;
     const kg = input.kgPorUnidad != null ? String(input.kgPorUnidad) : null;
-    await tx.update(producto).set({ m2PorUnidad: m2, kgPorUnidad: kg }).where(eq(producto.id, productoId));
+    const colada = input.coladaKgPorGolpe === undefined ? p.colada : input.coladaKgPorGolpe != null ? String(input.coladaKgPorGolpe) : null;
+    await tx.update(producto).set({ m2PorUnidad: m2, kgPorUnidad: kg, coladaKgPorGolpe: colada }).where(eq(producto.id, productoId));
     await registrarCambios(tx, actor.id, [
       { entidad: "producto", entidadId: productoId, campo: "m2_por_unidad", anterior: p.m2, nuevo: m2, motivo: input.motivo },
       { entidad: "producto", entidadId: productoId, campo: "kg_por_unidad", anterior: p.kg, nuevo: kg, motivo: input.motivo },
+      { entidad: "producto", entidadId: productoId, campo: "colada_kg_por_golpe", anterior: p.colada, nuevo: colada, motivo: input.motivo },
     ]);
     return {};
   });

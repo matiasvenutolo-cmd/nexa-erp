@@ -13,6 +13,17 @@ export default async function AdminMasterPage({ searchParams }: { searchParams: 
   return (
     <div className="space-y-4">
       <Aviso ok={sp.ok} error={sp.error} />
+      <div className="aviso aviso-alerta space-y-1 text-sm">
+        <p>
+          <b>Discrepancia a validar con el cliente.</b> Esta dosificación quedó definida como 0,015 g de master por kg (rejilla) y 0,012 (negro).
+          La planilla de carga en tolva registra 100 kg de copolímero con 1,2 kg de master negro (= 12 g por kg) y 1,5 kg de master gris
+          claro en el arranque (= 15 g por kg): mil veces más. Además, en g/kg el operario vería valores como «0,046 kg».
+        </p>
+        <p>
+          Por eso la carga en tolva <b>no se calcula con estos valores</b>: usa las recetas en bolsas (Configuración → Recetas de carga). Estos
+          valores se conservan sin cambios hasta que el cliente confirme una única fuente de verdad.
+        </p>
+      </div>
       <div className="rounded-lg border border-border bg-surface p-4 text-sm text-foreground-muted">
         <p>
           Cantidad de master por cada kg de materia prima. La fila <strong>“Todos los colores”</strong> es el valor

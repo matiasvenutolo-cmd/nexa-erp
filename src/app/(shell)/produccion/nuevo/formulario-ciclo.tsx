@@ -98,7 +98,7 @@ export function FormularioCiclo({
             {resumen.material && (
               <>
                 {" "}
-                · Material base: {resumen.material.nombre ?? "sin definir"} · Master: {fmtNumero(resumen.material.gPorKgMp, 4)} g/kg
+                · Material base: {resumen.material.nombre ?? "sin definir"}
               </>
             )}
           </p>
@@ -132,7 +132,7 @@ export function FormularioCiclo({
 
           <Paso n={3} titulo="Partida">
             {resumen.partidas.length > 0 ? (
-              <Campo label="La partida agrupa lo producido con este producto (material y color), aunque se cierre cada día">
+              <Campo label="La partida agrupa lo producido con este producto (material y color), aunque la producción se cierre y se vuelva a iniciar">
                 <select name="partidaId" className="input" value={partida} onChange={(e) => elegirPartida(e.target.value)}>
                   {resumen.partidas.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -154,7 +154,7 @@ export function FormularioCiclo({
             )}
             {partidaElegida?.ultimoCicloAbierto && (
               <p className="text-sm text-[var(--estado-critico-fg)]">
-                Esta partida tiene un ciclo sin cerrar: cerralo antes de continuarla (los golpes de inicio salen de ese cierre).
+                Esta partida tiene una producción sin cerrar: cerrala antes de continuarla (los golpes de inicio salen de ese cierre).
               </p>
             )}
             <div className="grid gap-3 sm:grid-cols-4">
@@ -220,9 +220,7 @@ export function FormularioCiclo({
               deseada es la decisión de planificación: puede ser mayor o menor que lo recomendado.
               {Number(deseada) > 0 &&
                 (resumen.kgPorUnidad
-                  ? ` Material estimado: ${fmtNumero(Number(deseada) * resumen.kgPorUnidad, 1)} kg${
-                      resumen.material ? ` y ${fmtNumero(Number(deseada) * resumen.kgPorUnidad * resumen.material.gPorKgMp, 3)} g de master (dosificación configurada)` : ""
-                    }.`
+                  ? ` Material estimado: ${fmtNumero(Number(deseada) * resumen.kgPorUnidad, 1)} kg (el master sale de la receta de carga).`
                   : " Sin peso por pieza configurado: no se puede estimar el material.")}
             </p>
             {resumen.pedidos.length > 0 && (
@@ -279,7 +277,7 @@ export function FormularioCiclo({
         >
           Iniciar producción
         </button>
-        <span className="text-xs text-foreground-muted">Después: retirar la materia prima para este ciclo y, al terminar el día, cargar el cierre.</span>
+        <span className="text-xs text-foreground-muted">Después: retirar la materia prima a pie de máquina; el operario carga la tolva y deja cada relevo desde «Mi turno».</span>
       </div>
     </form>
   );

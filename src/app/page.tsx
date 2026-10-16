@@ -57,8 +57,9 @@ const RELEASES: { id: string; titulo: string; detalle: string; estado: EstadoRel
     id: "R6",
     titulo: "Planificación",
     detalle:
-      "Necesidad semanal de compra de materia prima, compras en proceso e indicadores de gerencia.",
-    estado: "Pendiente",
+      "Planificación de la producción por producto y color, recetas de carga en bolsas, vista del operario con relevo de turno, stock de materia prima por ubicación y alerta de compra.",
+    estado: "En curso",
+    falta: "Validación con el cliente de recetas por color y regla de cambios de matriz; indicadores de gerencia (última etapa).",
   },
 ];
 

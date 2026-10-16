@@ -17,7 +17,7 @@ import {
 import { Semaforo } from "@/components/semaforo";
 import { FormAccion } from "@/components/form-accion";
 import { ajusteMpAction, altaMpAction, bolsonAction, fraccionarAction } from "@/app/actions/materia-prima";
-import { fmtDia, fmtFecha, fmtFechaHora, fmtNumero, hoyISO } from "@/lib/format";
+import { fmtDia, fmtFecha, fmtFechaHora, fmtHora, fmtNumero, hoyISO } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
 import { etiquetaInyectora } from "@/lib/inyectoras";
 import { CorregirLote } from "./corregir-lote";
@@ -260,7 +260,7 @@ async function Movimientos({ stock, sp }: { stock: Stock; sp: { desde?: string; 
             <tbody>
               {lista.map((m) => (
                 <tr key={m.id}>
-                  <td className="whitespace-nowrap text-xs">{fmtFechaHora(m.fecha).slice(-5)}</td>
+                  <td className="whitespace-nowrap text-xs">{fmtHora(m.fecha)}</td>
                   <td className="whitespace-nowrap">{m.ubicacion}</td>
                   <td>
                     {m.materiaPrima}
