@@ -101,3 +101,25 @@ export async function marcarAvisoProcesado(actor: Actor, id: number): Promise<Re
     .where(eq(aviso.id, id));
   return {};
 }
+
+/**
+ * "Si detecta un error, debe informarlo para que un usuario autorizado lo
+ * corrija" (minuta 15/10). Llega a Supervisión (y Gerencia lo ve). Queda
+ * registrado con quién lo informó y desde qué pantalla.
+ */
+export async function informarError(
+  actor: { id: number; rol: Rol },
+  input: { descripcion: string; pantalla: string; pedidoId?: number | null },
+): Promise<{ error?: string }> {
+  const d = input.descripcion?.trim();
+  if (!d) return { error: "Contá qué está mal y cuál sería el dato correcto." };
+  if (d.length > 1000) return { error: "El texto es demasiado largo." };
+  await crearAviso(db, {
+    tipo: "ERROR_INFORMADO",
+    destinoRol: "SUPERVISOR",
+    mensaje: `${d} · Pantalla: ${input.pantalla.slice(0, 200)}`,
+    pedidoId: input.pedidoId ?? null,
+    creadoPorId: actor.id,
+  });
+  return {};
+}

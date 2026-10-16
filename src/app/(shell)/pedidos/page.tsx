@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { listarPedidos, contarPedidosPorEstado, materialComprometido, situacionPedidos, ESTADO_LABEL, type SituacionPedido } from "@/lib/data/pedidos";
+import { listarPedidos, contarPedidosPorEstado, materialComprometido, situacionPedidos, etiquetaPrioridad, ESTADO_LABEL, type SituacionPedido } from "@/lib/data/pedidos";
+import { alertaEntrega } from "@/lib/data/planificacion";
+import { ROLES_ESTRUCTURA } from "@/lib/auth/permisos";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeCrearPedido } from "@/lib/auth/permisos";
 import { verPrecios as verPreciosDe } from "@/lib/vista";
@@ -13,32 +15,34 @@ const FILTROS = ["PEDIDO", "EN_ARMADO", "LISTO_PARA_DESPACHAR", "PARCIALMENTE_DE
 export default async function PedidosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ estado?: string }>;
+  searchParams: Promise<{ estado?: string; q?: string; archivados?: string }>;
 }) {
-  const { estado } = await searchParams;
+  const { estado, q, archivados } = await searchParams;
   const estadoValido = (FILTROS as readonly string[]).includes(estado ?? "")
     ? (estado as (typeof FILTROS)[number])
     : undefined;
 
   const [usuario, pedidos, conteos] = await Promise.all([
     getUsuarioActual(),
-    listarPedidos(estadoValido),
+    listarPedidos(estadoValido, { archivados: archivados === "1" }),
     contarPedidosPorEstado(),
   ]);
   const verPrecios = await verPreciosDe(usuario);
   const gestion = puedeCrearPedido(usuario.rol);
   const comprometido = gestion ? await materialComprometido() : [];
-  const situacion = await situacionPedidos(pedidos.filter((p) => p.estado !== "ENTREGADO" && p.estado !== "CANCELADO").map((p) => p.id));
+  const texto = q?.trim().toLowerCase();
+  const visibles = texto ? pedidos.filter((p) => `${p.id} ${p.clienteNombre} ${p.numeroOrden ?? ""}`.toLowerCase().includes(texto)) : pedidos;
+  const situacion = await situacionPedidos(visibles.filter((p) => p.estado !== "ENTREGADO" && p.estado !== "CANCELADO").map((p) => p.id));
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-brand-azul-oscuro">Pedidos</h1>
+      <div className="encabezado mb-0">
+        <div>
+          <h1>Pedidos{archivados === "1" ? " archivados" : ""}</h1>
+          <p>Qué pidió cada cliente, para cuándo, y si hay stock o falta producir.</p>
+        </div>
         {puedeCrearPedido(usuario.rol) && (
-          <Link
-            href="/pedidos/nuevo"
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90"
-          >
+          <Link href="/pedidos/nuevo" className="btn btn-primary">
             + Nuevo pedido
           </Link>
         )}
@@ -89,11 +93,17 @@ export default async function PedidosPage({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        <FiltroTab href="/pedidos" activo={!estadoValido} label="Todos" />
+      <div className="flex flex-wrap items-center gap-2">
+        <FiltroTab href="/pedidos" activo={!estadoValido && archivados !== "1"} label="Todos" />
         {FILTROS.map((f) => (
-          <FiltroTab key={f} href={`/pedidos?estado=${f}`} activo={estadoValido === f} label={ESTADO_LABEL[f]} n={conteos[f]} />
+          <FiltroTab key={f} href={`/pedidos?estado=${f}`} activo={estadoValido === f && archivados !== "1"} label={ESTADO_LABEL[f]} n={conteos[f]} />
         ))}
+        {ROLES_ESTRUCTURA.includes(usuario.rol) && <FiltroTab href="/pedidos?archivados=1" activo={archivados === "1"} label="Archivados" />}
+        <form action="/pedidos" className="ml-auto">
+          {estadoValido && <input type="hidden" name="estado" value={estadoValido} />}
+          {archivados === "1" && <input type="hidden" name="archivados" value="1" />}
+          <input type="search" name="q" defaultValue={q ?? ""} placeholder="Buscar cliente o N°…" className="input w-60" />
+        </form>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-surface">
@@ -102,7 +112,8 @@ export default async function PedidosPage({
           <thead>
             <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
               <th className="px-4 py-2.5">Cliente</th>
-              <th className="px-4 py-2.5">Fecha</th>
+              <th className="px-4 py-2.5">Ingreso</th>
+              <th className="px-4 py-2.5">Entrega</th>
               <th className="px-4 py-2.5">Líneas</th>
               {verPrecios && <th className="px-4 py-2.5 text-right">Total</th>}
               <th className="px-4 py-2.5">Estado</th>
@@ -110,7 +121,7 @@ export default async function PedidosPage({
             </tr>
           </thead>
           <tbody>
-            {pedidos.map((p) => (
+            {visibles.map((p) => (
               <tr key={p.id} className="border-b border-border last:border-0 hover:bg-surface-muted">
                 <td className="px-4 py-3">
                   <Link href={`/pedidos/${p.id}`} className="font-medium text-foreground hover:text-accent">
@@ -121,6 +132,17 @@ export default async function PedidosPage({
                   )}
                 </td>
                 <td className="px-4 py-3 text-foreground-muted">{fmtFecha(p.fechaPedido)}</td>
+                <td className="px-4 py-3">
+                  {p.fechaEntregaPactada ? <span className="text-foreground-muted">{fmtFecha(p.fechaEntregaPactada)}</span> : <span className="text-foreground-muted">—</span>}
+                  {p.estado !== "ENTREGADO" && p.estado !== "CANCELADO" && alertaEntrega(p.fechaEntregaPactada) && (
+                    <span className={`badge-estado ml-1 ${alertaEntrega(p.fechaEntregaPactada)!.nivel === "semana" ? "badge-bajo" : "badge-critico"}`}>
+                      {alertaEntrega(p.fechaEntregaPactada)!.texto}
+                    </span>
+                  )}
+                  {p.prioridad !== 0 && p.estado !== "ENTREGADO" && p.estado !== "CANCELADO" && (
+                    <span className="badge-estado badge-naranja ml-1">{etiquetaPrioridad(p.prioridad)}</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-foreground-muted">{p.lineas}</td>
                 {verPrecios && <td className="px-4 py-3 text-right text-foreground-muted">{fmtMoneda(p.total)}</td>}
                 <td className="px-4 py-3">
@@ -131,9 +153,9 @@ export default async function PedidosPage({
                 </td>
               </tr>
             ))}
-            {pedidos.length === 0 && (
+            {visibles.length === 0 && (
               <tr>
-                <td colSpan={verPrecios ? 6 : 5} className="px-4 py-8 text-center text-foreground-muted">
+                <td colSpan={verPrecios ? 7 : 6} className="px-4 py-8 text-center text-foreground-muted">
                   No hay pedidos en este estado.
                 </td>
               </tr>
@@ -150,9 +172,7 @@ function FiltroTab({ href, activo, label, n }: { href: string; activo: boolean; 
   return (
     <Link
       href={href}
-      className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-        activo ? "bg-accent text-accent-foreground" : "bg-surface-muted text-foreground-muted hover:text-foreground"
-      }`}
+      className={`btn btn-sm ${activo ? "btn-azul" : "btn-outline"}`}
     >
       {label}
       {n != null && <span className="ml-1.5 opacity-70">{n}</span>}

@@ -33,7 +33,7 @@ const RELEASES: { id: string; titulo: string; detalle: string; estado: EstadoRel
     id: "R3",
     titulo: "Producción",
     detalle:
-      "Cola de producción priorizada, carga del ciclo de inyección en dos pasos, partidas generadas por el sistema y cajas por partida.",
+      "Cola de producción priorizada, inicio y cierre de producción, partidas generadas por el sistema y cajas por partida.",
     estado: "Completado",
     falta: "Impresión de la etiqueta de cada caja (ver R5).",
   },

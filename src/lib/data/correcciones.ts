@@ -220,8 +220,8 @@ export async function corregirCierreCiclo(actor: Actor, cicloId: number, cambios
   const depositoId = await getDepositoNexaId();
   return ejecutar(async (tx) => {
     const [c] = await tx.select().from(cicloProduccion).where(eq(cicloProduccion.id, cicloId)).for("update");
-    if (!c) return { error: "Ciclo no encontrado." };
-    if (!c.fechaFin) return { error: "El ciclo está abierto: se corrige en su cierre normal." };
+    if (!c) return { error: "Producción no encontrada." };
+    if (!c.fechaFin) return { error: "La producción está abierta: se corrige en su cierre normal." };
     const nuevo = { ...c };
     if (cambios.golpesFin !== undefined) {
       if (cambios.golpesFin != null && c.golpesInicio != null && cambios.golpesFin < c.golpesInicio) return { error: "Los golpes de fin no pueden ser menores que los de inicio." };
@@ -267,7 +267,7 @@ export async function corregirCierreCiclo(actor: Actor, cicloId: number, cambios
           await tx.update(caja).set({ cantidad: queda, ...(queda === 0 ? { estado: "BAJA" as const } : {}) }).where(eq(caja.id, cj.id));
           resta -= quita;
         }
-        if (resta > 0) throw new ErrorCorreccion(`Las cajas del ciclo ya están armadas o despachadas: sólo se pueden descontar ${-delta - resta} piezas.`);
+        if (resta > 0) throw new ErrorCorreccion(`Las cajas de la producción ya están armadas o despachadas: sólo se pueden descontar ${-delta - resta} piezas.`);
         if (Number(s?.cantidad ?? 0) + delta < 0) throw new ErrorCorreccion("El stock del producto no alcanza para descontar la corrección.");
       } else if (c.partidaId != null) {
         await generarCajas(tx, { cicloId: c.id, partidaId: c.partidaId, productoId: c.productoId, piezas: delta });
@@ -280,7 +280,7 @@ export async function corregirCierreCiclo(actor: Actor, cicloId: number, cambios
         cantidad: String(delta),
         origen: "CICLO",
         origenId: c.id,
-        motivo: `Corrección de Supervisión del cierre del ciclo #${c.id}: ${m}`,
+        motivo: `Corrección autorizada del cierre de la producción #${c.id}: ${m}`,
         usuarioId: actor.id,
       });
       await tx

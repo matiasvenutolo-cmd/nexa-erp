@@ -71,7 +71,7 @@ export function FormularioPedido({
   puedeVerPrecios: boolean;
   puedeCrearProducto: boolean;
 }) {
-  const [state, formAction] = useActionState<FormState, FormData>(crearPedidoAction, {});
+  const [state, formAction, pendiente] = useActionState<FormState, FormData>(crearPedidoAction, {});
   const hoy = hoyISO();
 
   const [clienteModo, setClienteModo] = useState<"existente" | "nuevo">("existente");
@@ -343,11 +343,8 @@ export function FormularioPedido({
           <textarea name="observaciones" rows={2} className="input" />
         </Bloque>
 
-        <button
-          type="submit"
-          className="w-full rounded-md bg-accent py-2.5 text-sm font-medium text-accent-foreground hover:opacity-90 sm:w-auto sm:px-6"
-        >
-          Crear pedido
+        <button type="submit" disabled={pendiente} className="btn btn-primary btn-lg w-full sm:w-auto">
+          {pendiente ? "Creando el pedido…" : "Crear pedido"}
         </button>
       </div>
 

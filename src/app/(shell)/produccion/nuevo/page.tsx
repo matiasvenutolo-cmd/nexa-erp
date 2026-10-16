@@ -18,7 +18,7 @@ export default async function NuevoCicloPage({
 
   return (
     <div className="max-w-3xl space-y-4">
-      <h1 className="text-xl font-semibold text-brand-azul-oscuro">Nuevo ciclo — inicio</h1>
+      <h1 className="text-xl font-semibold text-brand-azul-oscuro">Inicio de producción</h1>
       <p className="text-sm text-foreground-muted">
         Cargá el arranque del día. El cierre (golpes finales, producidas, colada) se carga aparte,
         al terminar la jornada.

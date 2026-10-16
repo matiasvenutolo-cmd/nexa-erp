@@ -5,7 +5,8 @@ import { HOME_POR_ROL, NAV_POR_ROL, ROL_LABEL, ROLES_CON_AVISOS } from "@/lib/na
 import { contarAvisosPendientes } from "@/lib/data/avisos";
 import { cerrarSesionAction } from "@/app/actions/sesion";
 import { SidebarNav, NavMovil } from "@/components/sidebar-nav";
-import { puedeElegirVistaPrecios } from "@/lib/auth/permisos";
+import { puedeElegirVistaPrecios, puedeInformarError } from "@/lib/auth/permisos";
+import { InformarError } from "@/components/informar-error";
 import { vistaCompleta } from "@/lib/vista";
 import { cambiarVistaAction } from "@/app/actions/vista";
 
@@ -50,10 +51,10 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
         <Image src="/nexa-logo.png" alt="NEXA" width={52} height={34} priority className="h-[30px] w-auto" />
       </span>
       <span className="min-w-0">
-        <span className="block font-[family-name:var(--font-display)] text-[1.05rem] font-semibold leading-tight tracking-tight text-brand-azul">
+        <span className="block whitespace-nowrap font-[family-name:var(--font-display)] text-[1rem] font-semibold leading-tight tracking-tight text-brand-azul">
           Producción y stock
         </span>
-        <span className="block truncate text-xs font-medium text-foreground-muted">Pisos encastrables de alto rendimiento</span>
+        <span className="block truncate text-[11px] font-medium text-foreground-muted">Pisos encastrables</span>
       </span>
     </Link>
   );
@@ -72,7 +73,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen">
       <div className="brand-stripe print:hidden" />
-      <div className="flex min-h-[calc(100vh-3px)] flex-col md:flex-row">
+      <div className={`flex min-h-[calc(100vh-3px)] flex-col ${soloUnaPantalla ? "" : "md:flex-row"}`}>
         {!soloUnaPantalla && (
           <aside className="sticky top-0 hidden h-[calc(100vh-3px)] w-60 shrink-0 flex-col border-r border-border bg-white/90 p-4 backdrop-blur print:hidden md:flex">
             <div className="mb-5">{marca}</div>
@@ -80,6 +81,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">
               {persona}
               {vista}
+              {puedeInformarError(usuario.rol) && <InformarError />}
               {salir}
             </div>
           </aside>
@@ -97,14 +99,21 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
                   {salir}
                 </>
               ) : (
-                <NavMovil nav={nav} contadores={contadores} pie={<div className="flex flex-col gap-2">{persona}{vista}{salir}</div>} />
+                <NavMovil nav={nav} contadores={contadores} pie={<div className="flex flex-col gap-2">{persona}{vista}{puedeInformarError(usuario.rol) && <InformarError />}{salir}</div>} />
               )}
             </div>
           </div>
         </header>
 
         <main className="w-full min-w-0 flex-1 px-4 py-5 md:px-8 md:py-7">
-          <div className="mx-auto max-w-6xl">{children}</div>
+          <div className="mx-auto max-w-6xl">
+            {children}
+            {soloUnaPantalla && puedeInformarError(usuario.rol) && (
+              <div className="mx-auto mt-6 max-w-xl">
+                <InformarError />
+              </div>
+            )}
+          </div>
         </main>
       </div>
     </div>

@@ -20,7 +20,7 @@ import {
 } from "@/lib/db/schema";
 import { claveColor, pareceMulticolor, resolverColorLibre } from "@/lib/catalogo-normalizacion";
 import { getDepositoNexaId } from "@/lib/data/depositos";
-import { puedeCambiarPrioridad, puedeCrearPedido } from "@/lib/auth/permisos";
+import { ROLES_ESTRUCTURA, puedeCambiarPrioridad, puedeCrearPedido } from "@/lib/auth/permisos";
 import { anularDespachoActivoEnTx } from "@/lib/data/despachos";
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
 
@@ -29,19 +29,21 @@ export type FilaPedido = {
   numeroOrden: string | null;
   clienteNombre: string;
   fechaPedido: string;
+  fechaEntregaPactada: string | null;
   estado: (typeof pedido.$inferSelect)["estado"];
   prioridad: number;
   total: string | null;
   lineas: number;
 };
 
-export async function listarPedidos(estado?: (typeof pedido.$inferSelect)["estado"]): Promise<FilaPedido[]> {
+export async function listarPedidos(estado?: (typeof pedido.$inferSelect)["estado"], opts: { archivados?: boolean } = {}): Promise<FilaPedido[]> {
   const filas = await db
     .select({
       id: pedido.id,
       numeroOrden: pedido.numeroOrden,
       clienteNombre: cliente.nombre,
       fechaPedido: pedido.fechaPedido,
+      fechaEntregaPactada: pedido.fechaEntregaPactada,
       estado: pedido.estado,
       prioridad: pedido.prioridad,
       total: pedido.total,
@@ -50,7 +52,7 @@ export async function listarPedidos(estado?: (typeof pedido.$inferSelect)["estad
     .from(pedido)
     .innerJoin(cliente, eq(pedido.clienteId, cliente.id))
     .leftJoin(pedidoLinea, eq(pedidoLinea.pedidoId, pedido.id))
-    .where(estado ? eq(pedido.estado, estado) : undefined)
+    .where(and(estado ? eq(pedido.estado, estado) : undefined, eq(pedido.archivado, Boolean(opts.archivados))))
     .groupBy(pedido.id, cliente.nombre)
     .orderBy(pedido.prioridad, desc(pedido.fechaPedido));
 
@@ -80,6 +82,7 @@ export async function coberturaPorLinea(productoIds?: number[]): Promise<Map<num
     .where(
       and(
         sql`${pedido.estado} not in ('ENTREGADO', 'CANCELADO')`,
+        eq(pedido.archivado, false),
         sql`${pedidoLinea.productoId} is not null`,
         sql`${pedidoLinea.unidadesPedidas} > ${pedidoLinea.unidadesDespachadas}`,
         productoIds ? inArray(pedidoLinea.productoId, productoIds.length ? productoIds : [-1]) : undefined,
@@ -156,6 +159,7 @@ export async function contarPedidosPorEstado(): Promise<
   const filas = await db
     .select({ estado: pedido.estado, n: sql<number>`count(*)`.mapWith(Number) })
     .from(pedido)
+    .where(eq(pedido.archivado, false))
     .groupBy(pedido.estado);
 
   const base = {
@@ -272,6 +276,12 @@ export async function crearPedido(input: NuevoPedidoInput): Promise<{ id: number
     return { error: "Cada ítem tiene que tener una cantidad mayor que cero." };
   }
   const depositoId = await getDepositoNexaId();
+  // Bug de la demo ("al crear un pedido aparece una pantalla inesperada"): el
+  // N° de orden es único y un duplicado rompía con un error de la base.
+  if (input.numeroOrden) {
+    const [ya] = await db.select({ id: pedido.id }).from(pedido).where(eq(pedido.numeroOrden, input.numeroOrden));
+    if (ya) return { error: `Ya existe el pedido #${ya.id} con el N° de orden ${input.numeroOrden}. Revisá si no se cargó dos veces.` };
+  }
 
   return db.transaction(async (tx) => {
     const [nuevo] = await tx
@@ -490,6 +500,7 @@ export async function materialComprometido(): Promise<FilaComprometido[]> {
       and(
         ne(pedido.estado, "ENTREGADO"),
         ne(pedido.estado, "CANCELADO"),
+        eq(pedido.archivado, false),
         sql`${pedidoLinea.productoId} is not null`,
       ),
     )
@@ -608,6 +619,39 @@ export async function cambiarPrioridad(
         nuevo: etiquetaPrioridad(nueva),
         motivo: motivoTxt,
       },
+    ]);
+    return {};
+  });
+}
+
+/**
+ * Archivado reversible (minuta 15/10: "datos viejos de prueba, pedidos sin
+ * producto, ensucian las vistas"). Sólo Supervisión o Gerencia, con motivo.
+ * No borra nada. Para no dejar stock reservado por un pedido invisible, se
+ * archivan pedidos cerrados (entregados o cancelados) o sin productos
+ * reservados; un pedido abierto con reservas se cancela primero.
+ */
+export async function archivarPedido(actor: Actor, pedidoId: number, motivo: string | null, desarchivar = false): Promise<Resultado> {
+  if (!ROLES_ESTRUCTURA.includes(actor.rol)) return { error: "Archivar pedidos lo hacen Supervisión o Gerencia." };
+  if (!desarchivar && !motivo?.trim()) return { error: "Indicá el motivo (por ejemplo «dato de prueba» o «histórico sin producto»)." };
+  return db.transaction(async (tx) => {
+    const [p] = await tx.select().from(pedido).where(eq(pedido.id, pedidoId)).for("update");
+    if (!p) return { error: "Pedido no encontrado." };
+    if (p.archivado === !desarchivar) return {};
+    if (!desarchivar && p.estado !== "ENTREGADO" && p.estado !== "CANCELADO") {
+      const [r] = await tx
+        .select({ n: sql<number>`count(*)`.mapWith(Number) })
+        .from(reserva)
+        .innerJoin(pedidoLinea, eq(reserva.pedidoLineaId, pedidoLinea.id))
+        .where(and(eq(pedidoLinea.pedidoId, pedidoId), eq(reserva.estado, "ABIERTA")));
+      if (r.n > 0) return { error: "El pedido está abierto y tiene stock reservado: cancelalo antes de archivarlo." };
+    }
+    await tx
+      .update(pedido)
+      .set(desarchivar ? { archivado: false, archivadoMotivo: null, archivadoEn: null, archivadoPorId: null } : { archivado: true, archivadoMotivo: motivo!.trim(), archivadoEn: new Date(), archivadoPorId: actor.id })
+      .where(eq(pedido.id, pedidoId));
+    await registrarCambios(tx, actor.id, [
+      { entidad: "pedido", entidadId: pedidoId, campo: "archivado", anterior: desarchivar ? "sí" : "no", nuevo: desarchivar ? "no" : "sí", motivo },
     ]);
     return {};
   });

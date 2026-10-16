@@ -2,12 +2,13 @@
 
 import { useActionState, useState } from "react";
 import { ingresoMpAction, type EstadoForm } from "@/app/actions/materia-prima";
+import { fmtPeso, parseCantidadAR } from "@/lib/presentaciones";
 
-const BOTON = "rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-60";
+const BOTON = "btn btn-primary";
 
 function Mensaje({ s }: { s: EstadoForm }) {
-  if (s.error) return <div className="rounded-md bg-[var(--estado-critico-bg)] px-3 py-2 text-sm font-medium text-[var(--estado-critico-fg)]">{s.error}</div>;
-  if (s.ok) return <div className="rounded-md bg-[var(--estado-ok-bg)] px-3 py-2 text-sm font-medium text-[var(--estado-ok-fg)]">{s.ok}</div>;
+  if (s.error) return <div className="aviso aviso-error">{s.error}</div>;
+  if (s.ok) return <div className="aviso aviso-ok">{s.ok}</div>;
   return null;
 }
 
@@ -25,10 +26,19 @@ type Mp = { id: number; nombre: string; tipo: string };
 export function FormIngreso({ materias, hoy }: { materias: Mp[]; hoy: string }) {
   const [state, action, pendiente] = useActionState<EstadoForm, FormData>(ingresoMpAction, {});
   const [codigo, setCodigo] = useState("");
+  const [cantidad, setCantidad] = useState("");
   const limpio = codigo.replace(/\s+/g, "");
+  const kg = parseCantidadAR(cantidad);
   return (
-    <form action={action} className="space-y-3 rounded-lg border border-border bg-surface p-4">
+    <form action={action} className="panel space-y-3">
       <Mensaje s={state} />
+      {state.confirmar && (
+        <div className="aviso aviso-alerta space-y-2">
+          <p>{state.confirmar}</p>
+          <input type="hidden" name="confirmado" value={kg ?? ""} />
+          <p className="text-xs">Si la cantidad es correcta, tocá «Registrar ingreso» otra vez. Si no, corregila.</p>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Campo label="Materia prima *">
           <select name="materiaPrimaId" required defaultValue="" className="input">
@@ -49,7 +59,12 @@ export function FormIngreso({ materias, hoy }: { materias: Mp[]; hoy: string }) 
           <input name="fechaRecepcion" type="date" defaultValue={hoy} required className="input" />
         </Campo>
         <Campo label="Cantidad (kg) *">
-          <input name="cantidadKg" type="number" step="any" min="0" required className="input" />
+          <input name="cantidadKg" inputMode="decimal" required className="input" value={cantidad} onChange={(e) => setCantidad(e.target.value)} placeholder="Ej.: 1.500 o 25,5" />
+          {cantidad && (
+            <span className={`mt-1 block text-xs font-semibold ${kg == null ? "text-[var(--estado-critico-fg)]" : "text-brand-azul"}`}>
+              {kg == null ? "No se entiende la cantidad: usá punto para miles y coma para decimales." : `Se registran ${fmtPeso(kg)}`}
+            </span>
+          )}
         </Campo>
       </div>
       <Campo label="Código de barras del lote (27 dígitos: 000 + 4 MP + 8 proveedor/certificado + 12 lote) *">

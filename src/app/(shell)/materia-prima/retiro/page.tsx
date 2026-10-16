@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { color, producto } from "@/lib/db/schema";
+import { producto } from "@/lib/db/schema";
 import { listarLotes, materiasPrimasActivas } from "@/lib/data/materia-prima";
 import { ciclosAbiertos } from "@/lib/data/maquina";
-import { resolverDosificacion } from "@/lib/data/dosificacion";
+import { recetasDe } from "@/lib/data/recetas";
 import { getUsuariosPorRol } from "@/lib/data/usuarios";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeRetirarMateriaPrima } from "@/lib/auth/permisos";
@@ -37,25 +37,23 @@ export default async function RetiroMpPage({ searchParams }: { searchParams: Pro
           familia: producto.familia,
           colorId: producto.colorId,
           kg: producto.kgPorUnidad,
-          masterMpId: color.masterMateriaPrimaId,
         })
         .from(producto)
-        .leftJoin(color, eq(producto.colorId, color.id))
         .where(inArray(producto.codigo, abiertos.map((c) => c.productoCodigo ?? "")))
     : [];
+  // Sugerencia de material: la receta de carga del producto (no la dosificación anterior en g/kg).
+  const recetas = await recetasDe(productos.map((p) => p.id));
   const ciclos: CicloRetiro[] = await Promise.all(
     abiertos.map(async (c) => {
       const p = productos.find((x) => x.cicloProductoCodigo === c.productoCodigo);
-      const d = p?.familia ? await resolverDosificacion(p.familia, p.colorId) : null;
-      const base = d?.materiaPrimaBaseNombre ? materias.find((m) => m.nombre === d.materiaPrimaBaseNombre) : undefined;
+      const r = p ? recetas.get(p.id)?.REGIMEN : undefined;
       return {
         id: c.id,
-        etiqueta: `Ciclo #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"} · partida N° ${c.partidaNumero ?? "—"} · ${etiquetaInyectora(c.inyectora)}`,
+        etiqueta: `Producción #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"} · partida N° ${c.partidaNumero ?? "—"} · ${etiquetaInyectora(c.inyectora)}`,
         productoNumero: p?.numero ?? null,
         kgPorPieza: p?.kg != null && Number(p.kg) > 0 ? Number(p.kg) : null,
-        gPorKgMp: d?.gPorKgMp ?? null,
-        materialBaseId: base?.id ?? null,
-        masterMpId: p?.masterMpId ?? null,
+        receta: r ? r.items.map((i) => ({ materiaPrimaId: i.materiaPrimaId, kg: i.kg, esMaster: i.esMaster, texto: `${i.texto} ${i.materiaPrimaNombre}` })) : null,
+        kgVirgenPorCarga: r?.kgVirgen ?? null,
       };
     }),
   );
@@ -64,13 +62,13 @@ export default async function RetiroMpPage({ searchParams }: { searchParams: Pro
   return (
     <div className="max-w-4xl space-y-5">
       <div>
-        <Link href="/materia-prima" className="text-sm text-foreground-muted hover:text-foreground">
-          ← Materia prima
+        <Link href={sp.ciclo ? `/produccion/${sp.ciclo}` : "/materia-prima"} className="text-sm font-semibold text-foreground-muted hover:text-foreground">
+          ← {sp.ciclo ? `Producción #${sp.ciclo}` : "Materia prima"}
         </Link>
         <h1 className="mt-1 text-xl font-semibold text-brand-azul-oscuro">Retiro de materia prima a pie de máquina</h1>
         <p className="mt-1 text-sm text-foreground-muted">
           Movimiento A: el material sale del depósito y queda junto a la inyectora. La carga en la tolva se registra después,
-          desde el retiro o desde el ciclo, a medida que se usa (puede pasar de un turno a otro).
+          desde la pantalla del operario o desde la producción, a medida que se usa (puede pasar de un turno a otro).
         </p>
       </div>
       <FormRetiroMaquina

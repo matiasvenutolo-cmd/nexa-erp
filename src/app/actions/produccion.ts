@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { crearCiclo, cerrarCiclo, resumenParaCiclo, ultimoCicloDePartida } from "@/lib/data/produccion";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeCargarProduccion, puedeCerrarCiclo } from "@/lib/auth/permisos";
+import { cerrarTurno, turnoAbiertoDe as vistaTallerDeCiclo } from "@/lib/data/taller";
 
 export type FormState = { error?: string };
 
@@ -68,10 +69,17 @@ export async function golpesSugeridos(partidaId: number) {
 
 export async function cerrarCicloAction(_prev: FormState, fd: FormData): Promise<FormState> {
   const usuario = await getUsuarioActual();
-  if (!puedeCerrarCiclo(usuario.rol)) return { error: "No tenés permiso para cerrar el ciclo." };
+  if (!puedeCerrarCiclo(usuario.rol)) return { error: "No tenés permiso para cerrar la producción." };
 
   const cicloId = Number(fd.get("cicloId"));
   const cerrarPartida = fd.get("cerrarPartida") === "on";
+  // Si hay un turno abierto, el cierre de producción también lo cierra (con los mismos golpes).
+  const golpes = numOrNull(fd.get("golpesFin"));
+  const vista = await vistaTallerDeCiclo(cicloId);
+  if (vista && golpes != null) {
+    const t = await cerrarTurno(usuario, { cicloId, golpesFin: golpes });
+    if (t.error) return { error: t.error };
+  }
 
   const r = await cerrarCiclo(cicloId, {
     golpesFin: numOrNull(fd.get("golpesFin")),
@@ -89,5 +97,5 @@ export async function cerrarCicloAction(_prev: FormState, fd: FormData): Promise
 
   revalidatePath("/produccion");
   revalidatePath(`/produccion/${cicloId}`);
-  redirect(`/produccion/${cicloId}`);
+  redirect(`/produccion/${cicloId}?ok=${encodeURIComponent("Producción cerrada: lo bueno entró a stock en cajas y se registró el consumo de la tolva.")}`);
 }

@@ -23,7 +23,7 @@ export function CorreccionCierre({ cicloId, actual }: { cicloId: number; actual:
   );
   return (
     <details className="rounded-lg border border-border bg-surface p-4 text-sm">
-      <summary className="cursor-pointer font-medium">Corregir el cierre (Supervisión)</summary>
+      <summary className="cursor-pointer font-medium">Corrección autorizada del cierre (Supervisión o Gerencia)</summary>
       <form action={action} className="mt-3 space-y-3">
         <input type="hidden" name="cicloId" value={cicloId} />
         <div className="grid gap-3 sm:grid-cols-3">
@@ -39,7 +39,7 @@ export function CorreccionCierre({ cicloId, actual }: { cicloId: number; actual:
           <input name="motivo" required className="input mt-1" placeholder="ej. error de carga en los golpes de fin" />
         </label>
         <p className="text-xs text-foreground-muted">
-          Si cambian las piezas a stock, la diferencia se registra como ajuste y se agregan o descuentan unidades de las cajas del ciclo
+          Si cambian las piezas a stock, la diferencia se registra como ajuste y se agregan o descuentan unidades de las cajas de la producción
           que no fueron armadas. Queda en el historial con el valor anterior y el nuevo.
         </p>
         <button type="submit" disabled={pendiente} className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground disabled:opacity-60">

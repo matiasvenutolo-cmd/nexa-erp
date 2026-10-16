@@ -139,7 +139,7 @@ export function OperacionesRetiro({
                           </select>
                         </Mini>
                       ) : (
-                        <p className="text-xs text-foreground-muted">No hay un ciclo en curso en esta inyectora para cargar.</p>
+                        <p className="text-xs text-foreground-muted">No hay una producción en curso en esta inyectora para cargar.</p>
                       )}
                       {puedeOperar && (
                         <Mini accion={devolverAction} boton="Devolver sin mezclar" ocultos={{ ...base, retiroMpId: l.id }}>

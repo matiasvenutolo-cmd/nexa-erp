@@ -546,6 +546,12 @@ export async function cerrarProduccionTaller(
   return { piezasAStock: aStock };
 }
 
+/** El turno abierto de una producción, si hay. */
+export async function turnoAbiertoDe(cicloId: number) {
+  const [t] = await db.select().from(turnoProduccion).where(and(eq(turnoProduccion.cicloId, cicloId), eq(turnoProduccion.estado, "ABIERTO")));
+  return t ?? null;
+}
+
 /** Turnos y novedades recientes (para el Encargado y Materia prima). */
 export async function relevosRecientes(limite = 30) {
   const turnos = await db

@@ -64,9 +64,9 @@ export default async function DespachoPage({ params }: { params: Promise<{ id: s
           <thead>
             <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
               <th className="px-4 py-2.5">Producto</th>
-              <th className="px-4 py-2.5 text-right">Pendiente del pedido</th>
-              <th className="px-4 py-2.5 text-right">Armado</th>
-              {etapa === "CONTROL_FINAL" && <th className="px-4 py-2.5 text-right">Controlado</th>}
+              <th className="px-4 py-2.5 text-right">Pendiente (baldosas/unidades)</th>
+              <th className="px-4 py-2.5 text-right">Armado (u.)</th>
+              {etapa === "CONTROL_FINAL" && <th className="px-4 py-2.5 text-right">Controlado (u.)</th>}
             </tr>
           </thead>
           <tbody>
@@ -110,7 +110,7 @@ export default async function DespachoPage({ params }: { params: Promise<{ id: s
           <ul className="space-y-1">
             {d.piqueos.map((p) => (
               <li key={p.id} className={p.conAlerta ? "text-[var(--estado-bajo-fg)]" : ""}>
-                <span className="font-mono">{p.codigoLeido}</span> · {p.tipo === "ARMADO" ? "armado" : "control final"} · {p.cantidad} u.
+                <span className="font-mono">{p.codigoLeido}</span> · {p.tipo === "ARMADO" ? "armado" : "control final"} · {p.cantidad} baldosas/unidades{p.codigoLeido.startsWith("P") ? " (de la caja)" : ""}
                 {p.partidaNumero != null && ` · partida ${p.partidaNumero}`} · {p.usuarioNombre}, {fmtFechaHora(p.creadoEn)}
                 {p.conAlerta && ` · ⚠ ${p.motivoAlerta} (no suma)`}
               </li>

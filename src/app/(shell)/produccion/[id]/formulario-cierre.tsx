@@ -3,9 +3,9 @@
 import { useActionState, useMemo, useState } from "react";
 import { cerrarCicloAction, type FormState } from "@/app/actions/produccion";
 
-/** Cierre del día (docs/06-comentarios-produccion.md §3.2/§7 — decisión "por
- *  día"): el operario cierra acá aunque siga con el mismo color mañana; la
- *  continuidad la da la partida y el golpesInicio del ciclo siguiente. */
+/** Cierre de producción (minuta 15/10): el cierre definitivo, distinto del
+ *  relevo de turno. Golpes de fin y descarte vienen de los turnos; la colada
+ *  se calcula sola si el producto la tiene configurada. */
 export function FormularioCierre({
   cicloId,
   golpesInicio,
@@ -14,6 +14,9 @@ export function FormularioCierre({
   stockActual,
   minimo,
   deseada,
+  golpesSugeridos,
+  descarteKg,
+  kgPorUnidad,
 }: {
   cicloId: number;
   golpesInicio: number | null;
@@ -23,10 +26,14 @@ export function FormularioCierre({
   stockActual: number;
   minimo: number | null;
   deseada: number | null;
+  golpesSugeridos?: number | null;
+  descarteKg?: number;
+  kgPorUnidad?: number | null;
 }) {
   const [state, formAction, pendiente] = useActionState<FormState, FormData>(cerrarCicloAction, {});
-  const [golpesFin, setGolpesFin] = useState("");
-  const [descartadas, setDescartadas] = useState("");
+  const [golpesFin, setGolpesFin] = useState(golpesSugeridos != null ? String(golpesSugeridos) : "");
+  const descartePiezas = descarteKg && kgPorUnidad ? Math.round(descarteKg / kgPorUnidad) : null;
+  const [descartadas, setDescartadas] = useState(descartePiezas != null ? String(descartePiezas) : "");
   const [aStock, setAStock] = useState<string | null>(null);
 
   const piezasProducidas = useMemo(() => {
@@ -38,8 +45,12 @@ export function FormularioCierre({
     piezasProducidas != null ? Math.max(0, piezasProducidas - (Number(descartadas) || 0)) : null;
 
   return (
-    <form action={formAction} className="space-y-4 rounded-lg border border-border bg-surface p-4">
-      <h2 className="text-sm font-semibold text-foreground-muted">Cierre del día</h2>
+    <form action={formAction} className="panel space-y-4">
+      <h2 className="panel-titulo">Cierre de producción</h2>
+      <p className="text-xs text-foreground-muted">
+        Es el cierre definitivo (no el relevo de turno): lo bueno entra a stock y se registra el consumo de la tolva. Si hay un turno abierto, se cierra con estos golpes.
+        {descarteKg ? ` Descarte pesado en los turnos: ${descarteKg} kg${descartePiezas != null ? ` ≈ ${descartePiezas} piezas` : ""}.` : ""}
+      </p>
       {state.error && (
         <div className="rounded-md bg-[var(--estado-critico-bg)] px-3 py-2 text-sm font-medium text-[var(--estado-critico-fg)]">
           {state.error}
@@ -97,8 +108,8 @@ export function FormularioCierre({
 
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="block text-sm">
-          <span className="mb-1 block text-foreground-muted">Colada (kg)</span>
-          <input name="coladaKg" type="number" step="0.001" className="input" />
+          <span className="mb-1 block text-foreground-muted">Colada (kg) — vacío: se calcula</span>
+          <input name="coladaKg" type="number" step="0.001" className="input" placeholder="automática" />
         </label>
         <label className="block text-sm">
           <span className="mb-1 block text-foreground-muted">Rebarba (kg)</span>
@@ -127,9 +138,9 @@ export function FormularioCierre({
       <button
         type="submit"
         disabled={pendiente}
-        className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-60"
+        className="btn btn-primary"
       >
-        Cerrar ciclo
+        Cerrar la producción
       </button>
     </form>
   );

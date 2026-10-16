@@ -90,6 +90,36 @@ async function usadoDeCajas(ex: Ejecutor, cajaIds: number[], excluirDespachoId?:
 }
 
 /** EN_STOCK / ARMADA / DESPACHADA según cuánto de la caja está comprometido o salió. */
+/**
+ * Estado del pedido DERIVADO de lo que realmente pasó (bug de la demo del
+ * 15/10: un pedido figuró "Entregado" y después "En armado"). Nunca se asigna
+ * a mano: se recalcula de los renglones y los despachos activos.
+ *  - todo lo pedido entregado → ENTREGADO (no vuelve atrás);
+ *  - despacho con primer control → LISTO_PARA_DESPACHAR;
+ *  - despacho armándose → EN_ARMADO;
+ *  - algo entregado → PARCIALMENTE_DESPACHADO; si no, PEDIDO.
+ * Un pedido CANCELADO no cambia.
+ */
+export async function recalcularEstadoPedido(ex: Ejecutor, pedidoId: number) {
+  const [p] = await ex.select({ estado: pedido.estado }).from(pedido).where(eq(pedido.id, pedidoId));
+  if (!p || p.estado === "CANCELADO") return p?.estado ?? null;
+  const lineas = await ex.select().from(pedidoLinea).where(eq(pedidoLinea.pedidoId, pedidoId));
+  const activos = await ex.select({ estado: despacho.estado }).from(despacho).where(and(eq(despacho.pedidoId, pedidoId), inArray(despacho.estado, ["ARMANDO", "CONTROLADO"])));
+  const completo = lineas.length > 0 && lineas.every((l) => l.unidadesDespachadas >= l.unidadesPedidas);
+  const algo = lineas.some((l) => l.unidadesDespachadas > 0);
+  const estado = completo
+    ? ("ENTREGADO" as const)
+    : activos.some((a) => a.estado === "CONTROLADO")
+      ? ("LISTO_PARA_DESPACHAR" as const)
+      : activos.length
+        ? ("EN_ARMADO" as const)
+        : algo
+          ? ("PARCIALMENTE_DESPACHADO" as const)
+          : ("PEDIDO" as const);
+  if (estado !== p.estado) await ex.update(pedido).set({ estado }).where(eq(pedido.id, pedidoId));
+  return estado;
+}
+
 async function recalcularCajas(ex: Ejecutor, cajaIds: number[]) {
   const ids = [...new Set(cajaIds)];
   if (ids.length === 0) return;
@@ -300,7 +330,7 @@ export async function iniciarDespacho(actor: Actor, pedidoId: number): Promise<R
         creadoPorId: actor.id,
       })
       .returning();
-    await tx.update(pedido).set({ estado: "EN_ARMADO" }).where(eq(pedido.id, pedidoId));
+    await recalcularEstadoPedido(tx, pedidoId);
     return { id: d.id };
   });
 }
@@ -522,7 +552,7 @@ export async function confirmarPrimerControl(actor: Actor, despachoId: number, o
       .update(despacho)
       .set({ estado: "CONTROLADO", control1PorId: actor.id, control1En: new Date(), control1Resultado: resultado })
       .where(eq(despacho.id, despachoId));
-    await tx.update(pedido).set({ estado: "LISTO_PARA_DESPACHAR" }).where(eq(pedido.id, d.pedidoId));
+    await recalcularEstadoPedido(tx, d.pedidoId);
 
     const [cab] = await tx
       .select({ cliente: cliente.nombre })
@@ -650,7 +680,7 @@ export async function confirmarControlFinal(actor: Actor, despachoId: number, ob
         entregadoEn: new Date(),
       })
       .where(eq(despacho.id, despachoId));
-    await tx.update(pedido).set({ estado: completo ? "ENTREGADO" : "PARCIALMENTE_DESPACHADO" }).where(eq(pedido.id, d.pedidoId));
+    await recalcularEstadoPedido(tx, d.pedidoId);
     await recalcularCajas(tx, finales.map((f) => f.cajaId).filter((x): x is number => x != null));
     return { remito: remitoInterno(numeroInterno) };
   });
@@ -675,11 +705,7 @@ async function anularEnTx(tx: Tx, actor: Actor, despachoId: number, motivo: stri
       await tx.update(pedidoLinea).set({ unidadesArmadas: l.unidadesDespachadas }).where(eq(pedidoLinea.id, l.id));
     }
   }
-  const algoEntregado = lineas.some((l) => l.unidadesDespachadas > 0);
-  const [p] = await tx.select({ estado: pedido.estado }).from(pedido).where(eq(pedido.id, d.pedidoId));
-  if (p.estado !== "CANCELADO") {
-    await tx.update(pedido).set({ estado: algoEntregado ? "PARCIALMENTE_DESPACHADO" : "PEDIDO" }).where(eq(pedido.id, d.pedidoId));
-  }
+  await recalcularEstadoPedido(tx, d.pedidoId);
   const cajas = await tx.select({ cajaId: piqueo.cajaId }).from(piqueo).where(eq(piqueo.despachoId, despachoId));
   await recalcularCajas(tx, cajas.map((c) => c.cajaId).filter((x): x is number => x != null));
   await registrarCambios(tx, actor.id, [

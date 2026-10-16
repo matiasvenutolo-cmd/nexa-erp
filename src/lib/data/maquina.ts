@@ -220,8 +220,8 @@ export async function registrarRetiroMaquina(
         .from(cicloProduccion)
         .leftJoin(producto, eq(cicloProduccion.productoId, producto.id))
         .where(eq(cicloProduccion.id, input.cicloId));
-      if (!c) return { error: "El ciclo indicado no existe." };
-      if (c.fechaFin) return { error: `El ciclo #${c.id} ya está cerrado: iniciá el ciclo de la jornada para retirar material.` };
+      if (!c) return { error: "La producción indicada no existe." };
+      if (c.fechaFin) return { error: `La producción #${c.id} ya está cerrada: iniciá la producción para retirar material.` };
       inyectora = c.inyectora.replace(/inyectora/i, "").trim();
       productoPrevistoId = c.productoId;
       productoNumero = c.numero;

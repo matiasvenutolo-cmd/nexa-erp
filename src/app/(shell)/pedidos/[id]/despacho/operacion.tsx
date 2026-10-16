@@ -9,7 +9,7 @@ import {
   type EstadoForm,
 } from "@/app/actions/despachos";
 
-const BOTON = "rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-60";
+const BOTON = "btn btn-primary";
 
 function Mensaje({ s }: { s: EstadoForm }) {
   if (s.error) return <div className="rounded-md bg-[var(--estado-critico-bg)] px-3 py-2 text-sm font-medium text-[var(--estado-critico-fg)]">{s.error}</div>;
@@ -56,9 +56,13 @@ export function Piqueo({
           />
         </label>
         <label className="block text-sm">
-          <span className="mb-1 block text-foreground-muted">Cantidad</span>
-          <input name="cantidad" type="number" min={1} step={1} placeholder="toda la caja" className="input w-32" />
+          <span className="mb-1 block text-foreground-muted">Baldosas / unidades sueltas</span>
+          <input name="cantidad" type="number" min={1} step={1} placeholder="caja completa" className="input w-40" />
         </label>
+        <p className="w-full text-xs text-foreground-muted">
+          Al leer una caja, si dejás la cantidad vacía se toma <b>la caja completa</b> (todas sus baldosas). Si sacás sólo algunas,
+          escribí cuántas <b>baldosas o unidades</b> (no cajas).
+        </p>
         <button type="submit" disabled={pendiente} className={BOTON}>
           Registrar lectura
         </button>

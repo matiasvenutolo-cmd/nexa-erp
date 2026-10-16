@@ -16,14 +16,20 @@ export default async function RetiroDetallePage({ params }: { params: Promise<{ 
   const [ciclos, sobrantes] = await Promise.all([ciclosAbiertos(), codigosDeSobrante()]);
   const delaInyectora = ciclos
     .filter((c) => c.inyectora.replace(/inyectora/i, "").trim() === r.inyectora)
-    .map((c) => ({ id: c.id, etiqueta: `Ciclo #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"} · partida N° ${c.partidaNumero ?? "—"}` }));
+    .map((c) => ({ id: c.id, etiqueta: `Producción #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"} · partida N° ${c.partidaNumero ?? "—"}` }));
 
   return (
     <div className="max-w-5xl space-y-5">
       <div>
-        <Link href="/materia-prima" className="text-sm text-foreground-muted hover:text-foreground">
-          ← Materia prima
-        </Link>
+        {r.cicloId && r.cicloAbierto ? (
+          <Link href={`/produccion/${r.cicloId}`} className="text-sm font-semibold text-foreground-muted hover:text-foreground">
+            ← Producción #{r.cicloId}
+          </Link>
+        ) : (
+          <Link href="/materia-prima?vista=pie" className="text-sm font-semibold text-foreground-muted hover:text-foreground">
+            ← Materia prima
+          </Link>
+        )}
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold text-brand-azul-oscuro">Retiro {r.numero}</h1>
           <span className={`badge-estado ${r.estado === "ABIERTO" ? "badge-bajo" : "badge-ok"}`}>
@@ -37,14 +43,14 @@ export default async function RetiroDetallePage({ params }: { params: Promise<{ 
         <Dato label="Fecha y hora" valor={fmtFechaHora(r.fechaHora)} />
         <Dato label="Operario responsable" valor={r.operarioNombre ?? "—"} />
         <div>
-          <div className="text-xs text-foreground-muted">Ciclo</div>
+          <div className="text-xs text-foreground-muted">Producción</div>
           <div className="font-medium">
             {r.cicloId ? (
               <Link href={`/produccion/${r.cicloId}`} className="text-accent hover:underline">
                 #{r.cicloId}
               </Link>
             ) : (
-              "sin ciclo"
+              "sin producción"
             )}
             {r.partidaNumero != null && ` · partida N° ${r.partidaNumero}`}
           </div>

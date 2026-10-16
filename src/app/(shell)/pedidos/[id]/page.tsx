@@ -34,6 +34,10 @@ import { CancelarPedido } from "./acciones-pedido";
 import { BotonPrepararDespacho, ControlPrioridad, VincularProducto } from "./urgencia";
 import { RemitoLegal } from "./remito-legal";
 import { fmtFecha, fmtFechaHora, fmtMoneda, fmtNumero } from "@/lib/format";
+import { alertaEntrega } from "@/lib/data/planificacion";
+import { ROLES_ESTRUCTURA } from "@/lib/auth/permisos";
+import { FormAccion } from "@/components/form-accion";
+import { archivarPedidoAction } from "@/app/actions/pedidos";
 
 export default async function DetallePedidoPage({
   params,
@@ -80,10 +84,16 @@ export default async function DetallePedidoPage({
         </Link>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-xl font-semibold text-brand-azul-oscuro">
+            <h1 className="text-[1.6rem] leading-tight">
               #{pedido.id} · {pedido.clienteNombre}
             </h1>
             <EstadoPedido estado={pedido.estado} />
+            {abierto && alertaEntrega(pedido.fechaEntregaPactada) && (
+              <span className={`badge-estado ${alertaEntrega(pedido.fechaEntregaPactada)!.nivel === "semana" ? "badge-bajo" : "badge-critico"}`}>
+                {alertaEntrega(pedido.fechaEntregaPactada)!.texto}
+              </span>
+            )}
+            {pedido.archivado && <span className="badge-estado badge-exceso">Archivado</span>}
             {abierto && pedido.prioridad !== PRIORIDAD_AUTOMATICA && (
               <span className={`badge-estado ${pedido.prioridad < 0 ? "badge-critico" : "badge-exceso"}`}>
                 {etiquetaPrioridad(pedido.prioridad)}
@@ -107,6 +117,20 @@ export default async function DetallePedidoPage({
           </div>
         </div>
       </div>
+
+      {pedido.archivado && (
+        <div className="aviso aviso-info">
+          Pedido archivado{pedido.archivadoMotivo ? `: ${pedido.archivadoMotivo}` : ""}. No aparece en las vistas operativas ni cuenta para producción.
+        </div>
+      )}
+      {ROLES_ESTRUCTURA.includes(rol) && (
+        <details className="text-sm">
+          <summary className="btn btn-ghost btn-sm list-none">{pedido.archivado ? "Desarchivar pedido" : "Archivar pedido (dato de prueba o histórico)"}</summary>
+          <FormAccion accion={archivarPedidoAction} ocultos={{ pedidoId: pedido.id, desarchivar: pedido.archivado ? 1 : 0 }} boton={pedido.archivado ? "Desarchivar" : "Archivar"} claseBoton="btn btn-outline btn-sm" className="mt-2 flex flex-wrap items-end gap-2">
+            {!pedido.archivado && <input name="motivo" required placeholder="Motivo (ej. dato de prueba)" className="input w-72" />}
+          </FormAccion>
+        </details>
+      )}
 
       {sp.entregado && (
         <div className="rounded-md bg-[var(--estado-ok-bg)] px-3 py-2 text-sm font-medium text-[var(--estado-ok-fg)]">

@@ -8,6 +8,7 @@ import {
   cerrarRetiro,
   devolverADeposito,
   identificarCodigoMp,
+  numeroRetiro,
   registrarRetiroMaquina,
   registrarSobrante,
   type LineaRetiroInput,
@@ -57,6 +58,9 @@ export async function registrarRetiroAction(_prev: EstadoMaquina, fd: FormData):
   });
   if (r.error) return { error: r.error };
   revalidar(cicloId, r.id);
+  // Desde una producción se vuelve a la producción (bug de la demo: el "volver"
+  // llevaba a Materia prima).
+  if (cicloId) redirect(`/produccion/${cicloId}?ok=${encodeURIComponent(`Retiro ${numeroRetiro(r.id!)} registrado: el material quedó a pie de máquina.`)}`);
   redirect(`/materia-prima/retiros/${r.id}`);
 }
 

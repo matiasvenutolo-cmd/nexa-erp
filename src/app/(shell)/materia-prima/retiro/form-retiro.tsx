@@ -10,9 +10,9 @@ export type CicloRetiro = {
   etiqueta: string;
   productoNumero: string | null;
   kgPorPieza: number | null;
-  gPorKgMp: number | null;
-  materialBaseId: number | null;
-  masterMpId: number | null;
+  /** Receta de carga (por carga) del producto, si está definida. */
+  receta: { materiaPrimaId: number; kg: number; esMaster: boolean; texto: string }[] | null;
+  kgVirgenPorCarga: number | null;
 };
 type Mp = { id: number; nombre: string; tipo: string };
 type Lote = { id: number; codigoBarra: string; numeroLote: string; materiaPrimaId: number; disponible: number };
@@ -57,12 +57,13 @@ export function FormRetiroMaquina({
     const virgen = lineas.filter((l) => l.materiaPrimaId && tipoDe(l.materiaPrimaId) !== "MASTER").reduce((t, l) => t + (Number(l.cantidadKg) || 0), 0);
     const master = lineas.filter((l) => l.materiaPrimaId && tipoDe(l.materiaPrimaId) === "MASTER").reduce((t, l) => t + (Number(l.cantidadKg) || 0), 0);
     const pzs = Number(piezas) || 0;
+    const cargas = kg && pzs && ciclo?.kgVirgenPorCarga ? Math.ceil((pzs * kg) / ciclo.kgVirgenPorCarga - 1e-9) : null;
     return {
       kg,
       virgen,
       master,
       mpNecesaria: kg && pzs ? pzs * kg : null,
-      masterNecesarioG: kg && pzs && ciclo?.gPorKgMp ? pzs * kg * ciclo.gPorKgMp : null,
+      cargas,
       piezasEstimadas: kg && virgen ? Math.floor((virgen + master) / kg) : null,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -71,13 +72,10 @@ export function FormRetiroMaquina({
   function sugerir() {
     if (!ciclo) return;
     const extra: Linea[] = [];
-    const pzs = Number(piezas) || 0;
-    const kg = ciclo.kgPorPieza;
-    if (ciclo.materialBaseId && !lineas.some((l) => l.materiaPrimaId === String(ciclo.materialBaseId))) {
-      extra.push(nueva({ materiaPrimaId: String(ciclo.materialBaseId), cantidadKg: kg && pzs ? String(Math.round(pzs * kg * 1000) / 1000) : "" }));
-    }
-    if (ciclo.masterMpId && !lineas.some((l) => l.materiaPrimaId === String(ciclo.masterMpId))) {
-      extra.push(nueva({ materiaPrimaId: String(ciclo.masterMpId) }));
+    const veces = calculo.cargas ?? 1;
+    for (const i of ciclo.receta ?? []) {
+      if (lineas.some((l) => l.materiaPrimaId === String(i.materiaPrimaId))) continue;
+      extra.push(nueva({ materiaPrimaId: String(i.materiaPrimaId), cantidadKg: String(Math.round(i.kg * veces * 1000) / 1000) }));
     }
     setLineas((xs) => [...xs.filter((x) => x.materiaPrimaId), ...extra]);
   }
@@ -128,9 +126,9 @@ export function FormRetiroMaquina({
       <input type="hidden" name="lineas" value={lineasJson} />
 
       <section className="grid gap-3 sm:grid-cols-2">
-        <Campo label="Ciclo de producción">
+        <Campo label="Producción">
           <select name="cicloId" value={cicloId} onChange={(e) => setCicloId(e.target.value)} className="input">
-            <option value="">Sin ciclo (otro uso)</option>
+            <option value="">Sin producción (otro uso)</option>
             {ciclos.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.etiqueta}
@@ -140,7 +138,7 @@ export function FormRetiroMaquina({
         </Campo>
         {ciclo ? (
           <Campo label="Inyectora">
-            <input className="input bg-surface-muted" readOnly value="La del ciclo" />
+            <input className="input bg-surface-muted" readOnly value="La de la producción" />
           </Campo>
         ) : (
           <Campo label="Inyectora *">
@@ -178,7 +176,7 @@ export function FormRetiroMaquina({
         </Campo>
       </section>
       {ciclos.length === 0 && (
-        <p className="text-xs text-foreground-muted">No hay ciclos en curso. Para vincular el material a una producción, primero iniciá el ciclo en Producción.</p>
+        <p className="text-xs text-foreground-muted">No hay producciones en curso. Para vincular el material, primero se inicia la producción desde la planificación.</p>
       )}
 
       <section className="space-y-2 rounded-md border border-border p-3">
@@ -188,21 +186,22 @@ export function FormRetiroMaquina({
           </Campo>
           <div className="text-xs text-foreground-muted sm:pt-6">
             {!ciclo ? (
-              "Elegí el ciclo para calcular el material necesario."
+              "Elegí la producción para calcular el material necesario."
             ) : calculo.kg == null ? (
               "El producto no tiene peso por pieza configurado (Panel Admin → Productos): no se puede calcular el material necesario."
             ) : (
               <>
                 {calculo.mpNecesaria != null && <>Material necesario: {fmtNumero(calculo.mpNecesaria, 2)} kg</>}
-                {calculo.masterNecesarioG != null && <> · master: {fmtNumero(calculo.masterNecesarioG, 3)} g (dosificación configurada)</>}
+                {calculo.cargas != null && <> · {calculo.cargas} cargas de la receta</>}
+                {!ciclo.receta && <> · sin receta de carga: no se sugiere el master</>}
                 {calculo.piezasEstimadas != null && <> · con lo cargado abajo salen ≈ {fmtNumero(calculo.piezasEstimadas, 0)} piezas</>}
               </>
             )}
           </div>
         </div>
-        {ciclo && (ciclo.materialBaseId || ciclo.masterMpId) && (
+        {ciclo?.receta && (
           <button type="button" onClick={sugerir} className="text-xs font-medium text-accent hover:underline">
-            Agregar el material base y el master configurados para este producto
+            Agregar el material de la receta ({ciclo.receta.map((i) => i.texto).join(" + ")}){calculo.cargas ? ` × ${calculo.cargas} cargas` : " × 1 carga"}
           </button>
         )}
       </section>

@@ -143,7 +143,7 @@ describe("Producción: el stock y las cajas entran una sola vez", () => {
     if ("error" in c) throw new Error(c.error);
     const antes = await stock(s.productos.rejRojo.id);
     const [a, b] = await Promise.all([cerrarCiclo(c.id, cierre(30, 30)), cerrarCiclo(c.id, cierre(30, 30))]);
-    expect([a.error, b.error].filter(Boolean)).toEqual(["Este ciclo ya está cerrado."]);
+    expect([a.error, b.error].filter(Boolean)).toEqual(["Esta producción ya está cerrada."]);
     expect(await stock(s.productos.rejRojo.id)).toBe(antes + 30);
     expect(await db().select().from(schema.caja).where(eq(schema.caja.cicloId, c.id))).toHaveLength(2);
   });

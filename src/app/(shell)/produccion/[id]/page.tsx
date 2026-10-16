@@ -2,7 +2,11 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { cajasDeCiclo, obtenerCiclo, resumenParaCiclo } from "@/lib/data/produccion";
 import { etiquetaInyectora } from "@/lib/inyectoras";
-import { resolverDosificacion } from "@/lib/data/dosificacion";
+import { recetasDe } from "@/lib/data/recetas";
+import { db } from "@/lib/db/client";
+import { turnoProduccion, usuario as usuarioT } from "@/lib/db/schema";
+import { asc, eq } from "drizzle-orm";
+import { etiquetaTurno } from "@/lib/data/planificacion";
 import { codigoDeUso, listarRetiros } from "@/lib/data/materia-prima";
 import { ciclosAbiertos, codigosDeSobrante, controlMaterialCiclo, obtenerRetirosMaquina } from "@/lib/data/maquina";
 import { getUsuarioActual } from "@/lib/session";
@@ -13,17 +17,26 @@ import { FormularioCierre } from "./formulario-cierre";
 import { CorreccionCierre } from "./correccion";
 
 /**
- * Un ciclo es la producción de una jornada en una inyectora, dentro de una
- * partida (que puede seguir al día siguiente). Pasos: inicio → retiro de MP a
- * pie de máquina → carga en tolva → producción, devoluciones y sobrantes →
- * cierre del día.
+ * Una producción (minuta 15/10: se dejó de llamar "ciclo", que en planta es
+ * el tiempo de apertura y cierre de la máquina) en una inyectora, dentro de
+ * una partida. Pasos: inicio de producción → retiro de MP a pie de máquina →
+ * carga en tolva → turnos y relevos → cierre de producción.
  */
-export default async function CicloPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProduccionDetallePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ ok?: string }> }) {
   const { id } = await params;
+  const { ok } = await searchParams;
   const usuario = await getUsuarioActual();
   const ciclo = await obtenerCiclo(Number(id));
   if (!ciclo) notFound();
-  const dosificacion = ciclo.productoFamilia ? await resolverDosificacion(ciclo.productoFamilia, ciclo.productoColorId) : null;
+  const recetas = ciclo.productoId ? (await recetasDe([ciclo.productoId])).get(ciclo.productoId) : undefined;
+  const turnos = await db
+    .select({ t: turnoProduccion, usuarioNombre: usuarioT.nombre })
+    .from(turnoProduccion)
+    .innerJoin(usuarioT, eq(turnoProduccion.operarioId, usuarioT.id))
+    .where(eq(turnoProduccion.cicloId, ciclo.id))
+    .orderBy(asc(turnoProduccion.inicio));
+  const producidoTurnos = turnos.reduce((t, x) => t + (x.t.piezas ?? 0), 0);
+  const ultimoGolpes = [...turnos].reverse().find((x) => x.t.golpesFin != null)?.t.golpesFin ?? null;
   const abierto = ciclo.fechaFin == null;
   const [cajas, legado, retiros, control, resumen, abiertos, sobrantes] = await Promise.all([
     cajasDeCiclo(ciclo.id),
@@ -37,7 +50,7 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
   const inyectora = ciclo.inyectora.replace(/inyectora/i, "").trim();
   const ciclosCarga = abiertos
     .filter((c) => c.inyectora.replace(/inyectora/i, "").trim() === inyectora)
-    .map((c) => ({ id: c.id, etiqueta: `Ciclo #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"}` }));
+    .map((c) => ({ id: c.id, etiqueta: `Producción #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"}` }));
   const puedeOperar = puedeRetirarMateriaPrima(usuario.rol);
   const puedeCorregir = puedeCorregirProduccionMp(usuario.rol);
   const puedeCargar = puedeCargarTolva(usuario.rol);
@@ -47,19 +60,36 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
   return (
     <div className="max-w-5xl space-y-4">
       <div>
-        <Link href="/produccion" className="text-sm text-foreground-muted hover:text-foreground">
+        <Link href={abierto ? "/produccion?vista=curso" : "/produccion?vista=historial"} className="text-sm font-semibold text-foreground-muted hover:text-foreground">
           ← Producción
         </Link>
-        <h1 className="mt-1 text-xl font-semibold text-brand-azul-oscuro">
-          Ciclo #{ciclo.id} — {ciclo.productoCodigo} · {ciclo.productoDescripcion}
+        <h1 className="mt-1 text-[1.6rem] leading-tight">
+          Producción #{ciclo.id} · {ciclo.productoColorNombre ?? "—"}
         </h1>
-        <ol className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground-muted">
-          <li>✓ 1. Inicio (partida N° {ciclo.partidaNumero ?? "—"})</li>
-          <li>{retiros.length > 0 || legado.length > 0 ? "✓" : "○"} 2. Retiro de MP a pie de máquina</li>
-          <li>{hayCarga ? "✓" : "○"} 3. Carga en tolva</li>
-          <li>{abierto ? "○" : "✓"} 4. Producción, devoluciones y sobrantes</li>
-          <li>{abierto ? "○" : "✓"} 5. Cierre del día{abierto ? "" : " — producción ingresada al stock en cajas"}</li>
+        <p className="text-sm text-foreground-muted">
+          {ciclo.productoCodigo} · {ciclo.productoDescripcion}
+        </p>
+        <ol className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+          {[
+            [true, `1. Inicio de producción (partida N° ${ciclo.partidaNumero ?? "—"})`],
+            [retiros.length > 0 || legado.length > 0, "2. Retiro a pie de máquina"],
+            [hayCarga, "3. Carga en tolva"],
+            [turnos.length > 0, `4. Turnos y relevos${turnos.length ? ` (${turnos.length})` : ""}`],
+            [!abierto, `5. Cierre de producción${abierto ? "" : " — ingresó al stock en cajas"}`],
+          ].map(([hecho, texto]) => (
+            <li key={String(texto)} className={`badge-estado ${hecho ? "badge-ok" : "badge-exceso"}`}>
+              {hecho ? "✓" : "○"} {texto}
+            </li>
+          ))}
         </ol>
+        {ok && <p className="aviso aviso-ok mt-3">{ok}</p>}
+        {abierto && (
+          <p className="mt-3 text-sm">
+            <Link href={`/taller?iny=${ciclo.inyectora.replace(/[^0-9]/g, "")}`} className="text-accent hover:underline">
+              Ver la pantalla del operario de esta máquina →
+            </Link>
+          </p>
+        )}
       </div>
 
       <div className="grid gap-3 rounded-lg border border-border bg-surface p-4 text-sm sm:grid-cols-4">
@@ -69,16 +99,57 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
         <Dato label="Operario" valor={ciclo.operarioNombre ?? "—"} />
         <Dato label="Golpes de inicio" valor={ciclo.golpesInicio != null ? fmtNumero(ciclo.golpesInicio, 0) : "—"} />
         <Dato label="Piezas por golpe" valor={ciclo.piezasPorGolpe != null ? fmtNumero(ciclo.piezasPorGolpe, 0) : "—"} />
-        <Dato label="Inyección deseada" valor={ciclo.cantidadDeseada != null ? `${fmtNumero(ciclo.cantidadDeseada, 0)} piezas` : "—"} />
-        <Dato
-          label="Master configurado"
-          valor={dosificacion ? `${fmtNumero(dosificacion.gPorKgMp, 4)} g/kg · ${ciclo.productoColorNombre ?? "—"}${dosificacion.origen === "excepcion" ? " (propio del color)" : ""}` : "sin dosificación"}
-        />
+        <Dato label="Cantidad objetivo" valor={ciclo.cantidadDeseada != null ? `${fmtNumero(ciclo.cantidadDeseada, 0)} piezas` : "—"} />
+        <Dato label="Producido en turnos" valor={abierto ? `${fmtNumero(producidoTurnos, 0)} piezas` : "—"} />
+        <div className="sm:col-span-4">
+          <Dato
+            label="Receta de carga"
+            valor={recetas?.REGIMEN ? recetas.REGIMEN.items.map((i) => `${i.texto} ${i.materiaPrimaNombre}`).join(" + ") : "Sin receta (Configuración → Recetas de carga)"}
+          />
+        </div>
       </div>
+
+      {turnos.length > 0 && (
+        <section className="panel overflow-x-auto p-0 text-sm">
+          <h2 className="panel-titulo mx-5 mt-4">Turnos y relevos</h2>
+          <table className="tabla">
+            <thead>
+              <tr>
+                <th>Turno</th>
+                <th>Operario</th>
+                <th>Inicio · fin</th>
+                <th className="text-right">Golpes</th>
+                <th className="text-right">Piezas</th>
+                <th className="text-right">Descarte</th>
+                <th>Recepción</th>
+                <th>Interrupción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {turnos.map(({ t, usuarioNombre }) => (
+                <tr key={t.id}>
+                  <td>{etiquetaTurno(t.turno)}</td>
+                  <td>{t.operarioNombre ?? usuarioNombre}</td>
+                  <td>
+                    {fmtDia(t.inicio)} → {t.fin ? fmtDia(t.fin) : "en curso"}
+                  </td>
+                  <td className="text-right tabular-nums">
+                    {t.golpesInicio ?? "—"} → {t.golpesFin ?? "…"}
+                  </td>
+                  <td className="text-right tabular-nums">{t.piezas ?? "—"}</td>
+                  <td className="text-right tabular-nums">{t.descarteKg != null ? `${fmtNumero(t.descarteKg, 3)} kg` : "—"}</td>
+                  <td>{t.recepcionOk == null ? "—" : t.recepcionOk ? "Coincidía" : `Diferencia: ${t.recepcionMotivo}`}</td>
+                  <td>{t.motivoInterrupcion ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       <section className="space-y-3 rounded-lg border border-border bg-surface p-4 text-sm">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold text-foreground">Material del ciclo</h2>
+          <h2 className="text-sm font-semibold text-foreground">Material de la producción</h2>
           {abierto && puedeOperar && (
             <Link href={`/materia-prima/retiro?ciclo=${ciclo.id}`} className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90">
               Retirar materia prima a pie de máquina →
@@ -147,7 +218,7 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
             <Dato label="Piezas buenas / descarte" valor={`${control.piezasBuenas != null ? fmtNumero(control.piezasBuenas, 0) : "—"} / ${control.piezasDescartadas != null ? fmtNumero(control.piezasDescartadas, 0) : "—"}`} />
             <Dato
               label="Diferencia a justificar"
-              valor={control.diferenciaKg != null ? `${fmtNumero(control.diferenciaKg, 3)} kg` : control.cerrado ? "falta dato" : "al cerrar el día"}
+              valor={control.diferenciaKg != null ? `${fmtNumero(control.diferenciaKg, 3)} kg` : control.cerrado ? "falta dato" : "al cerrar la producción"}
             />
           </div>
           <p className="mt-2 text-xs text-foreground-muted">
@@ -175,7 +246,7 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
       {ciclo.pedidos.length > 0 && (
         <div className="rounded-lg border border-border bg-surface p-4">
           <h2 className="mb-1 text-sm font-semibold text-foreground-muted">Planificación: pedidos que busca cubrir</h2>
-          <p className="mb-2 text-xs text-foreground-muted">Referencia del inicio del día; no reserva stock.</p>
+          <p className="mb-2 text-xs text-foreground-muted">Lo que se planificó para cada pedido; no reserva stock (eso pasa al armar el despacho).</p>
           <ul className="space-y-1 text-sm">
             {ciclo.pedidos.map((p) => (
               <li key={p.pedidoId} className="flex justify-between">
@@ -224,6 +295,9 @@ export default async function CicloPage({ params }: { params: Promise<{ id: stri
           stockActual={resumen?.stock ?? 0}
           minimo={resumen?.minimo ?? null}
           deseada={ciclo.cantidadDeseada}
+          golpesSugeridos={ultimoGolpes}
+          descarteKg={ciclo.descarteKg != null ? Number(ciclo.descarteKg) : 0}
+          kgPorUnidad={ciclo.productoKgPorUnidad != null ? Number(ciclo.productoKgPorUnidad) : null}
         />
       ) : null}
     </div>

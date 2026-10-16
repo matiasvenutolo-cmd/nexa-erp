@@ -181,7 +181,7 @@ export async function crearCiclo(input: NuevoCicloInput): Promise<{ id: number }
         .select({ id: cicloProduccion.id })
         .from(cicloProduccion)
         .where(and(eq(cicloProduccion.partidaId, partidaId), isNull(cicloProduccion.fechaFin)));
-      if (abierto) return { error: `La partida N° ${p.numero} tiene el ciclo #${abierto.id} sin cerrar: cerralo antes de continuar.` };
+      if (abierto) return { error: `La partida N° ${p.numero} tiene la producción #${abierto.id} sin cerrar: cerrala antes de continuar.` };
     } else {
       const [{ maxNumero }] = await tx
         .select({ maxNumero: sql<number>`coalesce(max(${partida.numero}), 0)`.mapWith(Number) })
@@ -239,9 +239,9 @@ export type FinCicloInput = {
  * movimiento).
  */
 export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promise<{ error?: string }> {
-  const yaCerrado = { error: "Este ciclo ya está cerrado." };
+  const yaCerrado = { error: "Esta producción ya está cerrada." };
   const ciclo = await db.query.cicloProduccion.findFirst({ where: eq(cicloProduccion.id, cicloId) });
-  if (!ciclo) return { error: "Ciclo no encontrado." };
+  if (!ciclo) return { error: "Producción no encontrada." };
   if (ciclo.fechaFin) return yaCerrado;
 
   const piezasProducidas =
@@ -303,7 +303,7 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
         cantidad: String(input.piezasEntregadas),
         origen: "CICLO",
         origenId: cicloId,
-        motivo: `Ciclo #${cicloId}${numeroPartida != null ? ` · partida N° ${numeroPartida}` : ""}`,
+        motivo: `Producción #${cicloId}${numeroPartida != null ? ` · partida N° ${numeroPartida}` : ""}`,
         usuarioId: input.usuarioId,
       });
       await tx
@@ -574,6 +574,7 @@ export async function pedidosQueNecesitan(productoId: number): Promise<PedidoNec
       and(
         eq(pedidoLinea.productoId, productoId),
         sql`${pedido.estado} not in ('ENTREGADO', 'CANCELADO')`,
+        eq(pedido.archivado, false),
         sql`${pedidoLinea.unidadesPedidas} > ${pedidoLinea.unidadesDespachadas}`,
       ),
     )
@@ -630,6 +631,7 @@ export async function colaProduccion(): Promise<FilaCola[]> {
       and(
         inArray(pedidoLinea.productoId, faltantes.map((f) => f.productoId)),
         sql`${pedido.estado} not in ('ENTREGADO', 'CANCELADO')`,
+        eq(pedido.archivado, false),
         sql`${pedidoLinea.unidadesPedidas} > ${pedidoLinea.unidadesDespachadas}`,
       ),
     )

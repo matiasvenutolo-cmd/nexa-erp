@@ -8,6 +8,7 @@ import {
   editarPedido,
   cambiarPrioridad,
   asignarProductoALinea,
+  archivarPedido,
 } from "@/lib/data/pedidos";
 import { resolverClienteDelPedido } from "@/lib/data/clientes";
 import { crearProductoNuevo } from "@/lib/data/catalogo";
@@ -203,4 +204,16 @@ export async function asignarProductoAction(_prev: FormState, fd: FormData): Pro
   if (r.error) return r;
   revalidarPedido(pedidoId);
   return { ok: true };
+}
+
+export async function archivarPedidoAction(_p: { error?: string; ok?: string }, fd: FormData): Promise<{ error?: string; ok?: string }> {
+  const usuario = await getUsuarioActual();
+  const pedidoId = Number(fd.get("pedidoId"));
+  const desarchivar = fd.get("desarchivar") === "1";
+  const r = await archivarPedido(usuario, pedidoId, String(fd.get("motivo") ?? "") || null, desarchivar);
+  if (r.error) return { error: r.error };
+  revalidatePath("/pedidos");
+  revalidatePath(`/pedidos/${pedidoId}`);
+  revalidatePath("/produccion");
+  return { ok: desarchivar ? "El pedido vuelve a las vistas operativas." : "Pedido archivado: ya no aparece en las vistas operativas (se puede desarchivar)." };
 }
