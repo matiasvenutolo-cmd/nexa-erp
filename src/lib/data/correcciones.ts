@@ -36,7 +36,7 @@ const EPS = 1e-6;
 class ErrorCorreccion extends Error {}
 
 function exigir(actor: Actor, motivo: string | null | undefined): string | { error: string } {
-  if (!puedeCorregirProduccionMp(actor.rol)) return { error: "Sólo Supervisión puede corregir datos de inyección y materia prima." };
+  if (!puedeCorregirProduccionMp(actor.rol)) return { error: "Sólo Supervisión o Gerencia pueden corregir datos de inyección y materia prima." };
   const m = motivo?.trim();
   if (!m) return { error: "Indicá el motivo de la corrección: queda registrado." };
   return m;

@@ -26,7 +26,6 @@ import {
   ROLES_GESTION,
   puedeVerProduccion,
   puedeVerMateriaPrima,
-  puedeVerPanelAdmin,
   puedeVerReclamos,
   puedeVerTrazabilidad,
 } from "@/lib/auth/permisos";
@@ -180,30 +179,35 @@ describe("Situación real del pedido", () => {
   });
 });
 
-describe("Menú por áreas: mismas rutas y permisos que antes", () => {
-  it("cada rol ve exactamente las secciones que su permiso habilita, agrupadas Ventas → Fábrica → Administración", () => {
+describe("Menú por áreas (minuta 15/10)", () => {
+  it("cada rol ve las secciones de su tarea, agrupadas Ventas → Fábrica → Administración", () => {
     for (const [rol, items] of Object.entries(NAV_POR_ROL) as [keyof typeof NAV_POR_ROL, (typeof NAV_POR_ROL)[keyof typeof NAV_POR_ROL]][]) {
-      const esperadas = new Set(
-        [
-          "/tablero",
-          "/pedidos",
-          ROLES_CON_AVISOS.includes(rol) && "/avisos",
-          ROLES_GESTION.includes(rol) && "/catalogo",
-          ROLES_GESTION.includes(rol) && "/clientes",
-          puedeVerReclamos(rol) && "/reclamos",
-          puedeVerProduccion(rol) && "/produccion",
-          puedeVerMateriaPrima(rol) && "/materia-prima",
-          puedeVerTrazabilidad(rol) && "/trazabilidad",
-          puedeVerPanelAdmin(rol) && "/admin",
-        ].filter(Boolean) as string[],
-      );
-      expect(new Set(items.map((i) => i.href)), rol).toEqual(esperadas);
+      const hrefs = new Set(items.map((i) => i.href));
+      const planta = rol === "OPERARIO" || rol === "MATERIA_PRIMA";
+      expect(hrefs.has("/pedidos"), rol).toBe(!planta);
+      expect(hrefs.has("/tablero"), rol).toBe(!planta);
+      expect(hrefs.has("/taller"), rol).toBe(rol === "OPERARIO");
+      expect(hrefs.has("/catalogo"), rol).toBe(ROLES_GESTION.includes(rol));
+      expect(hrefs.has("/reclamos"), rol).toBe(puedeVerReclamos(rol));
+      expect(hrefs.has("/produccion"), rol).toBe(rol !== "OPERARIO" && puedeVerProduccion(rol));
+      expect(hrefs.has("/materia-prima"), rol).toBe(puedeVerMateriaPrima(rol));
+      expect(hrefs.has("/trazabilidad"), rol).toBe(puedeVerTrazabilidad(rol));
+      expect(hrefs.has("/avisos"), rol).toBe(ROLES_CON_AVISOS.includes(rol));
       const orden = items.map((i) => i.seccion).filter(Boolean);
       const rango = { Ventas: 0, Fábrica: 1, Administración: 2 } as const;
       expect([...orden].sort((a, b) => rango[a!] - rango[b!]), rol).toEqual(orden);
     }
+    expect(NAV_POR_ROL.OPERARIO.map((i) => i.href)).toEqual(["/taller"]);
+    expect(NAV_POR_ROL.GERENCIA.filter((i) => i.seccion === "Administración").map((i) => i.label)).toEqual([
+      "Usuarios",
+      "Parámetros",
+      "Configuración",
+      "Historial de cambios",
+    ]);
     expect(rutaPermitida("DESPACHO", "/admin/usuarios")).toBe(false);
     expect(rutaPermitida("GERENCIA", "/admin/usuarios")).toBe(true);
     expect(rutaPermitida("OPERARIO", "/pedidos/nuevo")).toBe(false);
+    expect(rutaPermitida("MATERIA_PRIMA", "/pedidos")).toBe(false);
+    expect(rutaPermitida("ENCARGADO", "/taller")).toBe(true);
   });
 });

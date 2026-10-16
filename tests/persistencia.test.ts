@@ -32,7 +32,7 @@ describe("11. Persistencia después de cerrar y reabrir", () => {
     const s = await sembrar(db);
     await actualizarMinMaxProducto(s.usuarios.ENCARGADO, s.productos.rejRojo.id, { minimo: 900, maximo: 1200 });
     await crearDosificacion(s.usuarios.ENCARGADO, { familia: "REJILLA", colorId: null, materiaPrimaBaseId: null, gPorKgMp: 0.015 });
-    await crearColorEspecial(s.usuarios.ENCARGADO, { nombre: "Naranja Shell", clienteId: s.cliente.id, proveedorMasterId: s.proveedores.berma.id, masterCodigo: "7363" });
+    await crearColorEspecial(s.usuarios.SUPERVISOR, { nombre: "Naranja Shell", clienteId: s.cliente.id, proveedorMasterId: s.proveedores.berma.id, masterCodigo: "7363" });
     await actualizarParametro(s.usuarios.ENCARGADO, "unidades_por_caja_pisos", 24);
     await cerrarBase();
 

@@ -32,6 +32,15 @@ export function puedeElegirVistaPrecios(rol: Rol): boolean {
 }
 
 /**
+ * Minuta del 15/10/2026 — "Permisos y cambios estructurales": sólo el
+ * supervisor y el gerente hacen cambios estructurales (alta de productos,
+ * materias primas y master, colores dentro y fuera de catálogo, precios,
+ * reclamos) o corrigen datos ya cargados. El resto registra lo de su vista y,
+ * si detecta un error, lo informa (ver puedeInformarError).
+ */
+export const ROLES_ESTRUCTURA: readonly Rol[] = ["SUPERVISOR", "GERENCIA"];
+
+/**
  * Corrección de datos de inyección y materia prima por errores de carga
  * (anular retiros o movimientos de máquina, corregir el cierre de un ciclo o
  * la cantidad ingresada de un lote). Mismo requerimiento: sólo Supervisor.
@@ -39,7 +48,7 @@ export function puedeElegirVistaPrecios(rol: Rol): boolean {
  * movimiento propio (no se borra historial).
  */
 export function puedeCorregirProduccionMp(rol: Rol): boolean {
-  return rol === "SUPERVISOR";
+  return ROLES_ESTRUCTURA.includes(rol);
 }
 
 /**
@@ -67,7 +76,18 @@ export function puedeCrearPedido(rol: Rol): boolean {
  * autorización del supervisor" — mismo criterio que quién gestiona pedidos.
  */
 export function puedeCrearProducto(rol: Rol): boolean {
-  return ROLES_GESTION.includes(rol);
+  return ROLES_ESTRUCTURA.includes(rol);
+}
+
+/** Alta de materias primas y master (minuta 15/10: cambio estructural). */
+export function puedeAltaMateriaPrima(rol: Rol): boolean {
+  return ROLES_ESTRUCTURA.includes(rol);
+}
+
+/** Cualquier usuario que registra operación puede informar un error de carga
+ *  para que Supervisión o Gerencia lo corrijan. */
+export function puedeInformarError(rol: Rol): boolean {
+  return !ROLES_ESTRUCTURA.includes(rol);
 }
 
 /**
@@ -98,6 +118,25 @@ export function puedeVerProduccion(rol: Rol): boolean {
 
 export function puedeCerrarCiclo(rol: Rol): boolean {
   return ROLES_TALLER.includes(rol);
+}
+
+/** Pantalla del operario (celular): tomar turno, cargar la receta, relevo. */
+export function puedeOperarTaller(rol: Rol): boolean {
+  return ROLES_TALLER.includes(rol);
+}
+
+/**
+ * Planificación de la producción y recetas de carga (minuta 15/10, módulo
+ * nuevo): las arma el Encargado; Supervisión y Gerencia también.
+ */
+const ROLES_PLANIFICACION: readonly Rol[] = ["ENCARGADO", "SUPERVISOR", "GERENCIA"];
+
+export function puedePlanificar(rol: Rol): boolean {
+  return ROLES_PLANIFICACION.includes(rol);
+}
+
+export function puedeEditarRecetas(rol: Rol): boolean {
+  return ROLES_PLANIFICACION.includes(rol);
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +189,10 @@ export function puedeAdministrarOperarios(rol: Rol): boolean {
  * "con opción a ser cambiada por el encargado o supervisor en base a
  * planificación".
  */
-const ROLES_PRIORIDAD: readonly Rol[] = ["ENCARGADO", "SUPERVISOR"];
+// Minuta 15/10: "las vendedoras pueden marcar un pedido como urgente,
+// adelantado o postergado, y Producción lo muestra". Se suma Ventas
+// (Administración) y Gerencia a quienes ya podían.
+const ROLES_PRIORIDAD: readonly Rol[] = ["ADMINISTRACION", "ENCARGADO", "SUPERVISOR", "GERENCIA"];
 
 export function puedeCambiarPrioridad(rol: Rol): boolean {
   return ROLES_PRIORIDAD.includes(rol);
@@ -206,6 +248,14 @@ export function puedeCargarTolva(rol: Rol): boolean {
   return puedeRetirarMateriaPrima(rol) || rol === "OPERARIO";
 }
 
+/** Ajustes autorizados del depósito (diferencia de balanza, molienda,
+ *  fraccionamiento de master): Materia prima, Supervisión y Gerencia. */
+const ROLES_AJUSTE_MP: readonly Rol[] = ["MATERIA_PRIMA", "SUPERVISOR", "GERENCIA"];
+
+export function puedeAjustarMateriaPrima(rol: Rol): boolean {
+  return ROLES_AJUSTE_MP.includes(rol);
+}
+
 export function puedeVerMateriaPrima(rol: Rol): boolean {
   return puedeIngresarMateriaPrima(rol) || puedeRetirarMateriaPrima(rol);
 }
@@ -217,9 +267,10 @@ export function puedeCrearReclamo(rol: Rol): boolean {
   return ROLES_CARGAN_RECLAMO.includes(rol);
 }
 
-/** "Este reclamo pasa sí o sí por el supervisor". */
+/** "Este reclamo pasa sí o sí por el supervisor"; la minuta del 15/10 suma a
+ *  Gerencia en las acciones autorizadas de reclamos. */
 export function puedeResolverReclamo(rol: Rol): boolean {
-  return rol === "SUPERVISOR";
+  return ROLES_ESTRUCTURA.includes(rol);
 }
 
 const ROLES_VEN_RECLAMOS: readonly Rol[] = ["ADMINISTRACION", "SUPERVISOR", "GERENCIA", "ENCARGADO"];

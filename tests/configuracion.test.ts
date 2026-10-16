@@ -179,7 +179,7 @@ describe("6-7. Colores especiales", () => {
   });
 
   it("un color especial pedido por un cliente queda registrado con solicitante, proveedor y master", async () => {
-    const r = await crearProductoNuevo(s.usuarios.ADMINISTRACION, {
+    const r = await crearProductoNuevo(s.usuarios.SUPERVISOR, {
       familia: "REJILLA",
       tipo: "UNICO",
       colorNombre: "Azul Carrefour",
@@ -206,12 +206,12 @@ describe("6-7. Colores especiales", () => {
     // El producto copia sus datos físicos de un producto de la misma familia y tipo.
     const p = await producto(r.id);
     expect(p).toMatchObject({ kgPorUnidad: "0.6100", piezasPorGolpe: 1, unidadesPorCaja: null, esAccesorio: false });
-    expect((await listarAuditoria({ entidad: "color", entidadId: azul.id }))[0].usuarioNombre).toBe("Usuario ADMINISTRACION");
+    expect((await listarAuditoria({ entidad: "color", entidadId: azul.id }))[0].usuarioNombre).toBe("Usuario SUPERVISOR");
   });
 
   it("se reutiliza años después aunque lo escriban distinto, sin duplicar color ni producto", async () => {
     const antes = (await db().select().from(schema.color)).length;
-    const r = await crearProductoNuevo(s.usuarios.ADMINISTRACION, {
+    const r = await crearProductoNuevo(s.usuarios.SUPERVISOR, {
       familia: "REJILLA",
       tipo: "UNICO",
       colorNombre: "  AZUL carrefour ",
@@ -221,7 +221,7 @@ describe("6-7. Colores especiales", () => {
     expect((await db().select().from(schema.color)).length).toBe(antes);
 
     // En otro tipo de producto reutiliza el color (con su master) y crea sólo el producto.
-    const ciego = await crearProductoNuevo(s.usuarios.ADMINISTRACION, {
+    const ciego = await crearProductoNuevo(s.usuarios.SUPERVISOR, {
       familia: "CIEGO",
       tipo: "MONEDA",
       colorNombre: "azul carrefour",
@@ -237,12 +237,12 @@ describe("6-7. Colores especiales", () => {
   });
 
   it("alta directa desde el Panel Admin y edición auditada de su ficha", async () => {
-    const r = await crearColorEspecial(s.usuarios.ENCARGADO, { nombre: "Verde Stand", clienteId: null, proveedorMasterId: s.proveedores.berma.id });
+    const r = await crearColorEspecial(s.usuarios.SUPERVISOR, { nombre: "Verde Stand", clienteId: null, proveedorMasterId: s.proveedores.berma.id });
     expect(r.error).toBeUndefined();
-    const dup = await crearColorEspecial(s.usuarios.ENCARGADO, { nombre: "VERDE stand", clienteId: null, proveedorMasterId: null });
+    const dup = await crearColorEspecial(s.usuarios.SUPERVISOR, { nombre: "VERDE stand", clienteId: null, proveedorMasterId: null });
     expect(dup).toMatchObject({ existente: true, id: r.id });
 
-    await actualizarFichaColor(s.usuarios.ENCARGADO, r.id!, {
+    await actualizarFichaColor(s.usuarios.SUPERVISOR, r.id!, {
       especial: true,
       clienteId: s.cliente.id,
       proveedorMasterId: s.proveedores.berma.id,
@@ -257,7 +257,7 @@ describe("6-7. Colores especiales", () => {
   });
 
   it("un color de la lista oficial no entra por la vía de 'color especial'", async () => {
-    const r = await crearProductoNuevo(s.usuarios.ADMINISTRACION, {
+    const r = await crearProductoNuevo(s.usuarios.SUPERVISOR, {
       familia: "REJILLA",
       tipo: "UNICO",
       colorNombre: "negro",
@@ -265,7 +265,7 @@ describe("6-7. Colores especiales", () => {
     });
     // Mismo tipo, color y proveedor que 001B: reutiliza ese producto.
     expect(r.ok && r.id).toBe(s.productos.rejNegro.id);
-    const otroProveedor = await crearProductoNuevo(s.usuarios.ADMINISTRACION, {
+    const otroProveedor = await crearProductoNuevo(s.usuarios.SUPERVISOR, {
       familia: "REJILLA",
       tipo: "UNICO",
       colorNombre: "NEGRO",
@@ -285,7 +285,7 @@ describe("8. Pedido con varios colores", () => {
   });
 
   it("no se puede registrar 'Negro, blanco y rojo' como un color", async () => {
-    const r = await crearProductoNuevo(s.usuarios.ADMINISTRACION, {
+    const r = await crearProductoNuevo(s.usuarios.SUPERVISOR, {
       familia: "REJILLA",
       tipo: "UNICO",
       colorNombre: "Negro, blanco y rojo",
@@ -397,9 +397,9 @@ describe("9-10. Permisos", () => {
     }
   });
 
-  it("prioridad manual: sólo Encargado o Supervisor, con motivo", async () => {
+  it("prioridad manual: Ventas, Encargado, Supervisor o Gerencia, con motivo", async () => {
     const [p] = await db().select().from(schema.pedido).limit(1);
-    expect((await cambiarPrioridad(s.usuarios.ADMINISTRACION, p.id, -2, "Urgencia")).error).toBeDefined();
+    expect((await cambiarPrioridad(s.usuarios.DESPACHO, p.id, -2, "Urgencia")).error).toBeDefined();
     expect((await cambiarPrioridad(s.usuarios.ENCARGADO, p.id, -2, "")).error).toMatch(/motivo/);
     expect((await cambiarPrioridad(s.usuarios.SUPERVISOR, p.id, -2, "Urgencia", "Stand de un cliente")).error).toBeUndefined();
     expect((await cambiarPrioridad(s.usuarios.SUPERVISOR, p.id, 5, "Urgencia")).error).toMatch(/inválido/);

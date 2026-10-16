@@ -10,6 +10,7 @@ const TIPO_LABEL = {
   PEDIDO_LISTO: "Pedido listo para despachar",
   RECLAMO_NUEVO: "Reclamo nuevo",
   INFORME_RECLAMO: "Informe de reclamo",
+  ERROR_INFORMADO: "Error informado para corregir",
 } as const;
 
 export default async function AvisosPage({ searchParams }: { searchParams: Promise<{ todos?: string }> }) {

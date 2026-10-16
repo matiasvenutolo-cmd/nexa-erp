@@ -242,7 +242,7 @@ describe("Concurrencia y permisos", () => {
     expect((await registrarRetiroMaquina(op, { cicloId: null, inyectora: "8", lineas: [{ materiaPrimaId: masterId, loteMpId: null, cantidadKg: 1 }] })).error).toMatch(/permiso/);
     expect((await cargarEnTolva(op, { retiroMpId: 1, cantidadKg: 1, cicloId: 1 })).error).toMatch(/permiso/);
     expect((await anularLineaRetiro(s.usuarios.ENCARGADO, 1, "x")).error).toMatch(/Supervisión/);
-    expect((await corregirCierreCiclo(s.usuarios.GERENCIA, 1, { piezasEntregadas: 1 }, "x")).error).toMatch(/Supervisión/);
+    expect((await corregirCierreCiclo(s.usuarios.DESPACHO, 1, { piezasEntregadas: 1 }, "x")).error).toMatch(/Supervisión/);
   });
 
   it("el taller (Operario) carga en tolva y cierra el día, pero no retira, devuelve, cierra retiros ni inicia ciclos", async () => {
@@ -251,7 +251,8 @@ describe("Concurrencia y permisos", () => {
     expect((await devolverADeposito(op, { retiroMpId: 1, cantidadKg: 1 })).error).toMatch(/permiso/);
     expect(puedeCargarTolva("OPERARIO") && puedeCerrarCiclo("OPERARIO") && puedeVerProduccion("OPERARIO")).toBe(true);
     expect(puedeCargarProduccion("OPERARIO") || puedeRetirarMateriaPrima("OPERARIO") || puedeVerMateriaPrima("OPERARIO")).toBe(false);
-    expect(rutaPermitida("OPERARIO", "/produccion/12")).toBe(true);
+    expect(rutaPermitida("OPERARIO", "/taller")).toBe(true);
+    expect(rutaPermitida("OPERARIO", "/produccion/12")).toBe(false);
     expect(rutaPermitida("OPERARIO", "/produccion/nuevo")).toBe(false);
     expect(rutaPermitida("OPERARIO", "/materia-prima")).toBe(false);
     expect(rutaPermitida("ENCARGADO", "/produccion/nuevo")).toBe(true);

@@ -92,6 +92,12 @@ export const origenMovimientoEnum = pgEnum("origen_movimiento", [
   "RETIRO_MP",
   "DEVOLUCION",
   "MANUAL",
+  // Minuta 15/10: el stock de MP se separa por ubicación (depósito, pie de
+  // máquina, tolva/en proceso) y suma sus variantes.
+  "CARGA_TOLVA",
+  "CONSUMO",
+  "DIFERENCIA_BALANZA",
+  "MOLIENDA",
 ]);
 
 /**
@@ -140,7 +146,7 @@ export const estadoDespachoEnum = pgEnum("estado_despacho", ["ARMANDO", "CONTROL
 
 export const estadoReclamoEnum = pgEnum("estado_reclamo", ["ABIERTO", "EN_ANALISIS", "CERRADO"]);
 
-export const tipoAvisoEnum = pgEnum("tipo_aviso", ["PEDIDO_LISTO", "RECLAMO_NUEVO", "INFORME_RECLAMO"]);
+export const tipoAvisoEnum = pgEnum("tipo_aviso", ["PEDIDO_LISTO", "RECLAMO_NUEVO", "INFORME_RECLAMO", "ERROR_INFORMADO"]);
 
 /** Retiro de materia prima a pie de máquina: abierto mientras quede material
  *  sin cargar, devolver o justificar (puede durar varios turnos). */
@@ -155,6 +161,22 @@ export const estadoRetiroEnum = pgEnum("estado_retiro", ["ABIERTO", "CERRADO"]);
  *  DIFERENCIA   faltante o sobrante de balanza justificado al cerrar el retiro.
  */
 export const tipoMovimientoMaquinaEnum = pgEnum("tipo_movimiento_maquina", ["CARGA_TOLVA", "DEVOLUCION", "SOBRANTE", "DIFERENCIA"]);
+
+/** Receta de carga en tolva: la normal de producción y la inicial reforzada que
+ *  se usa al arrancar después de un cambio de color (minuta 15/10). */
+export const tipoRecetaEnum = pgEnum("tipo_receta", ["REGIMEN", "ARRANQUE"]);
+
+/** Turnos de la planta (triple turno). Los horarios no están definidos: el
+ *  sistema registra la hora real de inicio y de cierre de cada turno. */
+export const turnoEnum = pgEnum("turno", ["MANANA", "TARDE", "NOCHE"]);
+
+/** Tanda planificada: producto + color + cantidad, con sus pedidos. */
+export const estadoTandaEnum = pgEnum("estado_tanda", ["PLANIFICADA", "EN_CURSO", "COMPLETADA", "POSTERGADA", "CANCELADA"]);
+
+export const estadoTurnoEnum = pgEnum("estado_turno", ["ABIERTO", "CERRADO"]);
+
+/** Hechos de la máquina que no mueven stock pero hay que dejar registrados. */
+export const tipoNovedadEnum = pgEnum("tipo_novedad", ["NO_CARGA", "CARGA_DISTINTA", "DIFERENCIA_RELEVO", "INTERRUPCION"]);
 
 export const condicionIvaEnum = pgEnum("condicion_iva", [
   "RESPONSABLE_INSCRIPTO",
@@ -281,6 +303,10 @@ export const producto = pgTable(
      *  `unidades_por_caja_pisos`; los accesorios no se embalan hasta la venta. */
     unidadesPorCaja: integer("unidades_por_caja"),
     pesoCajaKg: numeric("peso_caja_kg", { precision: 8, scale: 3 }),
+    /** Colada por golpe (kg): "el recorrido hasta la pieza pesa siempre lo
+     *  mismo, así que se calcula por fórmula" (minuta 15/10). Sin dato no se
+     *  calcula. */
+    coladaKgPorGolpe: numeric("colada_kg_por_golpe", { precision: 8, scale: 4 }),
 
     // Configurables desde el Panel Admin (cada cambio queda en auditoria_config).
     minimo: integer("minimo"),
@@ -717,6 +743,10 @@ export const cicloProduccion = pgTable(
     /** Cantidad que el Encargado decide inyectar (planificación); puede ser
      *  distinta de la necesidad calculada. */
     cantidadDeseada: integer("cantidad_deseada"),
+    /** Tanda de la planificación que ejecuta esta producción. */
+    tandaId: integer("tanda_id"),
+    /** Descarte pesado en kilos (suma de los turnos). */
+    descarteKg: numeric("descarte_kg", { precision: 10, scale: 3 }),
 
     creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
     usuarioId: integer("usuario_id").references(() => usuario.id),
@@ -833,6 +863,11 @@ export const movimientoMaquina = pgTable(
     /** Movimiento de stock que generó (devolución o sobrante). */
     movimientoId: integer("movimiento_id").references(() => movimiento.id),
     observaciones: text("observaciones"),
+    /** Turno en el que se registró (pantalla del operario). */
+    turnoId: integer("turno_id"),
+    /** Carga distinta de la receta: lo planificado y el motivo de la diferencia. */
+    planificadoKg: numeric("planificado_kg", { precision: 14, scale: 3 }),
+    motivoExcepcion: text("motivo_excepcion"),
     usuarioId: integer("usuario_id")
       .notNull()
       .references(() => usuario.id),
@@ -940,6 +975,12 @@ export const pedido = pgTable(
     numeroComprobante: text("numero_comprobante"),
 
     observaciones: text("observaciones"),
+    /** Archivado reversible (datos de prueba o históricos que ensucian las
+     *  vistas operativas). No borra nada: se puede desarchivar. */
+    archivado: boolean("archivado").notNull().default(false),
+    archivadoMotivo: text("archivado_motivo"),
+    archivadoEn: timestamp("archivado_en", { withTimezone: true }),
+    archivadoPorId: integer("archivado_por_id"),
     creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
     usuarioId: integer("usuario_id").references(() => usuario.id),
   },
@@ -1164,3 +1205,200 @@ export const aviso = pgTable(
   },
   (t) => [index("aviso_destino_idx").on(t.destinoRol, t.procesadoEn)],
 );
+
+// ---------------------------------------------------------------------------
+// Minuta 15/10/2026 — planificación, recetas de carga, turnos y relevo
+// ---------------------------------------------------------------------------
+
+/**
+ * Presentación física de un material: "Bolsa 25 kg" de copolímero, "Bolsita
+ * 600 g" o "750 g" de master. El operario carga en presentaciones, no en kilos
+ * con decimales; el sistema convierte. Vale para un material puntual
+ * (`materiaPrimaId`) o para todos los de un tipo (`tipoMp`).
+ */
+export const presentacionMp = pgTable("presentacion_mp", {
+  id: serial("id").primaryKey(),
+  materiaPrimaId: integer("materia_prima_id").references(() => materiaPrima.id),
+  tipoMp: tipoMpEnum("tipo_mp"),
+  nombre: text("nombre").notNull(),
+  kg: numeric("kg", { precision: 10, scale: 3 }).notNull(),
+  activo: boolean("activo").notNull().default(true),
+  creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Receta de carga en tolva de un producto (producto = familia + tipo + color):
+ * qué bolsas de cada material se cargan por tanda. La define el Encargado; el
+ * operario la ejecuta. Hay una de régimen y, opcionalmente, una de arranque
+ * reforzada para el cambio de color.
+ */
+export const recetaCarga = pgTable(
+  "receta_carga",
+  {
+    id: serial("id").primaryKey(),
+    productoId: integer("producto_id")
+      .notNull()
+      .references(() => producto.id),
+    tipo: tipoRecetaEnum("tipo").notNull().default("REGIMEN"),
+    observaciones: text("observaciones"),
+    actualizadoEn: timestamp("actualizado_en", { withTimezone: true }).notNull().defaultNow(),
+    actualizadoPorId: integer("actualizado_por_id").references(() => usuario.id),
+  },
+  (t) => [unique("receta_carga_uq").on(t.productoId, t.tipo)],
+);
+
+export const recetaCargaItem = pgTable(
+  "receta_carga_item",
+  {
+    id: serial("id").primaryKey(),
+    recetaId: integer("receta_id")
+      .notNull()
+      .references(() => recetaCarga.id, { onDelete: "cascade" }),
+    materiaPrimaId: integer("materia_prima_id")
+      .notNull()
+      .references(() => materiaPrima.id),
+    presentacionId: integer("presentacion_id")
+      .notNull()
+      .references(() => presentacionMp.id),
+    /** Cantidad de presentaciones; admite medias (0,5). */
+    cantidad: numeric("cantidad", { precision: 8, scale: 2 }).notNull(),
+  },
+  (t) => [index("receta_item_receta_idx").on(t.recetaId)],
+);
+
+/**
+ * Tanda planificada: producto + color + cantidad objetivo. Agrupa pedidos sin
+ * perder la relación con cada uno (`tanda_pedido`) y admite una cantidad
+ * adicional para stock (o ser sólo para stock). El Encargado la ordena, la
+ * posterga y la asigna a una inyectora y un turno.
+ */
+export const tanda = pgTable(
+  "tanda",
+  {
+    id: serial("id").primaryKey(),
+    productoId: integer("producto_id")
+      .notNull()
+      .references(() => producto.id),
+    /** Unidades destinadas a pedidos (suma de tanda_pedido). */
+    cantidadPedidos: integer("cantidad_pedidos").notNull().default(0),
+    /** Unidades adicionales para stock, sin pedido. */
+    cantidadStock: integer("cantidad_stock").notNull().default(0),
+    /** Orden en la secuencia de producción (menor = antes). */
+    orden: integer("orden").notNull(),
+    inyectora: text("inyectora"),
+    fecha: date("fecha"),
+    turno: turnoEnum("turno"),
+    estado: estadoTandaEnum("estado").notNull().default("PLANIFICADA"),
+    /** Arrancar con la receta reforzada (cambio de color). */
+    usarArranque: boolean("usar_arranque").notNull().default(false),
+    observaciones: text("observaciones"),
+    postergadaMotivo: text("postergada_motivo"),
+    cicloId: integer("ciclo_id").references(() => cicloProduccion.id),
+    creadoPorId: integer("creado_por_id")
+      .notNull()
+      .references(() => usuario.id),
+    creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+    actualizadoEn: timestamp("actualizado_en", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("tanda_estado_idx").on(t.estado, t.orden)],
+);
+
+export const tandaPedido = pgTable(
+  "tanda_pedido",
+  {
+    id: serial("id").primaryKey(),
+    tandaId: integer("tanda_id")
+      .notNull()
+      .references(() => tanda.id, { onDelete: "cascade" }),
+    pedidoId: integer("pedido_id")
+      .notNull()
+      .references(() => pedido.id),
+    pedidoLineaId: integer("pedido_linea_id")
+      .notNull()
+      .references(() => pedidoLinea.id),
+    cantidad: integer("cantidad").notNull(),
+  },
+  (t) => [index("tanda_pedido_tanda_idx").on(t.tandaId), index("tanda_pedido_linea_idx").on(t.pedidoLineaId)],
+);
+
+/**
+ * Turno de trabajo en una producción: corte intermedio (relevo), distinto del
+ * cierre definitivo. Registra golpes al inicio y al relevo, piezas del turno,
+ * descarte y motivo de interrupciones. El turno entrante verifica el material
+ * recibido a pie de máquina y acepta el relevo (o registra la diferencia).
+ */
+export const turnoProduccion = pgTable(
+  "turno_produccion",
+  {
+    id: serial("id").primaryKey(),
+    cicloId: integer("ciclo_id")
+      .notNull()
+      .references(() => cicloProduccion.id),
+    inyectora: text("inyectora").notNull(),
+    turno: turnoEnum("turno").notNull(),
+    operarioId: integer("operario_id")
+      .notNull()
+      .references(() => usuario.id),
+    /** Nombre de quien trabaja, cuando la cuenta del taller es compartida. */
+    operarioNombre: text("operario_nombre"),
+    inicio: timestamp("inicio", { withTimezone: true }).notNull().defaultNow(),
+    golpesInicio: integer("golpes_inicio"),
+    fin: timestamp("fin", { withTimezone: true }),
+    golpesFin: integer("golpes_fin"),
+    piezas: integer("piezas"),
+    descarteKg: numeric("descarte_kg", { precision: 10, scale: 3 }),
+    motivoInterrupcion: text("motivo_interrupcion"),
+    observaciones: text("observaciones"),
+    /** Recepción del relevo: el material a pie de máquina coincidía. */
+    recepcionOk: boolean("recepcion_ok"),
+    recepcionMotivo: text("recepcion_motivo"),
+    recepcionDetalle: text("recepcion_detalle"),
+    estado: estadoTurnoEnum("estado").notNull().default("ABIERTO"),
+    token: text("token").unique(),
+    cerradoPorId: integer("cerrado_por_id").references(() => usuario.id),
+  },
+  (t) => [index("turno_ciclo_idx").on(t.cicloId, t.estado), index("turno_inyectora_idx").on(t.inyectora, t.estado)],
+);
+
+/** Novedades de máquina sin movimiento de stock: no se pudo cargar, carga
+ *  distinta de la receta, diferencia al recibir el relevo, interrupción. */
+export const novedadMaquina = pgTable(
+  "novedad_maquina",
+  {
+    id: serial("id").primaryKey(),
+    cicloId: integer("ciclo_id").references(() => cicloProduccion.id),
+    turnoId: integer("turno_id").references(() => turnoProduccion.id),
+    inyectora: text("inyectora").notNull(),
+    tipo: tipoNovedadEnum("tipo").notNull(),
+    motivo: text("motivo").notNull(),
+    detalle: text("detalle"),
+    usuarioId: integer("usuario_id")
+      .notNull()
+      .references(() => usuario.id),
+    fecha: timestamp("fecha", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("novedad_ciclo_idx").on(t.cicloId)],
+);
+
+/**
+ * Fraccionamiento de master: de la bolsa grande se arman bolsitas (600 g,
+ * 750 g). No cambia los kilos del depósito (es el mismo material, reenvasado);
+ * deja registrado de qué envase salieron y cuántas bolsitas hay armadas.
+ */
+export const fraccionamientoMp = pgTable("fraccionamiento_mp", {
+  id: serial("id").primaryKey(),
+  materiaPrimaId: integer("materia_prima_id")
+    .notNull()
+    .references(() => materiaPrima.id),
+  loteMpId: integer("lote_mp_id").references(() => loteMp.id),
+  presentacionId: integer("presentacion_id")
+    .notNull()
+    .references(() => presentacionMp.id),
+  cantidad: integer("cantidad").notNull(),
+  kgTotal: numeric("kg_total", { precision: 12, scale: 3 }).notNull(),
+  observaciones: text("observaciones"),
+  usuarioId: integer("usuario_id")
+    .notNull()
+    .references(() => usuario.id),
+  fecha: timestamp("fecha", { withTimezone: true }).notNull().defaultNow(),
+});
