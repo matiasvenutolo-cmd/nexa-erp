@@ -10,9 +10,74 @@ import { fmtFecha, fmtFechaHora, fmtNumero } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
 import { etiquetaInyectora } from "@/lib/inyectoras";
 import { FormStock, TarjetaGrupo, TarjetaTanda } from "./plan-componentes";
+import { CalendarioPlan, type TarjetaCal } from "./calendario";
+import { etiquetaPrioridad } from "@/lib/data/pedidos";
+import { hoyISO } from "@/lib/format";
+import { db } from "@/lib/db/client";
+import { color as colorT } from "@/lib/db/schema";
+import { inArray } from "drizzle-orm";
+
+function sumarDias(f: string, n: number) {
+  const d = new Date(`${f}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function lunesDe(f: string) {
+  const d = new Date(`${f}T12:00:00Z`);
+  const dow = (d.getUTCDay() + 6) % 7;
+  return sumarDias(f, -dow);
+}
+
+async function Calendario({ tandas, planifica, desde }: { tandas: Awaited<ReturnType<typeof listarTandas>>; planifica: boolean; desde?: string }) {
+  const inicio = lunesDe(desde && /^\d{4}-\d{2}-\d{2}$/.test(desde) ? desde : hoyISO());
+  const dias = Array.from({ length: 7 }, (_, i) => sumarDias(inicio, i));
+  const colores = tandas.length ? await db.select({ id: colorT.id, hex: colorT.hex }).from(colorT).where(inArray(colorT.id, [...new Set(tandas.map((t) => t.colorId))])) : [];
+  const tarjetas: TarjetaCal[] = tandas
+    .filter((t) => !t.fecha || (t.fecha >= dias[0] && t.fecha <= dias[6]) || t.estado === "EN_CURSO")
+    .map((t) => {
+      const prio = Math.min(0, ...t.pedidos.map((p) => p.prioridad));
+      return {
+        id: t.id,
+        fecha: t.fecha,
+        turno: t.turno,
+        estado: t.estado,
+        color: t.colorNombre ?? "—",
+        hex: colores.find((c) => c.id === t.colorId)?.hex ?? null,
+        matriz: t.matriz,
+        cantidad: t.objetivo,
+        material: t.material.map((m) => `${m.nombre.replace(/^\S+[-\s]+/, "")} ${fmtPeso(m.requeridoKg, { gramos: m.esMaster && m.requeridoKg < 10 })}`).join(" · "),
+        prioridad: prio < 0 ? etiquetaPrioridad(prio) : null,
+        alerta: t.alerta && t.alerta.nivel !== "semana" ? t.alerta.texto : null,
+        inyectora: t.inyectora,
+        enCurso: t.estado === "EN_CURSO",
+      };
+    });
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-foreground-muted">
+          Arrastrá cada tanda al día y turno en que se produce. El cambio se guarda al soltar. Las tandas en producción no se mueven.
+        </p>
+        <div className="flex gap-1">
+          <Link href={`/produccion?vista=calendario&desde=${sumarDias(inicio, -7)}`} className="btn btn-outline btn-sm">
+            ← Semana anterior
+          </Link>
+          <Link href="/produccion?vista=calendario" className="btn btn-outline btn-sm">
+            Esta semana
+          </Link>
+          <Link href={`/produccion?vista=calendario&desde=${sumarDias(inicio, 7)}`} className="btn btn-outline btn-sm">
+            Semana siguiente →
+          </Link>
+        </div>
+      </div>
+      <CalendarioPlan dias={dias} tarjetas={tarjetas} editable={planifica} />
+    </section>
+  );
+}
 
 const VISTAS = [
   { id: "plan", label: "Planificación" },
+  { id: "calendario", label: "Calendario por turno" },
   { id: "curso", label: "En curso" },
   { id: "relevos", label: "Relevos y novedades" },
   { id: "compras", label: "Compras" },
@@ -27,7 +92,7 @@ type Vista = (typeof VISTAS)[number]["id"];
  * inicia cada producción. El resto (en curso, relevos, compras, historial) se
  * consulta en pestañas.
  */
-export default async function ProduccionPage({ searchParams }: { searchParams: Promise<{ vista?: string }> }) {
+export default async function ProduccionPage({ searchParams }: { searchParams: Promise<{ vista?: string; desde?: string }> }) {
   const sp = await searchParams;
   const vista: Vista = VISTAS.some((v) => v.id === sp.vista) ? (sp.vista as Vista) : "plan";
   const usuario = await getUsuarioActual();
@@ -78,6 +143,7 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
       </nav>
 
       {vista === "plan" && <Planificacion tandas={tandas} grupos={grupos} planifica={planifica} />}
+      {vista === "calendario" && <Calendario tandas={tandas} planifica={planifica} desde={sp.desde} />}
       {vista === "curso" && <EnCurso />}
       {vista === "relevos" && <Relevos />}
       {vista === "compras" && <Compras />}

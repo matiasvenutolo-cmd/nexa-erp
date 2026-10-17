@@ -102,7 +102,9 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
     l.productoId = resultado.id;
   }
 
-  const numeroOrden = String(fd.get("numeroOrden") ?? "").trim() || null;
+  // El N° de orden lo asigna el sistema (correlativo).
+  const numeroOrden = null;
+  const prioridad = Number(fd.get("prioridad") ?? 0) || 0;
   // Igual que arriba: quien no ve precios en la UI tampoco puede fijarlos
   // mandando el campo a mano.
   const verPrecios = await verPreciosDe(usuario);
@@ -131,12 +133,16 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
       colorTexto: l.colorTexto,
       unidadesPedidas: Math.round(l.cantidad),
     })),
+    prioridad,
+    motivoPrioridad: String(fd.get("motivoPrioridad") ?? "").trim() || null,
+    token: String(fd.get("token") ?? "").trim() || null,
   });
 
   if ("error" in creado) return { error: creado.error };
 
   revalidatePath("/pedidos");
-  redirect(`/pedidos/${creado.id}`);
+  // Vuelve al listado general con el aviso temporal de éxito.
+  redirect(`/pedidos?creado=${creado.id}`);
 }
 
 function revalidarPedido(id: number) {

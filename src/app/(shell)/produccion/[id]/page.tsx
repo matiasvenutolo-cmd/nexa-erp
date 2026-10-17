@@ -181,6 +181,7 @@ export default async function ProduccionDetallePage({ params, searchParams }: { 
               puedeOperar={puedeOperar}
               puedeCargar={puedeCargar}
               puedeCorregir={puedeCorregir}
+              mostrarSobrante={!abierto}
             />
           </div>
         ))}

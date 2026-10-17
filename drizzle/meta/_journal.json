@@ -71,6 +71,13 @@
       "when": 1792171766334,
       "tag": "0009_minuta_15_10_planificacion",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792273007015,
+      "tag": "0010_mejoras_listado_nexa",
+      "breakpoints": true
     }
   ]
 }

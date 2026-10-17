@@ -154,3 +154,13 @@ export async function crearPresentacionAction(_p: EstadoAccion, fd: FormData): P
   revalidatePath("/admin/recetas");
   return { ok: "Presentación agregada." };
 }
+
+/** Arrastrar y soltar en el calendario: guarda el día y el turno de la tanda. */
+export async function moverTandaCalendarioAction(id: number, fecha: string | null, turno: Turno | null): Promise<{ error?: string }> {
+  const u = await getUsuarioActual();
+  if (fecha != null && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return { error: "Fecha inválida." };
+  const r = await actualizarTanda(u, id, { fecha, turno });
+  if (r.error) return r;
+  revalidar();
+  return {};
+}

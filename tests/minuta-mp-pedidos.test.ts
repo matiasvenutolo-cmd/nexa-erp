@@ -151,7 +151,7 @@ describe("Materia prima: variantes del Excel", () => {
     const despues = (await stockMpPorUbicacion()).find((m) => m.id === s.materiaPrima.copo2240.id)!.deposito;
     expect(despues).toBeCloseTo(antes - 0.35, 3);
     const [mov] = await movimientosMp({ materiaPrimaId: s.materiaPrima.copo2240.id, limite: 1 });
-    expect(mov).toMatchObject({ kg: -0.35, origen: "Diferencia de balanza", ubicacion: "Depósito" });
+    expect(mov).toMatchObject({ kg: -0.35, origen: "Diferencia de balanza", ubicacion: "Stock general" });
     // A pie de máquina no hay nada: no puede quedar negativo.
     expect((await ajustarStockMp(s.usuarios.MATERIA_PRIMA, { materiaPrimaId: s.materiaPrima.copo2240.id, ubicacion: "pie", deltaKg: -1, motivo: "Faltante justificado" })).error).toMatch(/no alcanza/);
   });

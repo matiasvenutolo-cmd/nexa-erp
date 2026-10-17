@@ -141,7 +141,7 @@ export async function movimientosMp(filtro: { desde?: string; hasta?: string; ma
     return {
       id: f.id,
       fecha: f.fecha,
-      ubicacion: f.ubicacion === "NEXA" ? "Depósito" : f.ubicacion,
+      ubicacion: f.ubicacion === "NEXA" ? "Stock general" : f.ubicacion === "Pie de máquina" ? "Stock a pie de máquina" : f.ubicacion,
       materiaPrimaId: f.materiaPrimaId,
       materiaPrima: f.materiaPrima,
       tipoMp: f.tipoMp,

@@ -84,6 +84,7 @@ export function OperacionesRetiro({
   puedeOperar,
   puedeCargar = puedeOperar,
   puedeCorregir,
+  mostrarSobrante = true,
 }: {
   r: RetiroVista;
   /** Ciclos en curso de la misma inyectora (destino de la carga). */
@@ -94,6 +95,8 @@ export function OperacionesRetiro({
   /** Carga en tolva: también el operario de la máquina. */
   puedeCargar?: boolean;
   puedeCorregir: boolean;
+  /** El sobrante se registra al cierre o en la devolución, no junto a la carga en tolva. */
+  mostrarSobrante?: boolean;
 }) {
   const abierto = r.estado === "ABIERTO";
   const base = { retiroMaquinaId: r.id, cicloId: r.cicloId };
@@ -178,7 +181,7 @@ export function OperacionesRetiro({
         </table>
       </div>
 
-      {abierto && puedeOperar && r.totales.cargado > 0 && (
+      {abierto && puedeOperar && mostrarSobrante && r.totales.cargado > 0 && (
         <div className="rounded-md border border-border p-3">
           <div className="mb-1 text-xs font-medium text-foreground-muted">
             Sobrante mezclado (material con master que se saca de la tolva): entra al depósito con un código de sobrante o molienda.

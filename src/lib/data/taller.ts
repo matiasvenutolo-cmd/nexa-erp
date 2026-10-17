@@ -28,6 +28,8 @@ import {
   tanda,
   turnoProduccion,
   usuario,
+  eventoProduccion,
+  loteMp,
 } from "@/lib/db/schema";
 import { puedeOperarTaller } from "@/lib/auth/permisos";
 import type { Actor, Resultado } from "@/lib/data/auditoria";
@@ -36,7 +38,10 @@ import { ErrorCarga, cargarEnTolvaTx, obtenerRetirosMaquina } from "@/lib/data/m
 import { cerrarCiclo } from "@/lib/data/produccion";
 import { listarPresentaciones, presentacionesDe, recetasDe, type Receta } from "@/lib/data/recetas";
 import { ErrorStock } from "@/lib/data/ubicaciones";
-import { etiquetaTurno, type Turno } from "@/lib/data/planificacion";
+import { etiquetaTurno, iniciarProduccionDeTanda, type Turno } from "@/lib/data/planificacion";
+import { obtenerParametros } from "@/lib/data/parametros";
+import { horariosDesdeParametros, turnoDe } from "@/lib/turnos";
+import { disponibleDeLotes, registrarRetiroMaquina, registrarSobrante } from "@/lib/data/maquina";
 import { INYECTORAS } from "@/lib/inyectoras";
 import { aGramos, fmtPresentacion, kgDe } from "@/lib/presentaciones";
 
@@ -61,7 +66,8 @@ const sqlInyectora = (iny: string) => sql`regexp_replace(${cicloProduccion.inyec
 /** Material por material, con su equivalente en bolsas cuando hay presentación. */
 export type MaterialEnMaquina = { materiaPrimaId: number; nombre: string; esMaster: boolean; kg: number; bolsas: string | null };
 
-function enBolsas(kg: number, pres: { nombre: string; kg: number }[]): string | null {
+/** «12 bolsas de 25 kg + 0,3 kg»: la presentación más grande que entra. */
+export function enBolsas(kg: number, pres: { nombre: string; kg: number }[]): string | null {
   // La presentación más grande que entra entera al menos una vez.
   const p = [...pres].sort((a, b) => b.kg - a.kg).find((x) => kg + EPS >= x.kg) ?? null;
   if (!p) return null;
@@ -111,17 +117,32 @@ export async function vistaTaller(inyectora: string) {
     bolsas: enBolsas(m.kg, presentacionesDe(presentaciones, { id: m.materiaPrimaId, tipo: mpTipos.get(m.materiaPrimaId) ?? "" })),
   }));
 
-  // Próxima tanda asignada a la máquina (si no hay producción en curso).
-  const [proxima] = await db
-    .select({ id: tanda.id, productoCodigo: producto.codigo, productoDescripcion: producto.descripcion, colorNombre: color.nombre, cantidad: sql<number>`${tanda.cantidadPedidos} + ${tanda.cantidadStock}`.mapWith(Number), fecha: tanda.fecha, turno: tanda.turno })
+  // Tandas que el Encargado asignó a esta máquina (las inicia el operario).
+  const asignadas = await db
+    .select({
+      id: tanda.id,
+      productoId: tanda.productoId,
+      productoCodigo: producto.codigo,
+      productoDescripcion: producto.descripcion,
+      piezasPorGolpe: producto.piezasPorGolpe,
+      colorNombre: color.nombre,
+      colorHex: color.hex,
+      cantidad: sql<number>`${tanda.cantidadPedidos} + ${tanda.cantidadStock}`.mapWith(Number),
+      fecha: tanda.fecha,
+      turno: tanda.turno,
+      observaciones: tanda.observaciones,
+    })
     .from(tanda)
     .innerJoin(producto, eq(tanda.productoId, producto.id))
     .leftJoin(color, eq(producto.colorId, color.id))
     .where(and(eq(tanda.estado, "PLANIFICADA"), eq(tanda.inyectora, iny)))
-    .orderBy(asc(tanda.orden))
-    .limit(1);
+    .orderBy(sql`${tanda.fecha} asc nulls last`, asc(tanda.orden))
+    .limit(5);
+  const proxima = asignadas[0] ?? null;
+  const recetasAsignadas = await recetasDe(asignadas.map((a) => a.productoId));
 
-  if (!prod) return { inyectora: iny, produccion: null, pie, proxima: proxima ?? null } as const;
+  const asignadasConReceta = asignadas.map((a) => ({ ...a, receta: recetasAsignadas.get(a.productoId)?.REGIMEN ?? null }));
+  if (!prod) return { inyectora: iny, produccion: null, pie, proxima, asignadas: asignadasConReceta } as const;
 
   const c = prod.ciclo;
   const [turnos, recetas, novedades, cargasTolva, sobrantes, tandaRow] = await Promise.all([
@@ -170,10 +191,12 @@ export async function vistaTaller(inyectora: string) {
 
   return {
     inyectora: iny,
-    proxima: proxima ?? null,
+    proxima,
+    asignadas: asignadasConReceta,
     pie,
     produccion: {
       cicloId: c.id,
+      pausada: c.pausada,
       productoId: c.productoId,
       productoCodigo: prod.productoCodigo,
       productoDescripcion: prod.productoDescripcion,
@@ -235,7 +258,8 @@ async function cicloAbierto(tx: Tx | typeof db, cicloId: number) {
 
 export type TomarTurnoInput = {
   cicloId: number;
-  turno: Turno;
+  /** Si no se indica, sale de la hora y de los horarios configurados. */
+  turno?: Turno | null;
   operarioNombre?: string | null;
   golpesInicio?: number | null;
   /** Sólo si hay un turno anterior: el material recibido coincide. */
@@ -245,9 +269,18 @@ export type TomarTurnoInput = {
   token?: string | null;
 };
 
+/** Turno que corresponde ahora según los horarios configurados (null si no están). */
+export async function turnoActual(ahora = new Date()) {
+  const p = await obtenerParametros();
+  return turnoDe(ahora, horariosDesdeParametros(p));
+}
+
 export async function tomarTurno(actor: Actor, input: TomarTurnoInput): Promise<Resultado & { id?: number }> {
   if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
-  if (!["MANANA", "TARDE", "NOCHE"].includes(input.turno)) return { error: "Elegí el turno." };
+  const turno = input.turno ?? (await turnoActual())?.turno ?? null;
+  if (!turno || !["MANANA", "TARDE", "NOCHE"].includes(turno)) {
+    return { error: "Los horarios de los turnos no están configurados (Administración → Parámetros): elegí el turno." };
+  }
   return db.transaction(async (tx) => {
     if (input.token) {
       const [ya] = await tx.select({ id: turnoProduccion.id }).from(turnoProduccion).where(eq(turnoProduccion.token, input.token));
@@ -275,7 +308,7 @@ export async function tomarTurno(actor: Actor, input: TomarTurnoInput): Promise<
       .values({
         cicloId: c.id,
         inyectora: num(c.inyectora),
-        turno: input.turno,
+        turno,
         operarioId: actor.id,
         operarioNombre: input.operarioNombre?.trim() || null,
         golpesInicio,
@@ -311,6 +344,11 @@ export type CargarRecetaInput = {
   ajustes?: { materiaPrimaId: number; presentacionId: number; cantidad: number }[] | null;
   motivoExcepcion?: string | null;
   token?: string | null;
+  /** Por defecto el material sale del pie de máquina; si se destilda, se
+   *  retira del stock general en el mismo paso (retiro + carga). */
+  usarPie?: boolean;
+  /** Código de barras leído por material (opcional): fija y valida el lote. */
+  codigos?: { materiaPrimaId: number; codigo: string }[] | null;
 };
 
 /**
@@ -323,6 +361,7 @@ export async function cargarReceta(actor: Actor, input: CargarRecetaInput): Prom
   const [c] = await db.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
   if (!c || c.fechaFin) return { error: "No hay una producción en curso en esta máquina." };
   if (!c.productoId) return { error: "La producción no tiene producto." };
+  if (c.pausada) return { error: "La producción está pausada: reanudala para cargar la tolva." };
   const receta = (await recetasDe([c.productoId])).get(c.productoId)?.[input.tipo];
   if (!receta) return { error: input.tipo === "ARRANQUE" ? "Este producto no tiene receta de arranque." : "Este producto no tiene receta de carga: pedile al Encargado que la defina." };
 
@@ -359,6 +398,49 @@ export async function cargarReceta(actor: Actor, input: CargarRecetaInput): Prom
 
   const ub = await ubicacionesMp();
   const motivo = excepcion ? input.motivoExcepcion!.trim() : null;
+  // Código leído (opcional): tiene que ser de un lote del material de la receta.
+  const loteDe = new Map<number, number>();
+  for (const cod of input.codigos ?? []) {
+    const limpio = cod.codigo.replace(/\s+/g, "");
+    if (!limpio) continue;
+    const [l] = await db.select().from(loteMp).where(eq(loteMp.codigoBarra, `000${limpio.slice(3)}`));
+    if (!l) return { error: `El código ${limpio} no corresponde a ningún lote ingresado.` };
+    if (l.materiaPrimaId !== cod.materiaPrimaId) return { error: `El código leído es de otro material, no del que se está cargando.` };
+    loteDe.set(cod.materiaPrimaId, l.id);
+  }
+  const usarPie = input.usarPie !== false;
+  if (!usarPie) {
+    // Sin material a pie de máquina: se retira del stock general en el mismo
+    // paso (traslado depósito → pie, con su responsable) y se carga.
+    const porMp = new Map<number, number>();
+    for (const i of items) porMp.set(i.materiaPrimaId, (aGramos(porMp.get(i.materiaPrimaId) ?? 0) + aGramos(kgDe(i.cantidad, i.kgPres))) / 1000);
+    const lineas: { materiaPrimaId: number; loteMpId: number | null; cantidadKg: number }[] = [];
+    for (const [mpId, kg] of porMp) {
+      const fijo = loteDe.get(mpId);
+      if (fijo) {
+        lineas.push({ materiaPrimaId: mpId, loteMpId: fijo, cantidadKg: kg });
+        continue;
+      }
+      // Lotes con saldo, primero los más viejos; si no hay lotes, stock sin lote.
+      const lotes = await db.select({ id: loteMp.id }).from(loteMp).where(eq(loteMp.materiaPrimaId, mpId)).orderBy(asc(loteMp.fechaIngreso), asc(loteMp.id));
+      const disp = await disponibleDeLotes(db, lotes.map((l) => l.id));
+      let resta = kg;
+      for (const l of lotes) {
+        const d = disp.get(l.id) ?? 0;
+        if (resta <= EPS || d <= EPS) continue;
+        const toma = Math.min(d, resta);
+        lineas.push({ materiaPrimaId: mpId, loteMpId: l.id, cantidadKg: Math.round(toma * 1000) / 1000 });
+        resta = (aGramos(resta) - aGramos(toma)) / 1000;
+      }
+      if (resta > EPS) lineas.push({ materiaPrimaId: mpId, loteMpId: null, cantidadKg: resta });
+    }
+    const ret = await registrarRetiroMaquina(
+      actor,
+      { cicloId: c.id, operarioId: actor.id, entregaId: actor.id, observaciones: "Retiro del stock general al cargar la tolva (sin material a pie de máquina)", lineas, token: input.token ? `${input.token}:retiro` : null },
+      { paraCargaInmediata: true },
+    );
+    if (ret.error) return { error: ret.error };
+  }
   // Líneas a pie de máquina de la inyectora: se leen antes de la transacción;
   // cada carga vuelve a bloquear y validar su línea adentro.
   const retiros = await obtenerRetirosMaquina({ estado: "ABIERTO", inyectora: num(c.inyectora) });
@@ -384,7 +466,7 @@ export async function cargarReceta(actor: Actor, input: CargarRecetaInput): Prom
           .slice()
           .sort((a, b) => a.id - b.id)
           .flatMap((r) => r.lineas)
-          .filter((l) => l.materiaPrimaId === mpId && !l.anulado && l.saldo.pie > EPS);
+          .filter((l) => l.materiaPrimaId === mpId && !l.anulado && l.saldo.pie > EPS && (!loteDe.has(mpId) || l.loteMpId === loteDe.get(mpId)));
         const hay = lineas.reduce((t, l) => (aGramos(t) + aGramos(l.saldo.pie)) / 1000, 0);
         if (kg > hay + EPS) {
           throw new ErrorCarga(
@@ -460,7 +542,15 @@ export async function registrarNovedad(
 // Cierre de turno (relevo) y cierre de producción
 // ---------------------------------------------------------------------------
 
-export type CerrarTurnoInput = { cicloId: number; golpesFin: number; descarteKg?: number | null; motivoInterrupcion?: string | null; observaciones?: string | null };
+export type CerrarTurnoInput = {
+  cicloId: number;
+  golpesFin: number;
+  descarteKg?: number | null;
+  motivoInterrupcion?: string | null;
+  observaciones?: string | null;
+  /** Foto del material a pie de máquina y en tolva al cerrar (lo calcula el sistema). */
+  materialAlCierre?: string | null;
+};
 
 async function cerrarTurnoTx(tx: Tx, actor: Actor, input: CerrarTurnoInput) {
   const [c] = await tx.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId)).for("update");
@@ -477,7 +567,7 @@ async function cerrarTurnoTx(tx: Tx, actor: Actor, input: CerrarTurnoInput) {
   const interrupcion = input.motivoInterrupcion && input.motivoInterrupcion !== "Sin interrupciones" ? input.motivoInterrupcion.trim() : null;
   await tx
     .update(turnoProduccion)
-    .set({ estado: "CERRADO", fin: new Date(), golpesFin: input.golpesFin, piezas, descarteKg: String(descarte), motivoInterrupcion: interrupcion, observaciones: input.observaciones?.trim() || null, cerradoPorId: actor.id })
+    .set({ estado: "CERRADO", fin: new Date(), golpesFin: input.golpesFin, piezas, descarteKg: String(descarte), motivoInterrupcion: interrupcion, observaciones: input.observaciones?.trim() || null, materialAlCierre: input.materialAlCierre ?? null, cerradoPorId: actor.id })
     .where(eq(turnoProduccion.id, t.id));
   await tx
     .update(cicloProduccion)
@@ -489,9 +579,19 @@ async function cerrarTurnoTx(tx: Tx, actor: Actor, input: CerrarTurnoInput) {
   return { piezas } as const;
 }
 
+/** Texto con el material que queda: «A pie de máquina: …; en tolva: …». */
+async function fotoMaterial(cicloId: number): Promise<string | null> {
+  const [c] = await db.select({ inyectora: cicloProduccion.inyectora }).from(cicloProduccion).where(eq(cicloProduccion.id, cicloId));
+  if (!c) return null;
+  const v = await vistaTaller(c.inyectora);
+  const t = (l: readonly MaterialEnMaquina[]) => l.map((m) => `${m.nombre} ${m.bolsas ?? `${m.kg} kg`}`).join(", ") || "nada";
+  return `A pie de máquina: ${t(v.pie)}. En tolva: ${t(v.produccion?.tolva ?? [])}.`;
+}
+
 export async function cerrarTurno(actor: Actor, input: CerrarTurnoInput): Promise<Resultado & { piezas?: number | null }> {
   if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
-  const r = await db.transaction((tx) => cerrarTurnoTx(tx, actor, input));
+  const foto = await fotoMaterial(input.cicloId);
+  const r = await db.transaction((tx) => cerrarTurnoTx(tx, actor, { ...input, materialAlCierre: input.materialAlCierre ?? foto }));
   return "error" in r ? { error: r.error } : { piezas: r.piezas };
 }
 
@@ -502,11 +602,33 @@ export async function cerrarTurno(actor: Actor, input: CerrarTurnoInput): Promis
  */
 export async function cerrarProduccionTaller(
   actor: Actor,
-  input: { cicloId: number; golpesFin?: number | null; descarteKg?: number | null; rebarbaKg?: number | null; scrapKg?: number | null; cerrarPartida?: boolean; observaciones?: string | null },
+  input: {
+    cicloId: number;
+    golpesFin?: number | null;
+    descarteKg?: number | null;
+    rebarbaKg?: number | null;
+    scrapKg?: number | null;
+    cerrarPartida?: boolean;
+    observaciones?: string | null;
+    /** Material mezclado que se baja de la tolva al terminar (va al depósito con su código). */
+    sobrante?: { materiaPrimaDestinoId: number; kg: number } | null;
+  },
 ): Promise<Resultado & { piezasAStock?: number }> {
   if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
   const [c0] = await db.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
   if (!c0 || c0.fechaFin) return { error: "La producción ya está cerrada." };
+  if (input.sobrante && input.sobrante.kg > 0) {
+    // El sobrante se registra al cierre (no en la carga en tolva).
+    const [ret] = await db
+      .select({ id: movimientoMaquina.retiroMaquinaId })
+      .from(movimientoMaquina)
+      .where(and(eq(movimientoMaquina.cicloId, c0.id), eq(movimientoMaquina.tipo, "CARGA_TOLVA"), eq(movimientoMaquina.anulado, false)))
+      .orderBy(desc(movimientoMaquina.id))
+      .limit(1);
+    if (!ret) return { error: "No hay material cargado en tolva en esta producción: no hay sobrante que registrar." };
+    const sb = await registrarSobrante(actor, { retiroMaquinaId: ret.id, materiaPrimaDestinoId: input.sobrante.materiaPrimaDestinoId, cantidadKg: input.sobrante.kg, cicloId: c0.id });
+    if (sb.error) return { error: sb.error };
+  }
   const [abierto] = await db.select().from(turnoProduccion).where(and(eq(turnoProduccion.cicloId, c0.id), eq(turnoProduccion.estado, "ABIERTO")));
   if (abierto) {
     if (input.golpesFin == null) return { error: "Indicá los golpes de la máquina al terminar." };
@@ -588,4 +710,91 @@ export async function relevosRecientes(limite = 30) {
     .orderBy(desc(movimientoMaquina.fecha))
     .limit(limite);
   return { turnos, novedades, excepciones };
+}
+
+// ---------------------------------------------------------------------------
+// Inicio, pausa, reanudación y cancelación (listado de mejoras)
+// ---------------------------------------------------------------------------
+
+/**
+ * El operario inicia la tanda que el Encargado le asignó a su máquina: anota
+ * los golpes de inicio y el sistema abre la producción y su turno (turno según
+ * la hora; operario = usuario autenticado). Las piezas por golpe vienen del
+ * producto.
+ */
+export async function iniciarTandaAsignada(
+  actor: Actor,
+  input: { tandaId: number; golpesInicio: number | null; operarioNombre?: string | null; turno?: Turno | null },
+): Promise<Resultado & { cicloId?: number }> {
+  if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
+  const turno = input.turno ?? (await turnoActual())?.turno ?? null;
+  if (!turno) return { error: "Los horarios de los turnos no están configurados (Administración → Parámetros): elegí el turno." };
+  const r = await iniciarProduccionDeTanda(actor, input.tandaId, { golpesInicio: input.golpesInicio });
+  if (r.error || !r.cicloId) return { error: r.error ?? "No se pudo iniciar la producción." };
+  const t = await tomarTurno(actor, { cicloId: r.cicloId, turno, golpesInicio: input.golpesInicio, operarioNombre: input.operarioNombre });
+  if (t.error) return { error: t.error, cicloId: r.cicloId };
+  return { cicloId: r.cicloId };
+}
+
+export async function pausarProduccion(actor: Actor, input: { cicloId: number; motivo: string | null; reanudar?: boolean }): Promise<Resultado> {
+  if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
+  if (!input.reanudar && !input.motivo?.trim()) return { error: "Indicá el motivo de la pausa." };
+  return db.transaction(async (tx) => {
+    const [c] = await tx.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId)).for("update");
+    if (!c || c.fechaFin) return { error: "La producción ya está cerrada." };
+    if (Boolean(input.reanudar) !== c.pausada) return { error: input.reanudar ? "La producción no está pausada." : "La producción ya está pausada." };
+    await tx.update(cicloProduccion).set({ pausada: !input.reanudar }).where(eq(cicloProduccion.id, c.id));
+    await tx.insert(eventoProduccion).values({ cicloId: c.id, tipo: input.reanudar ? "REANUDACION" : "PAUSA", motivo: input.motivo?.trim() || null, usuarioId: actor.id });
+    if (!input.reanudar) {
+      const [turno] = await tx.select({ id: turnoProduccion.id }).from(turnoProduccion).where(and(eq(turnoProduccion.cicloId, c.id), eq(turnoProduccion.estado, "ABIERTO")));
+      await tx.insert(novedadMaquina).values({ cicloId: c.id, turnoId: turno?.id ?? null, inyectora: num(c.inyectora), tipo: "INTERRUPCION", motivo: `Pausa: ${input.motivo!.trim()}`, usuarioId: actor.id });
+    }
+    return {};
+  });
+}
+
+/**
+ * Cancelar una producción que no produjo: se cierra sin piezas y la tanda
+ * vuelve a la planificación. Si ya se cargó material en la tolva, no se
+ * revierte solo: hay que bajarlo como sobrante (movimiento compensatorio) o
+ * finalizar la producción.
+ */
+export async function cancelarProduccion(actor: Actor, input: { cicloId: number; motivo: string | null }): Promise<Resultado> {
+  if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
+  if (!input.motivo?.trim()) return { error: "Indicá el motivo de la cancelación." };
+  const [c] = await db.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
+  if (!c || c.fechaFin) return { error: "La producción ya está cerrada." };
+  const v = await vistaTaller(c.inyectora);
+  const enTolva = (v.produccion?.cicloId === c.id ? v.produccion.tolva : []).filter((m) => m.kg > EPS);
+  if (enTolva.length) {
+    return { error: `Hay material cargado en la tolva (${enTolva.map((m) => `${m.nombre} ${m.kg} kg`).join(", ")}): finalizá la producción y registrá el sobrante, en lugar de cancelar.` };
+  }
+  const [hecho] = await db
+    .select({ n: sql<number>`coalesce(sum(${turnoProduccion.piezas}), 0)`.mapWith(Number) })
+    .from(turnoProduccion)
+    .where(eq(turnoProduccion.cicloId, c.id));
+  if (hecho.n > 0) return { error: "La producción ya tiene piezas registradas: finalizala en lugar de cancelarla." };
+  return db.transaction(async (tx) => {
+    await tx
+      .update(turnoProduccion)
+      .set({ estado: "CERRADO", fin: new Date(), golpesFin: c.golpesInicio, piezas: 0, descarteKg: "0", motivoInterrupcion: `Producción cancelada: ${input.motivo!.trim()}`, cerradoPorId: actor.id })
+      .where(and(eq(turnoProduccion.cicloId, c.id), eq(turnoProduccion.estado, "ABIERTO")));
+    await tx
+      .update(cicloProduccion)
+      .set({ fechaFin: new Date(), cancelada: true, pausada: false, golpesFin: c.golpesInicio, piezasProducidas: 0, piezasDescartadas: 0, piezasEntregadas: 0, observaciones: `Cancelada: ${input.motivo!.trim()}` })
+      .where(and(eq(cicloProduccion.id, c.id), isNull(cicloProduccion.fechaFin)));
+    if (c.tandaId) await tx.update(tanda).set({ estado: "PLANIFICADA", cicloId: null, actualizadoEn: new Date() }).where(eq(tanda.id, c.tandaId));
+    await tx.insert(eventoProduccion).values({ cicloId: c.id, tipo: "CANCELACION", motivo: input.motivo!.trim(), usuarioId: actor.id });
+    return {};
+  });
+}
+
+/** Historial de la producción (inicio, pausas, cancelación, fin). */
+export async function eventosDe(cicloId: number) {
+  return db
+    .select({ e: eventoProduccion, usuarioNombre: usuario.nombre })
+    .from(eventoProduccion)
+    .innerJoin(usuario, eq(eventoProduccion.usuarioId, usuario.id))
+    .where(eq(eventoProduccion.cicloId, cicloId))
+    .orderBy(asc(eventoProduccion.fecha));
 }

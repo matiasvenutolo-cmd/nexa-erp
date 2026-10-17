@@ -7,6 +7,7 @@ import { getUsuarioActual } from "@/lib/session";
 import { puedeCrearProducto } from "@/lib/auth/permisos";
 import { verPrecios as verPreciosDe } from "@/lib/vista";
 import { FormularioPedido } from "./formulario-pedido";
+import { MOTIVOS_PRIORIDAD, NIVELES_PRIORIDAD } from "@/lib/data/pedidos";
 
 export default async function NuevoPedidoPage() {
   const [usuario, clientes, productos, proveedores, colores] = await Promise.all([
@@ -20,10 +21,10 @@ export default async function NuevoPedidoPage() {
   return (
     <div className="space-y-5">
       <div>
-        <Link href="/pedidos" className="text-sm text-foreground-muted hover:text-foreground">
+        <Link href="/pedidos" className="text-sm font-semibold text-foreground-muted hover:text-foreground">
           ← Pedidos
         </Link>
-        <h1 className="mt-1 text-xl font-semibold text-brand-azul-oscuro">Nuevo pedido</h1>
+        <h1 className="mt-1 text-[1.6rem]">Nuevo pedido</h1>
       </div>
       <FormularioPedido
         clientes={clientes.map((c) => ({ id: c.id, nombre: c.nombre, telefono: c.telefono, domicilio: c.domicilio }))}
@@ -32,6 +33,8 @@ export default async function NuevoPedidoPage() {
         proveedores={proveedores.map((p) => ({ id: p.id, nombre: p.nombre }))}
         puedeVerPrecios={await verPreciosDe(usuario)}
         puedeCrearProducto={puedeCrearProducto(usuario.rol)}
+        niveles={NIVELES_PRIORIDAD}
+        motivos={MOTIVOS_PRIORIDAD}
       />
     </div>
   );

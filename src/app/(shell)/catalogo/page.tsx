@@ -4,6 +4,8 @@ import { getUsuarioActual } from "@/lib/session";
 import { puedeVerMateriaPrima } from "@/lib/auth/permisos";
 import { Semaforo } from "@/components/semaforo";
 import { fmtNumero } from "@/lib/format";
+import { etiquetaTipo } from "@/lib/etiquetas";
+import { materialComprometido } from "@/lib/data/pedidos";
 
 const CLASES = [
   { valor: undefined, label: "Todos" },
@@ -15,14 +17,6 @@ const FAMILIAS = [
   { valor: "REJILLA" as const, label: "Rejilla" },
   { valor: "CIEGO" as const, label: "Ciego" },
 ];
-const TIPO_LABEL: Record<FilaProducto["tipo"], string> = {
-  UNICO: "Único",
-  TRAMA: "Trama",
-  MONEDA: "Moneda",
-  BORDE: "Borde",
-  ESQUINERO: "Esquinero",
-  RAMPA: "Rampa",
-};
 
 export default async function CatalogoPage({
   searchParams,
@@ -35,7 +29,7 @@ export default async function CatalogoPage({
   const clase = sp.clase === "pisos" || sp.clase === "accesorios" ? sp.clase : undefined;
   const soloAlertas = sp.alertas === "1";
 
-  const productos = await listarProductos({ familia, clase, texto: sp.texto });
+  const [productos, comprometido] = await Promise.all([listarProductos({ familia, clase, texto: sp.texto }), materialComprometido()]);
   const visibles = soloAlertas ? productos.filter((p) => p.estado === "critico" || p.estado === "bajo") : productos;
 
   // Segmentos: Pisos Rejilla, Pisos Ciego, Accesorios Rejilla, Accesorios Ciego.
@@ -56,7 +50,12 @@ export default async function CatalogoPage({
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-brand-azul-oscuro">Stock / Productos</h1>
+        <div className="encabezado mb-0">
+          <div>
+            <h1>Stock de productos</h1>
+            <p>Entrá a cada producto con «Ver existencias» para ver sus cajas, completas y abiertas.</p>
+          </div>
+        </div>
         <div className="flex gap-4 text-sm">
           {puedeVerMateriaPrima(usuario.rol) && (
             <Link href="/materia-prima" className="font-medium text-accent hover:underline">
@@ -121,21 +120,24 @@ export default async function CatalogoPage({
                       <th className="px-4 py-2.5 text-right">Mínimo</th>
                       <th className="px-4 py-2.5 text-right">Máximo</th>
                       <th className="px-4 py-2.5">Estado</th>
+                      <th className="px-4 py-2.5" />
                     </tr>
                   </thead>
                   <tbody>
                     {filas.map((p) => (
                       <tr key={p.id} className="border-b border-border last:border-0">
                         <td className="px-4 py-2.5">
-                          <div className="font-mono text-xs text-foreground-muted">
+                          <Link href={`/catalogo/${p.id}?existencias=1`} className="font-mono text-xs font-semibold text-accent hover:underline">
                             {p.codigo}
+                          </Link>
+                          <div className="font-mono text-xs text-foreground-muted">
                             {p.codigoBarras && p.codigoBarras !== p.codigo && (
                               <span title="Código de barras de la lista oficial"> · {p.codigoBarras}</span>
                             )}
                           </div>
                           <div className="text-xs text-foreground-muted">{p.descripcion}</div>
                         </td>
-                        <td className="px-4 py-2.5">{TIPO_LABEL[p.tipo]}</td>
+                        <td className="px-4 py-2.5">{etiquetaTipo(p.familia, p.tipo)}</td>
                         <td className="px-4 py-2.5 font-medium text-foreground">
                           {p.colorNombre}
                           {p.colorEspecial && <span className="ml-1 badge-estado badge-bajo">especial</span>}
@@ -146,6 +148,11 @@ export default async function CatalogoPage({
                         <td className="px-4 py-2.5">
                           <Semaforo estado={p.estado} />
                         </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <Link href={`/catalogo/${p.id}?existencias=1`} className="btn btn-outline btn-sm">
+                            Ver existencias
+                          </Link>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -154,6 +161,42 @@ export default async function CatalogoPage({
             </div>
           </section>
         ))
+      )}
+
+      {comprometido.length > 0 && (
+        <section id="comprometido" className="panel overflow-x-auto p-0">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 px-5 pt-4">
+            <h2 className="panel-titulo mb-0 w-auto border-0">Material comprometido a entregar</h2>
+            <span className="text-xs text-foreground-muted">
+              {comprometido.length} productos · {comprometido.filter((c) => c.faltaProducir > 0).length} sin stock suficiente
+            </span>
+          </div>
+          <table className="tabla mt-2">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th className="text-right">Comprometido</th>
+                <th className="text-right">Stock</th>
+                <th className="text-right">Falta producir</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comprometido.map((c) => (
+                <tr key={c.productoId}>
+                  <td>
+                    <Link href={`/catalogo/${c.productoId}`} className="font-mono text-xs text-accent hover:underline">
+                      {c.codigo}
+                    </Link>{" "}
+                    {c.descripcion}
+                  </td>
+                  <td className="text-right">{fmtNumero(c.comprometido, 0)}</td>
+                  <td className="text-right text-foreground-muted">{fmtNumero(c.stock, 0)}</td>
+                  <td className="text-right">{c.faltaProducir > 0 ? <span className="font-semibold text-[var(--estado-critico-fg)]">{fmtNumero(c.faltaProducir, 0)}</span> : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
 
       <p className="text-xs text-foreground-muted">
@@ -168,9 +211,7 @@ function Chip({ href, activo, label }: { href: string; activo: boolean; label: s
   return (
     <Link
       href={href}
-      className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-        activo ? "bg-accent text-accent-foreground" : "bg-surface-muted text-foreground-muted hover:text-foreground"
-      }`}
+      className={`btn btn-sm ${activo ? "btn-azul" : "btn-outline"}`}
     >
       {label}
     </Link>

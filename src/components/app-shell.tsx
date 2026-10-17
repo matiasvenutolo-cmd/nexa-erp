@@ -75,10 +75,13 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       <div className="brand-stripe print:hidden" />
       <div className={`flex min-h-[calc(100vh-3px)] flex-col ${soloUnaPantalla ? "" : "md:flex-row"}`}>
         {!soloUnaPantalla && (
-          <aside className="sticky top-0 hidden h-[calc(100vh-3px)] w-60 shrink-0 flex-col border-r border-border bg-white/90 p-4 backdrop-blur print:hidden md:flex">
-            <div className="mb-5">{marca}</div>
-            <SidebarNav nav={nav} contadores={contadores} />
-            <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">
+          <aside className="sticky top-0 hidden h-[calc(100vh-3px)] max-h-[calc(100vh-3px)] w-60 shrink-0 flex-col overflow-hidden border-r border-border bg-white/90 p-4 backdrop-blur print:hidden md:flex">
+            <div className="mb-4 shrink-0">{marca}</div>
+            {/* El menú tiene su propio scroll si no entra en la altura de la pantalla. */}
+            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+              <SidebarNav nav={nav} contadores={contadores} />
+            </div>
+            <div className="flex shrink-0 flex-col gap-2 border-t border-border pt-3">
               {persona}
               {vista}
               {puedeInformarError(usuario.rol) && <InformarError />}

@@ -8,6 +8,23 @@ import { fmtNumero, hoyISO } from "@/lib/format";
 import { claveColor } from "@/lib/catalogo-normalizacion";
 import { resumirPedido } from "@/lib/resumen-pedido";
 import { ResumenPedido } from "@/components/resumen-pedido";
+import { SelectorVisual } from "@/components/selector-visual";
+
+/** Foto de cada tipo de piso (imagen de referencia del cliente). Los accesorios
+ *  no tienen foto provista: se muestran sin imagen. */
+const IMAGEN_GRUPO: Record<string, string> = {
+  "REJILLA-UNICO": "/pisos/rejilla.png",
+  "CIEGO-TRAMA": "/pisos/trama.png",
+  "CIEGO-MONEDA": "/pisos/moneda.png",
+};
+
+/** Entrega por defecto: una semana después del pedido. */
+function masSieteDias(fecha: string): string {
+  const d = new Date(`${fecha}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 7);
+  return d.toISOString().slice(0, 10);
+}
+const nuevoToken = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
 const LIBRE = "LIBRE";
 const METODOS_PAGO = [
@@ -63,6 +80,8 @@ export function FormularioPedido({
   proveedores,
   puedeVerPrecios,
   puedeCrearProducto,
+  niveles,
+  motivos,
 }: {
   clientes: { id: number; nombre: string; telefono: string | null; domicilio: string | null }[];
   colores: ColorRegistrado[];
@@ -70,9 +89,16 @@ export function FormularioPedido({
   proveedores: { id: number; nombre: string }[];
   puedeVerPrecios: boolean;
   puedeCrearProducto: boolean;
+  niveles: readonly { valor: number; etiqueta: string }[];
+  motivos: readonly string[];
 }) {
   const [state, formAction, pendiente] = useActionState<FormState, FormData>(crearPedidoAction, {});
   const hoy = hoyISO();
+  const [token] = useState(nuevoToken);
+  const [fechaPedido, setFechaPedido] = useState(hoy);
+  const [entrega, setEntrega] = useState(masSieteDias(hoy));
+  const [entregaEditada, setEntregaEditada] = useState(false);
+  const [prioridad, setPrioridad] = useState("0");
 
   const [clienteModo, setClienteModo] = useState<"existente" | "nuevo">("existente");
   const [contacto, setContacto] = useState("");
@@ -147,12 +173,11 @@ export function FormularioPedido({
   return (
     <form action={formAction} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
       <input type="hidden" name="lineas" value={lineasJson} />
+      <input type="hidden" name="token" value={token} />
 
       <div className="space-y-5">
         {state.error && (
-          <div className="rounded-md bg-[var(--estado-critico-bg)] px-3 py-2 text-sm font-medium text-[var(--estado-critico-fg)]">
-            {state.error}
-          </div>
+          <div className="aviso aviso-error">{state.error}</div>
         )}
 
         <Bloque titulo="Cliente">
@@ -193,20 +218,65 @@ export function FormularioPedido({
         </Bloque>
 
         <Bloque titulo="Datos del pedido">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Campo label="N° de orden (opcional)">
-              <input name="numeroOrden" className="input" placeholder="ej. 81475" />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Campo label="N° de orden">
+              <input className="input" readOnly value="Se asigna al guardar (correlativo)" />
             </Campo>
-            <Campo label="Fecha" requerido>
-              <input type="date" name="fechaPedido" defaultValue={hoy} required className="input" />
+            <Campo label="Fecha del pedido" requerido>
+              <input
+                type="date"
+                name="fechaPedido"
+                value={fechaPedido}
+                onChange={(e) => {
+                  setFechaPedido(e.target.value);
+                  if (!entregaEditada && e.target.value) setEntrega(masSieteDias(e.target.value));
+                }}
+                required
+                className="input"
+              />
             </Campo>
             <Campo label="Fecha de entrega comprometida">
-              <input type="date" name="fechaEntregaPactada" min={hoy} className="input" />
+              <input
+                type="date"
+                name="fechaEntregaPactada"
+                value={entrega}
+                min={fechaPedido}
+                onChange={(e) => {
+                  setEntrega(e.target.value);
+                  setEntregaEditada(true);
+                }}
+                className="input"
+              />
             </Campo>
           </div>
           <p className="mt-1 text-xs text-foreground-muted">
-            La fecha de entrega ordena la cola de producción. Sin fecha, cuenta la del pedido.
+            Si no se cambia, la entrega queda una semana después del pedido. Se puede modificar antes de confirmar.
           </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Campo label="Prioridad">
+              <select name="prioridad" value={prioridad} onChange={(e) => setPrioridad(e.target.value)} className="input">
+                {niveles.map((n) => (
+                  <option key={n.valor} value={n.valor}>
+                    {n.etiqueta}
+                  </option>
+                ))}
+              </select>
+            </Campo>
+            {prioridad !== "0" && (
+              <Campo label="Motivo de la prioridad" requerido>
+                <select name="motivoPrioridad" required defaultValue="" className="input">
+                  <option value="" disabled>
+                    Elegí el motivo…
+                  </option>
+                  {motivos.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </Campo>
+            )}
+          </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <Campo label="Modo de entrega">
               <select name="modoEntrega" className="input" defaultValue="">
@@ -231,41 +301,31 @@ export function FormularioPedido({
           <div className="space-y-2">
             {filasResueltas.map(({ fila: f, grupo, colores, prod }) => (
               <div key={f.key} className="flex flex-wrap items-center gap-2">
-                <select
+                <SelectorVisual
+                  etiqueta="Tipo de piso o accesorio"
+                  placeholder="Tipo…"
                   value={f.grupo}
-                  onChange={(e) => upd(f.key, { grupo: e.target.value, productoId: "", colorLibre: "" })}
-                  className="input w-auto min-w-[170px] flex-1"
-                >
-                  <optgroup label="Pisos">
-                    {grupos.filter((g) => g.esPiso).map((g) => (
-                      <option key={g.key} value={g.key}>
-                        {g.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Accesorios">
-                    {grupos.filter((g) => !g.esPiso).map((g) => (
-                      <option key={g.key} value={g.key}>
-                        {g.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                </select>
+                  onChange={(v) => upd(f.key, { grupo: v, productoId: "", colorLibre: "" })}
+                  className="w-full min-w-[200px] flex-1 sm:w-auto"
+                  opciones={grupos.map((g) => ({ value: g.key, label: g.label, imagen: IMAGEN_GRUPO[g.key] ?? null, grupo: g.esPiso ? "Pisos" : "Accesorios" }))}
+                />
 
-                <select
+                <SelectorVisual
+                  etiqueta="Color"
+                  placeholder="Color…"
                   value={f.productoId}
-                  onChange={(e) => upd(f.key, { productoId: e.target.value })}
-                  className="input w-auto min-w-[160px] flex-1"
-                >
-                  <option value="">Color…</option>
-                  {colores.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.colorNombre}
-                      {p.colorEspecial ? " (especial)" : ""} · stock {fmtNumero(p.stock, 0)}
-                    </option>
-                  ))}
-                  {puedeCrearProducto && <option value={LIBRE}>Otro (color especial)…</option>}
-                </select>
+                  onChange={(v) => upd(f.key, { productoId: v })}
+                  className="w-full min-w-[200px] flex-1 sm:w-auto"
+                  opciones={[
+                    ...colores.map((p) => ({
+                      value: String(p.id),
+                      label: `${p.colorNombre}${p.colorEspecial ? " (especial)" : ""}`,
+                      detalle: `${p.codigo} · stock ${fmtNumero(p.stock, 0)}`,
+                      hex: p.colorHex,
+                    })),
+                    ...(puedeCrearProducto ? [{ value: LIBRE, label: "Otro (color especial)…", detalle: "Registrar un color nuevo" }] : []),
+                  ]}
+                />
 
                 {f.productoId === LIBRE && (
                   <ColorEspecial
@@ -348,8 +408,8 @@ export function FormularioPedido({
         </button>
       </div>
 
-      <aside className="h-fit space-y-3 rounded-lg border border-border bg-surface p-4 text-sm">
-        <div className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Resumen</div>
+      <aside className="panel h-fit space-y-3 text-sm lg:sticky lg:top-4">
+        <div className="panel-titulo">Resumen</div>
         <ResumenPedido r={resumen} />
       </aside>
     </form>
@@ -443,8 +503,8 @@ function ColorEspecial({
 
 function Bloque({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
-      <h2 className="mb-3 text-sm font-semibold text-foreground">{titulo}</h2>
+    <div className="panel">
+      <h2 className="panel-titulo">{titulo}</h2>
       {children}
     </div>
   );

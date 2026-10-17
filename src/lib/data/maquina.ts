@@ -191,8 +191,12 @@ export type RetiroMaquinaInput = {
 export async function registrarRetiroMaquina(
   actor: Actor,
   input: RetiroMaquinaInput,
+  opciones: { paraCargaInmediata?: boolean } = {},
 ): Promise<Resultado & { id?: number; lineaIds?: number[]; repetido?: boolean }> {
-  if (!puedeRetirarMateriaPrima(actor.rol)) return { error: "No tenés permiso para retirar materia prima." };
+  // El operario puede retirar del stock general sólo para cargarlo en la
+  // tolva en el mismo paso (cuando no hay material a pie de máquina).
+  const permitido = puedeRetirarMateriaPrima(actor.rol) || (opciones.paraCargaInmediata && puedeCargarTolva(actor.rol));
+  if (!permitido) return { error: "No tenés permiso para retirar materia prima." };
   const lineas = input.lineas.filter((l) => l.materiaPrimaId);
   if (lineas.length === 0) return { error: "Agregá al menos un material." };
   if (lineas.some((l) => !Number.isFinite(l.cantidadKg) || l.cantidadKg <= 0)) return { error: "Cada material necesita una cantidad mayor que cero." };
@@ -519,7 +523,8 @@ export async function registrarSobrante(
   actor: Actor,
   input: { retiroMaquinaId: number; materiaPrimaDestinoId: number; cantidadKg: number; cicloId?: number | null; observaciones?: string | null; token?: string | null },
 ): Promise<Resultado & { id?: number; repetido?: boolean }> {
-  if (!puedeRetirarMateriaPrima(actor.rol)) return { error: "No tenés permiso para registrar sobrantes." };
+  // También el operario, al finalizar la producción (el sobrante se registra al cierre).
+  if (!puedeCargarTolva(actor.rol)) return { error: "No tenés permiso para registrar sobrantes." };
   if (!Number.isFinite(input.cantidadKg) || input.cantidadKg <= 0) return { error: "La cantidad tiene que ser mayor que cero." };
   const ub = await ubicacionesMp();
   return db

@@ -3,65 +3,121 @@
 import { useState, useTransition } from "react";
 import { Minus, Plus, ScanLine } from "lucide-react";
 import { leerCodigoTallerAction } from "@/app/actions/taller";
-import { fmtCantidadBolsas, fmtPeso, kgDe } from "@/lib/presentaciones";
+import { fmtCantidadBolsas, fmtPeso, fmtPresentacion, kgDe } from "@/lib/presentaciones";
 
-export type ItemCarga = { materiaPrimaId: number; presentacionId: number; nombre: string; presentacion: string; kgPres: number; cantidad: number; esMaster: boolean };
+export type ItemCarga = { materiaPrimaId: number; presentacionId: number; nombre: string; presentacion: string; kgPres: number; cantidad: number; esMaster: boolean; enPie: number };
 
-/** Cantidades con + / − (medias bolsas). Deja el JSON en un campo oculto. */
-export function CantidadesCarga({ items }: { items: ItemCarga[] }) {
+/**
+ * Registrar carga en tolva de material a pie de máquina: la receta de la
+ * producción viene precargada (en bolsas), cada material se tilda al cargarlo
+ * y se ajusta con + / − (medias bolsas). Si algo cambia respecto de la receta,
+ * pide el motivo. Por defecto el material sale del pie de máquina; destildando
+ * «Uso de material a pie de máquina» se toma del stock general en el mismo paso.
+ * La lectura del código de la bolsa es opcional.
+ */
+export function CargaTolva({ items, motivos, productoNumero }: { items: ItemCarga[]; motivos: readonly string[]; productoNumero: string | null }) {
+  const [tildado, setTildado] = useState(() => items.map(() => true));
   const [cant, setCant] = useState(() => items.map((i) => i.cantidad));
+  const [usarPie, setUsarPie] = useState(true);
+  const [codigos, setCodigos] = useState<Record<number, string>>({});
+  const efectiva = items.map((i, k) => (tildado[k] ? cant[k] : 0));
+  const distinto = items.some((i, k) => efectiva[k] !== i.cantidad);
+  const faltaPie = usarPie && items.some((i, k) => efectiva[k] > 0 && kgDe(efectiva[k], i.kgPres) > i.enPie + 1e-6);
   const cambiar = (k: number, d: number) => setCant((c) => c.map((v, j) => (j === k ? Math.max(0, Math.round((v + d) * 2) / 2) : v)));
   return (
-    <div className="space-y-2">
-      <input
-        type="hidden"
-        name="ajustes"
-        value={JSON.stringify(items.map((i, k) => ({ materiaPrimaId: i.materiaPrimaId, presentacionId: i.presentacionId, cantidad: cant[k] })))}
-      />
-      {items.map((i, k) => (
-        <div key={`${i.materiaPrimaId}-${i.presentacionId}`} className="flex items-center gap-3 rounded-xl border border-border bg-white p-2.5">
-          <button type="button" className="btn btn-outline btn-paso" onClick={() => cambiar(k, -0.5)} aria-label={`Media ${i.presentacion} menos`}>
-            <Minus size={20} />
-          </button>
-          <div className="min-w-0 flex-1 text-center">
-            <div className="font-[family-name:var(--font-display)] text-2xl font-bold">{fmtCantidadBolsas(cant[k])}</div>
-            <div className="truncate text-xs text-foreground-muted">
-              {i.presentacion} · {i.nombre}
-            </div>
-            <div className={`text-xs font-semibold ${cant[k] !== i.cantidad ? "text-accent" : "text-foreground-muted"}`}>
-              = {fmtPeso(kgDe(cant[k], i.kgPres), { gramos: i.esMaster })} {cant[k] !== i.cantidad ? `(receta: ${fmtCantidadBolsas(i.cantidad)})` : ""}
-            </div>
-          </div>
-          <button type="button" className="btn btn-outline btn-paso" onClick={() => cambiar(k, 0.5)} aria-label={`Media ${i.presentacion} más`}>
-            <Plus size={20} />
-          </button>
-        </div>
-      ))}
+    <div className="space-y-3">
+      <input type="hidden" name="ajustes" value={distinto ? JSON.stringify(items.map((i, k) => ({ materiaPrimaId: i.materiaPrimaId, presentacionId: i.presentacionId, cantidad: efectiva[k] }))) : ""} />
+      <input type="hidden" name="usarPie" value={usarPie ? "1" : "0"} />
+      <input type="hidden" name="codigos" value={JSON.stringify(Object.entries(codigos).filter(([, c]) => c).map(([id, codigo]) => ({ materiaPrimaId: Number(id), codigo })))} />
+
+      <label className="flex items-start gap-3 rounded-xl border border-border bg-surface-muted p-3">
+        <input type="checkbox" checked={usarPie} onChange={(e) => setUsarPie(e.target.checked)} className="mt-0.5 h-5 w-5" />
+        <span>
+          <span className="block font-semibold">Uso de material a pie de máquina</span>
+          <span className="block text-xs text-foreground-muted">
+            {usarPie
+              ? "El material sale de lo que está junto a la máquina."
+              : "Destildado: el material se retira del stock general (queda registrado a tu nombre) y se carga en la tolva en el mismo paso."}
+          </span>
+        </span>
+      </label>
+
+      <ul className="space-y-2">
+        {items.map((i, k) => (
+          <li key={`${i.materiaPrimaId}-${i.presentacionId}`} className={`rounded-xl border p-2.5 ${tildado[k] ? "border-[var(--estado-ok-fg)] bg-white" : "border-border bg-surface-muted"}`}>
+            <label className="flex items-center gap-3">
+              <input type="checkbox" checked={tildado[k]} onChange={(e) => setTildado((t) => t.map((v, j) => (j === k ? e.target.checked : v)))} className="h-6 w-6" aria-label={`Cargué ${i.nombre}`} />
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold">{i.nombre}</span>
+                <span className="block text-sm">
+                  {fmtPeso(kgDe(efectiva[k], i.kgPres), { gramos: i.esMaster })} ({fmtPresentacion(efectiva[k], i.presentacion)})
+                </span>
+                {usarPie && <span className={`block text-xs ${i.enPie + 1e-6 < kgDe(efectiva[k], i.kgPres) ? "font-semibold text-[var(--estado-critico-fg)]" : "text-foreground-muted"}`}>A pie de máquina: {fmtPeso(i.enPie, { gramos: i.esMaster })}</span>}
+              </span>
+            </label>
+            {tildado[k] && (
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <button type="button" className="btn btn-outline btn-paso" onClick={() => cambiar(k, -0.5)} aria-label="Media bolsa menos">
+                    <Minus size={18} />
+                  </button>
+                  <span className="w-14 text-center font-[family-name:var(--font-display)] text-xl font-bold">{fmtCantidadBolsas(cant[k])}</span>
+                  <button type="button" className="btn btn-outline btn-paso" onClick={() => cambiar(k, 0.5)} aria-label="Media bolsa más">
+                    <Plus size={18} />
+                  </button>
+                </div>
+                <LectorCodigo productoNumero={productoNumero} materialId={i.materiaPrimaId} onCodigo={(c) => setCodigos((x) => ({ ...x, [i.materiaPrimaId]: c }))} />
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+      {faltaPie && <p className="aviso aviso-alerta text-sm">No alcanza lo que hay a pie de máquina: destildá «Uso de material a pie de máquina» para tomarlo del stock general, o cargá lo que hay indicando el motivo.</p>}
+      {distinto && (
+        <label className="campo">
+          <span>Cargaste distinto de la receta: ¿por qué?</span>
+          <select name="motivo" required defaultValue="" className="input">
+            <option value="" disabled>
+              Elegí el motivo…
+            </option>
+            {motivos.map((m) => (
+              <option key={m}>{m}</option>
+            ))}
+          </select>
+        </label>
+      )}
     </div>
   );
 }
 
-/** Lector del código de barras de la bolsa (o tipeado): confirma material y lote. */
-export function LectorCodigo({ productoNumero, materialesReceta }: { productoNumero: string | null; materialesReceta: number[] }) {
+/** Lectura opcional del código de la bolsa: confirma que sea de ese material. */
+export function LectorCodigo({ productoNumero, materialId, onCodigo }: { productoNumero: string | null; materialId: number; onCodigo: (codigo: string) => void }) {
+  const [abierto, setAbierto] = useState(false);
   const [codigo, setCodigo] = useState("");
-  const [res, setRes] = useState<{ ok: boolean; texto: string; detalle?: string } | null>(null);
+  const [res, setRes] = useState<{ ok: boolean; texto: string } | null>(null);
   const [pendiente, start] = useTransition();
   const leer = () =>
     start(async () => {
       const r = await leerCodigoTallerAction(codigo, productoNumero);
-      if (r.error || !r.dato) return setRes({ ok: false, texto: r.error ?? "No se pudo leer el código." });
-      const d = r.dato;
-      if (!d.lote) return setRes({ ok: false, texto: "El código no corresponde a un lote ingresado.", detalle: d.advertencias.join(" ") });
-      const enReceta = materialesReceta.includes(d.lote.materiaPrimaId);
-      setRes({
-        ok: enReceta,
-        texto: enReceta ? `Correcto: ${d.lote.materiaPrimaNombre}` : `Atención: ${d.lote.materiaPrimaNombre} no está en la receta de esta producción`,
-        detalle: `Lote de MP ${d.lote.numeroLote}${d.certificado ? ` · certificado N° ${d.certificado.numero}` : " · sin certificado"}${d.advertencias.length ? ` · ${d.advertencias.join(" ")}` : ""}`,
-      });
+      if (r.error || !r.dato?.lote) {
+        setRes({ ok: false, texto: r.error ?? "El código no corresponde a un lote ingresado." });
+        onCodigo("");
+        return;
+      }
+      const ok = r.dato.lote.materiaPrimaId === materialId;
+      setRes({ ok, texto: ok ? `Lote ${r.dato.lote.numeroLote}${r.dato.certificado ? ` · cert. N° ${r.dato.certificado.numero}` : ""}` : `Es ${r.dato.lote.materiaPrimaNombre}, no este material` });
+      onCodigo(ok ? r.dato.codigo : "");
     });
+  if (!abierto) {
+    return (
+      <button type="button" onClick={() => setAbierto(true)} className="btn btn-ghost btn-sm">
+        <ScanLine size={16} /> Leer bolsa (opcional)
+      </button>
+    );
+  }
   return (
-    <div className="space-y-2">
-      <div className="flex gap-2">
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex gap-1">
         <input
           value={codigo}
           onChange={(e) => setCodigo(e.target.value)}
@@ -72,20 +128,16 @@ export function LectorCodigo({ productoNumero, materialesReceta }: { productoNum
             }
           }}
           inputMode="numeric"
-          placeholder="Escaneá o escribí el código de la bolsa"
-          className="input"
+          placeholder="Código de la bolsa"
+          className="input w-44 py-1 text-xs"
           aria-label="Código de barras de la bolsa"
+          autoFocus
         />
-        <button type="button" className="btn btn-azul" onClick={leer} disabled={pendiente || codigo.replace(/\s/g, "").length < 27}>
-          <ScanLine size={18} /> Leer
+        <button type="button" className="btn btn-azul btn-sm" disabled={pendiente || codigo.replace(/\s/g, "").length < 27} onClick={leer}>
+          Leer
         </button>
       </div>
-      {res && (
-        <div className={`aviso ${res.ok ? "aviso-ok" : "aviso-alerta"}`}>
-          <b>{res.texto}</b>
-          {res.detalle && <div className="text-xs">{res.detalle}</div>}
-        </div>
-      )}
+      {res && <span className={`text-xs font-semibold ${res.ok ? "text-[var(--estado-ok-fg)]" : "text-[var(--estado-critico-fg)]"}`}>{res.texto}</span>}
     </div>
   );
 }
@@ -122,7 +174,7 @@ export function RecepcionRelevo({ motivos }: { motivos: readonly string[] }) {
   );
 }
 
-/** Botones grandes de turno (radio). */
+/** Botones grandes de turno (sólo si los horarios no están configurados). */
 export function ElegirTurno({ turnos, sugerido }: { turnos: { valor: string; etiqueta: string }[]; sugerido?: string | null }) {
   const [valor, setValor] = useState(sugerido ?? "");
   return (
@@ -133,6 +185,28 @@ export function ElegirTurno({ turnos, sugerido }: { turnos: { valor: string; eti
           {t.etiqueta}
         </label>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Cierre con dos botones claros: «Cerrar mi turno y dejar relevo» y
+ * «Finalizar producción». Al elegir uno se despliegan sólo sus campos.
+ */
+export function DosBotonesCierre({ relevo, finalizar }: { relevo: React.ReactNode; finalizar: React.ReactNode }) {
+  const [abierto, setAbierto] = useState<"relevo" | "fin" | null>(null);
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button type="button" onClick={() => setAbierto(abierto === "relevo" ? null : "relevo")} className={`btn btn-lg ${abierto === "relevo" ? "btn-azul" : "btn-outline"}`}>
+          Cerrar mi turno y dejar relevo
+        </button>
+        <button type="button" onClick={() => setAbierto(abierto === "fin" ? null : "fin")} className={`btn btn-lg ${abierto === "fin" ? "btn-primary" : "btn-outline"}`}>
+          Finalizar producción
+        </button>
+      </div>
+      {abierto === "relevo" && relevo}
+      {abierto === "fin" && finalizar}
     </div>
   );
 }

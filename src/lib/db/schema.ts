@@ -176,6 +176,8 @@ export const estadoTandaEnum = pgEnum("estado_tanda", ["PLANIFICADA", "EN_CURSO"
 export const estadoTurnoEnum = pgEnum("estado_turno", ["ABIERTO", "CERRADO"]);
 
 /** Hechos de la máquina que no mueven stock pero hay que dejar registrados. */
+export const tipoEventoProduccionEnum = pgEnum("tipo_evento_produccion", ["INICIO", "PAUSA", "REANUDACION", "CANCELACION", "FINALIZACION"]);
+
 export const tipoNovedadEnum = pgEnum("tipo_novedad", ["NO_CARGA", "CARGA_DISTINTA", "DIFERENCIA_RELEVO", "INTERRUPCION"]);
 
 export const condicionIvaEnum = pgEnum("condicion_iva", [
@@ -246,6 +248,8 @@ export const color = pgTable(
   {
     id: serial("id").primaryKey(),
     nombre: text("nombre").notNull().unique(),
+    /** Muestra del color para elegirlo en el pedido (paleta del cliente). */
+    hex: text("hex"),
     clave: text("clave").generatedAlwaysAs(
       sql`lower(regexp_replace(btrim(translate(nombre, 'ÁÉÍÓÚÜáéíóúü', 'AEIOUUaeiouu')), '\\s+', ' ', 'g'))`,
     ),
@@ -307,6 +311,9 @@ export const producto = pgTable(
      *  mismo, así que se calcula por fórmula" (minuta 15/10). Sin dato no se
      *  calcula. */
     coladaKgPorGolpe: numeric("colada_kg_por_golpe", { precision: 8, scale: 4 }),
+    /** Si el producto admite sobrante/molienda como materia prima en su receta.
+     *  Lo define el Encargado; sin definición validada queda desactivado. */
+    aceptaSobrante: boolean("acepta_sobrante").notNull().default(false),
 
     // Configurables desde el Panel Admin (cada cambio queda en auditoria_config).
     minimo: integer("minimo"),
@@ -747,6 +754,10 @@ export const cicloProduccion = pgTable(
     tandaId: integer("tanda_id"),
     /** Descarte pesado en kilos (suma de los turnos). */
     descarteKg: numeric("descarte_kg", { precision: 10, scale: 3 }),
+    /** Pausa (con motivo en evento_produccion): no se carga ni se produce. */
+    pausada: boolean("pausada").notNull().default(false),
+    /** Cancelada antes de producir: se cerró sin piezas y la tanda volvió a planificar. */
+    cancelada: boolean("cancelada").notNull().default(false),
 
     creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
     usuarioId: integer("usuario_id").references(() => usuario.id),
@@ -978,6 +989,8 @@ export const pedido = pgTable(
     /** Archivado reversible (datos de prueba o históricos que ensucian las
      *  vistas operativas). No borra nada: se puede desarchivar. */
     archivado: boolean("archivado").notNull().default(false),
+    /** Clave del formulario de alta: un doble envío no crea dos pedidos. */
+    token: text("token").unique(),
     archivadoMotivo: text("archivado_motivo"),
     archivadoEn: timestamp("archivado_en", { withTimezone: true }),
     archivadoPorId: integer("archivado_por_id"),
@@ -1031,6 +1044,9 @@ export const pedidoLinea = pgTable(
  * preimpresos de CPS (planilla F.N°12P del procedimiento).
  */
 export const remitoInternoSeq = pgSequence("remito_interno_seq", { startWith: 1 });
+
+/** N° de orden de pedido, correlativo y seguro ante altas simultáneas. */
+export const pedidoNumeroSeq = pgSequence("pedido_numero_seq", { startWith: 1 });
 
 export const despacho = pgTable(
   "despacho",
@@ -1350,6 +1366,8 @@ export const turnoProduccion = pgTable(
     motivoInterrupcion: text("motivo_interrupcion"),
     observaciones: text("observaciones"),
     /** Recepción del relevo: el material a pie de máquina coincidía. */
+    /** Material a pie de máquina y en tolva al cerrar el turno (lo que recibe el siguiente). */
+    materialAlCierre: text("material_al_cierre"),
     recepcionOk: boolean("recepcion_ok"),
     recepcionMotivo: text("recepcion_motivo"),
     recepcionDetalle: text("recepcion_detalle"),
@@ -1402,3 +1420,22 @@ export const fraccionamientoMp = pgTable("fraccionamiento_mp", {
     .references(() => usuario.id),
   fecha: timestamp("fecha", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Historial de la producción: inicio, pausas (con motivo), reanudación,
+ *  cancelación y finalización, con quién y cuándo. */
+export const eventoProduccion = pgTable(
+  "evento_produccion",
+  {
+    id: serial("id").primaryKey(),
+    cicloId: integer("ciclo_id")
+      .notNull()
+      .references(() => cicloProduccion.id),
+    tipo: tipoEventoProduccionEnum("tipo").notNull(),
+    motivo: text("motivo"),
+    usuarioId: integer("usuario_id")
+      .notNull()
+      .references(() => usuario.id),
+    fecha: timestamp("fecha", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("evento_produccion_ciclo_idx").on(t.cicloId)],
+);

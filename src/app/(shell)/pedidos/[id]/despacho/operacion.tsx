@@ -36,6 +36,7 @@ export function Piqueo({
 }) {
   const [state, action, pendiente] = useActionState<EstadoForm, FormData>(piquearAction, {});
   const ref = useRef<HTMLInputElement>(null);
+  const [cajaCompleta, setCajaCompleta] = useState(true);
   return (
     <div className="space-y-3">
       <form action={action} className="flex flex-wrap items-end gap-2">
@@ -55,13 +56,27 @@ export function Piqueo({
             className="input font-mono"
           />
         </label>
+        <input type="hidden" name="cajaCompleta" value={cajaCompleta ? "1" : "0"} />
+        <label className="flex items-center gap-2 pb-2 text-sm font-semibold">
+          <input type="checkbox" checked={cajaCompleta} onChange={(e) => setCajaCompleta(e.target.checked)} className="h-5 w-5" />
+          Caja completa
+        </label>
         <label className="block text-sm">
-          <span className="mb-1 block text-foreground-muted">Baldosas / unidades sueltas</span>
-          <input name="cantidad" type="number" min={1} step={1} placeholder="caja completa" className="input w-40" />
+          <span className="mb-1 block text-foreground-muted">Baldosas / unidades</span>
+          <input
+            name="cantidad"
+            type="number"
+            min={1}
+            step={1}
+            disabled={cajaCompleta}
+            required={!cajaCompleta}
+            placeholder={cajaCompleta ? "toda la caja" : "cantidad"}
+            className="input w-36 disabled:opacity-60"
+          />
         </label>
         <p className="w-full text-xs text-foreground-muted">
-          Al leer una caja, si dejás la cantidad vacía se toma <b>la caja completa</b> (todas sus baldosas). Si sacás sólo algunas,
-          escribí cuántas <b>baldosas o unidades</b> (no cajas).
+          Con <b>Caja completa</b> tildado se toman todas las unidades que tiene la caja. Para sacar sólo algunas (o para códigos de producto sin
+          caja), destildalo e indicá cuántas <b>baldosas o unidades</b> — no cajas.
         </p>
         <button type="submit" disabled={pendiente} className={BOTON}>
           Registrar lectura
@@ -111,7 +126,7 @@ export function ConfirmarControl({
       <input type="hidden" name="pedidoId" value={pedidoId} />
       <input type="hidden" name="despachoId" value={despachoId} />
       <h3 className="text-sm font-semibold">
-        {etapa === "ARMADO" ? "Primer control: cerrar el armado" : "Control final y entrega"}
+        {etapa === "ARMADO" ? "Primer control: cerrar el armado" : "Control final y despacho"}
       </h3>
       <p className="text-sm text-foreground-muted">
         {etapa === "ARMADO"

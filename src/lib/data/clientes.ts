@@ -1,15 +1,41 @@
-import { asc, eq, ilike, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { cliente } from "@/lib/db/schema";
+import { cliente, despacho, pedido, pedidoLinea, producto } from "@/lib/db/schema";
 
 export type Cliente = typeof cliente.$inferSelect;
 
-export async function listarClientes(texto?: string): Promise<Cliente[]> {
+export async function listarClientes(texto?: string, orden: "az" | "za" = "az"): Promise<Cliente[]> {
+  // Orden alfabético sin distinguir mayúsculas ("carrefour" y "Carrefour" juntos).
   return db
     .select()
     .from(cliente)
     .where(texto ? ilike(cliente.nombre, `%${texto}%`) : undefined)
-    .orderBy(asc(cliente.nombre));
+    .orderBy(orden === "za" ? sql`lower(${cliente.nombre}) desc` : sql`lower(${cliente.nombre}) asc`);
+}
+
+/**
+ * Historial de pedidos de un cliente: estado, fechas, productos y despachos
+ * (con su remito). Los precios se muestran sólo a quien los puede ver (lo
+ * decide la página).
+ */
+export async function historialCliente(clienteId: number) {
+  const pedidos = await db
+    .select({ id: pedido.id, numeroOrden: pedido.numeroOrden, fechaPedido: pedido.fechaPedido, fechaEntrega: pedido.fechaEntregaPactada, estado: pedido.estado, total: pedido.total, archivado: pedido.archivado })
+    .from(pedido)
+    .where(eq(pedido.clienteId, clienteId))
+    .orderBy(desc(pedido.fechaPedido), desc(pedido.id));
+  if (pedidos.length === 0) return [];
+  const ids = pedidos.map((p) => p.id);
+  const lineas = await db
+    .select({ pedidoId: pedidoLinea.pedidoId, unidades: pedidoLinea.unidadesPedidas, entregadas: pedidoLinea.unidadesDespachadas, codigo: producto.codigo, descripcion: producto.descripcion, colorTexto: pedidoLinea.colorTexto })
+    .from(pedidoLinea)
+    .leftJoin(producto, eq(pedidoLinea.productoId, producto.id))
+    .where(inArray(pedidoLinea.pedidoId, ids));
+  const despachos = await db
+    .select({ id: despacho.id, pedidoId: despacho.pedidoId, estado: despacho.estado, numeroInterno: despacho.numeroInterno, numeroRemito: despacho.numeroRemito, entregadoEn: despacho.entregadoEn })
+    .from(despacho)
+    .where(and(inArray(despacho.pedidoId, ids), ne(despacho.estado, "ANULADO")));
+  return pedidos.map((p) => ({ ...p, lineas: lineas.filter((l) => l.pedidoId === p.id), despachos: despachos.filter((d) => d.pedidoId === p.id) }));
 }
 
 export async function getCliente(id: number): Promise<Cliente | undefined> {

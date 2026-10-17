@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { listarLotes } from "@/lib/data/materia-prima";
 import { pieDeMaquina } from "@/lib/data/maquina";
 import { fraccionamientosRecientes, movimientosMp, stockMpPorUbicacion, MOTIVOS_AJUSTE_MP } from "@/lib/data/stock-mp";
-import { listarPresentaciones } from "@/lib/data/recetas";
-import { relevosRecientes } from "@/lib/data/taller";
+import { listarPresentaciones, presentacionesDe } from "@/lib/data/recetas";
+import { enBolsas, relevosRecientes } from "@/lib/data/taller";
 import { getUsuarioActual } from "@/lib/session";
 import {
   puedeAjustarMateriaPrima,
@@ -17,17 +16,15 @@ import {
 import { Semaforo } from "@/components/semaforo";
 import { FormAccion } from "@/components/form-accion";
 import { ajusteMpAction, altaMpAction, bolsonAction, fraccionarAction } from "@/app/actions/materia-prima";
-import { fmtDia, fmtFecha, fmtFechaHora, fmtHora, fmtNumero, hoyISO } from "@/lib/format";
+import { fmtDia, fmtFechaHora, fmtHora, fmtNumero, hoyISO } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
 import { etiquetaInyectora } from "@/lib/inyectoras";
-import { CorregirLote } from "./corregir-lote";
 
 const VISTAS = [
-  { id: "stock", label: "Stock" },
+  { id: "stock", label: "Stock general" },
+  { id: "pie", label: "Stock a pie de máquina" },
   { id: "movimientos", label: "Movimientos" },
-  { id: "pie", label: "A pie de máquina" },
-  { id: "lotes", label: "Lotes y certificados" },
-  { id: "ajustes", label: "Ajustes y variantes" },
+  { id: "operaciones", label: "Operaciones de stock" },
 ] as const;
 type Vista = (typeof VISTAS)[number]["id"];
 
@@ -56,15 +53,13 @@ export default async function MateriaPrimaPage({
   const sp = await searchParams;
   const vista: Vista = VISTAS.some((v) => v.id === sp.vista) ? (sp.vista as Vista) : "stock";
   const stock = await stockMpPorUbicacion();
-  const totales = stock.reduce((t, m) => ({ dep: t.dep + m.deposito, pie: t.pie + m.pie, proc: t.proc + m.proceso }), { dep: 0, pie: 0, proc: 0 });
-  const alertas = stock.filter((m) => m.estado === "critico" || m.estado === "bajo").length;
 
   return (
     <div>
       <div className="encabezado">
         <div>
           <h1>Materia prima</h1>
-          <p>Depósito, pie de máquina y tolva por separado: dónde está cada kilo.</p>
+          <p>Dos depósitos: el stock general (Materia prima) y el stock a pie de máquina (junto a cada inyectora). La tolva es lo ya cargado en la máquina.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {puedeIngresarMateriaPrima(usuario.rol) && (
@@ -77,25 +72,6 @@ export default async function MateriaPrimaPage({
               Retiro a pie de máquina
             </Link>
           )}
-        </div>
-      </div>
-
-      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="stat-card">
-          <div className="stat-label">En depósito</div>
-          <div className="stat-valor">{fmtPeso(totales.dep)}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">A pie de máquina</div>
-          <div className="stat-valor">{fmtPeso(totales.pie)}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">En tolva / en proceso</div>
-          <div className="stat-valor">{fmtPeso(totales.proc)}</div>
-        </div>
-        <div className="stat-card" style={{ borderTopColor: alertas ? "var(--estado-critico-fg)" : undefined }}>
-          <div className="stat-label">Materiales bajo el mínimo</div>
-          <div className="stat-valor">{alertas}</div>
         </div>
       </div>
 
@@ -114,15 +90,15 @@ export default async function MateriaPrimaPage({
       {vista === "stock" && <Stock stock={stock} sp={sp} />}
       {vista === "movimientos" && <Movimientos stock={stock} sp={sp} />}
       {vista === "pie" && <Pie />}
-      {vista === "lotes" && <Lotes corrige={puedeCorregirProduccionMp(usuario.rol)} />}
-      {vista === "ajustes" && <Ajustes stock={stock} ajusta={puedeAjustarMateriaPrima(usuario.rol)} alta={puedeAltaMateriaPrima(usuario.rol)} />}
+      {vista === "operaciones" && <Ajustes stock={stock} ajusta={puedeAjustarMateriaPrima(usuario.rol)} alta={puedeAltaMateriaPrima(usuario.rol)} corrige={puedeCorregirProduccionMp(usuario.rol)} />}
     </div>
   );
 }
 
 type Stock = Awaited<ReturnType<typeof stockMpPorUbicacion>>;
 
-function Stock({ stock, sp }: { stock: Stock; sp: { tipo?: string; texto?: string; alertas?: string } }) {
+async function Stock({ stock, sp }: { stock: Stock; sp: { tipo?: string; texto?: string; alertas?: string } }) {
+  const movs = await movimientosMp({ ubicacion: "deposito", limite: 15 });
   const tipo = TIPOS.some((t) => t.valor === sp.tipo) ? sp.tipo : undefined;
   const texto = sp.texto?.trim().toLowerCase();
   const soloAlertas = sp.alertas === "1";
@@ -157,12 +133,10 @@ function Stock({ stock, sp }: { stock: Stock; sp: { tipo?: string; texto?: strin
             <tr>
               <th>Código</th>
               <th>Material</th>
-              <th className="text-right">Depósito</th>
-              <th className="text-right">Pie de máquina</th>
-              <th className="text-right">Tolva / proceso</th>
-              <th className="text-right">Total</th>
+              <th className="text-right">Stock general</th>
               <th className="text-right">Mínimo</th>
               <th>Estado</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -172,17 +146,20 @@ function Stock({ stock, sp }: { stock: Stock; sp: { tipo?: string; texto?: strin
                 <tr key={m.id}>
                   <td className="font-mono text-xs">{m.codigo}</td>
                   <td>
-                    <Link href={`/materia-prima?vista=movimientos&mp=${m.id}`} className="font-semibold text-accent hover:underline">
+                    <Link href={`/materia-prima/${m.id}`} className="font-semibold text-accent hover:underline">
                       {m.nombre}
                     </Link>
+                    {m.pie > 0 && <div className="text-xs text-foreground-muted">+ {fmtPeso(m.pie, { gramos: g && m.pie < 10 })} a pie de máquina</div>}
                   </td>
-                  <td className="text-right tabular-nums">{fmtPeso(m.deposito, { gramos: g && m.deposito < 10 })}</td>
-                  <td className="text-right tabular-nums">{m.pie ? fmtPeso(m.pie, { gramos: g && m.pie < 10 }) : "—"}</td>
-                  <td className="text-right tabular-nums">{m.proceso ? fmtPeso(m.proceso, { gramos: g && m.proceso < 10 }) : "—"}</td>
-                  <td className="text-right font-semibold tabular-nums">{fmtPeso(m.total, { gramos: g && m.total < 10 })}</td>
+                  <td className="text-right font-semibold tabular-nums">{fmtPeso(m.deposito, { gramos: g && m.deposito < 10 })}</td>
                   <td className="text-right tabular-nums text-foreground-muted">{m.minimo ? fmtPeso(m.minimo) : "—"}</td>
                   <td>
                     <Semaforo estado={m.estado} />
+                  </td>
+                  <td className="text-right">
+                    <Link href={`/materia-prima/${m.id}`} className="btn btn-outline btn-sm">
+                      Lotes y certificados
+                    </Link>
                   </td>
                 </tr>
               );
@@ -191,8 +168,17 @@ function Stock({ stock, sp }: { stock: Stock; sp: { tipo?: string; texto?: strin
         </table>
       </div>
       <p className="text-xs text-foreground-muted">
-        {visibles.length} de {stock.length}. El semáforo compara lo disponible (depósito + pie de máquina) con el mínimo. Mínimos: Configuración → Mínimos y máximos.
+        {visibles.length} de {stock.length}. Al entrar a cada material se ven sus lotes, certificados y movimientos. Ingresos, salidas a pie de máquina y devoluciones: pestaña Movimientos (filtrá «Stock general»).
       </p>
+      <section className="panel overflow-x-auto p-0">
+        <div className="flex items-center justify-between px-5 pt-4">
+          <h2 className="panel-titulo mb-0 w-auto border-0">Últimos movimientos del stock general</h2>
+          <Link href="/materia-prima?vista=movimientos&ubic=deposito" className="text-xs font-semibold text-accent hover:underline">
+            Ver todos →
+          </Link>
+        </div>
+        <TablaMovs movs={movs} />
+      </section>
     </section>
   );
 }
@@ -234,8 +220,8 @@ async function Movimientos({ stock, sp }: { stock: Stock; sp: { desde?: string; 
           <span>Ubicación</span>
           <select name="ubic" defaultValue={ubic ?? ""} className="input">
             <option value="">Todas</option>
-            <option value="deposito">Depósito</option>
-            <option value="pie">Pie de máquina</option>
+            <option value="deposito">Stock general</option>
+            <option value="pie">Stock a pie de máquina</option>
             <option value="proceso">Tolva / en proceso</option>
           </select>
         </label>
@@ -284,12 +270,43 @@ async function Movimientos({ stock, sp }: { stock: Stock; sp: { desde?: string; 
 }
 
 async function Pie() {
-  const [pie, { novedades, excepciones }] = await Promise.all([pieDeMaquina(), relevosRecientes(15)]);
+  const [pie, { novedades, excepciones }, presentaciones, movs] = await Promise.all([pieDeMaquina(), relevosRecientes(15), listarPresentaciones(), movimientosMp({ ubicacion: "pie", limite: 20 })]);
+  // Indicadores: qué debería haber junto a cada inyectora según los movimientos
+  // registrados (saldo calculado, no un conteo físico).
+  const porIny = new Map<string, Map<number, { nombre: string; tipo: string; kg: number }>>();
+  for (const r of pie)
+    for (const l of r.lineas) {
+      if (l.anulado || l.saldo.pie <= 0) continue;
+      const m = porIny.get(r.inyectora) ?? new Map();
+      const a = m.get(l.materiaPrimaId) ?? { nombre: l.materiaPrimaNombre, tipo: l.materiaPrimaTipo, kg: 0 };
+      a.kg = Math.round((a.kg + l.saldo.pie) * 1000) / 1000;
+      m.set(l.materiaPrimaId, a);
+      porIny.set(r.inyectora, m);
+    }
   return (
     <div className="space-y-5">
+      {porIny.size === 0 ? (
+        <p className="panel text-sm text-foreground-muted">No hay material a pie de máquina.</p>
+      ) : (
+        [...porIny.entries()].map(([iny, mats]) => (
+          <section key={iny} className="space-y-2">
+            <h2 className="panel-titulo">{etiquetaInyectora(iny)} · debería haber junto a la máquina</h2>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {[...mats.entries()].map(([id, m]) => (
+                <div key={id} className="stat-card">
+                  <div className="stat-label">{m.nombre}</div>
+                  <div className="stat-valor text-lg">{enBolsas(m.kg, presentacionesDe(presentaciones, { id, tipo: m.tipo })) ?? fmtPeso(m.kg, { gramos: m.tipo === "MASTER" })}</div>
+                  <div className="text-xs text-foreground-muted">{fmtPeso(m.kg, { gramos: m.tipo === "MASTER" && m.kg < 10 })}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))
+      )}
+      <p className="text-xs text-foreground-muted">Calculado con los movimientos registrados (retirado − cargado en tolva − devuelto − diferencias). No reemplaza el control físico.</p>
       <section className="panel overflow-x-auto p-0">
         <div className="px-5 pt-4">
-          <h2 className="panel-titulo">Retiros abiertos</h2>
+          <h2 className="panel-titulo">Retiros abiertos (traslados del stock general al pie de máquina)</h2>
           <p className="mb-3 text-xs text-foreground-muted">Material retirado del depósito y todavía no cargado, devuelto ni justificado. Sigue abierto entre turnos hasta conciliar.</p>
         </div>
         <table className="tabla">
@@ -329,6 +346,15 @@ async function Pie() {
             )}
           </tbody>
         </table>
+      </section>
+      <section className="panel overflow-x-auto p-0">
+        <div className="flex items-center justify-between px-5 pt-4">
+          <h2 className="panel-titulo mb-0 w-auto border-0">Movimientos del stock a pie de máquina</h2>
+          <Link href="/materia-prima?vista=movimientos&ubic=pie" className="text-xs font-semibold text-accent hover:underline">
+            Ver todos →
+          </Link>
+        </div>
+        <TablaMovs movs={movs} />
       </section>
       <div className="grid gap-5 md:grid-cols-2">
         <section className="panel">
@@ -373,81 +399,44 @@ async function Pie() {
   );
 }
 
-async function Lotes({ corrige }: { corrige: boolean }) {
-  const lotes = await listarLotes({ soloConSaldo: true });
-  return (
-    <section className="panel overflow-x-auto p-0">
-      <div className="px-5 pt-4">
-        <h2 className="panel-titulo">Lotes de MP con saldo en el depósito</h2>
-        <p className="mb-3 text-xs text-foreground-muted">
-          <b>Lote de MP</b> = código de ingreso de 27 dígitos (000 + 4 de material + 8 de proveedor/certificado + 12 de lote).{" "}
-          <b>Lote del proveedor</b> = los últimos 12 dígitos. No confundir con la <b>partida NEXA</b>, que agrupa la producción. Los bolsones de molienda usan
-          99999999 como proveedor.
-        </p>
-      </div>
-      <table className="tabla">
-        <thead>
-          <tr>
-            <th>Lote de MP (código)</th>
-            <th>Lote del proveedor</th>
-            <th>Material</th>
-            <th>Certificado</th>
-            <th>Ingreso</th>
-            <th className="text-right">Disponible</th>
-            {corrige && <th></th>}
-          </tr>
-        </thead>
-        <tbody>
-          {lotes.map((l) => (
-            <tr key={l.id}>
-              <td>
-                <Link href={`/trazabilidad?tipo=lote&valor=${l.codigoBarra}`} className="font-mono text-xs text-accent hover:underline">
-                  {l.codigoBarra}
-                </Link>
-              </td>
-              <td className="font-mono text-xs">{l.numeroLote}</td>
-              <td>{l.materiaPrimaNombre}</td>
-              <td>{l.certificadoNumero ? `N° ${l.certificadoNumero} · ${l.proveedor}` : "—"}</td>
-              <td>{fmtFecha(l.fechaIngreso)}</td>
-              <td className="text-right tabular-nums">{fmtNumero(l.disponible, 3)} kg</td>
-              {corrige && (
-                <td>
-                  <CorregirLote loteId={l.id} ingresado={Number(l.ingresado)} />
-                </td>
-              )}
-            </tr>
-          ))}
-          {lotes.length === 0 && (
-            <tr>
-              <td colSpan={7} className="text-foreground-muted">
-                Todavía no hay lotes ingresados. El stock importado del Excel no tiene lote.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </section>
-  );
-}
-
-async function Ajustes({ stock, ajusta, alta }: { stock: Stock; ajusta: boolean; alta: boolean }) {
+async function Ajustes({ stock, ajusta, alta, corrige }: { stock: Stock; ajusta: boolean; alta: boolean; corrige: boolean }) {
   const [presentaciones, fracc] = await Promise.all([listarPresentaciones(), fraccionamientosRecientes(10)]);
   const masters = stock.filter((m) => m.tipo === "MASTER");
   const moliendas = stock.filter((m) => m.tipo === "MOLIENDA" || m.tipo === "SOBRANTE");
   if (!ajusta && !alta) return <p className="panel text-sm text-foreground-muted">Los ajustes los registra Materia prima; las correcciones, Supervisión o Gerencia.</p>;
   return (
     <div className="grid gap-5 lg:grid-cols-2">
+      <section className="panel">
+        <h2 className="panel-titulo">Devolución de material al stock general</h2>
+        <p className="text-sm text-foreground-muted">
+          El material sin mezclar que vuelve de pie de máquina (bolsas o bolsitas sin usar) se registra en el retiro correspondiente con «Devolver sin mezclar»: vuelve al
+          stock general sin duplicar la cantidad.
+        </p>
+        <Link href="/materia-prima?vista=pie" className="btn btn-outline btn-sm mt-3">
+          Ir a los retiros a pie de máquina
+        </Link>
+      </section>
+      <section className="panel">
+        <h2 className="panel-titulo">Registro de sobrante</h2>
+        <p className="text-sm text-foreground-muted">
+          El material mezclado con master que se baja de la tolva se registra al finalizar la producción (pantalla del operario) o en el retiro, con su código de sobrante:
+          nunca vuelve como material virgen.
+        </p>
+        <Link href="/materia-prima?vista=pie" className="btn btn-outline btn-sm mt-3">
+          Ir a los retiros a pie de máquina
+        </Link>
+      </section>
       {ajusta && (
         <section className="panel">
-          <h2 className="panel-titulo">Diferencia de balanza o ajuste autorizado</h2>
+          <h2 className="panel-titulo">Ajuste de balanza</h2>
           <FormAccion accion={ajusteMpAction} boton="Registrar ajuste" className="space-y-3">
             <SelectMp stock={stock} />
             <div className="grid grid-cols-3 gap-2">
               <label className="campo">
                 <span>Dónde</span>
                 <select name="ubicacion" className="input" defaultValue="deposito">
-                  <option value="deposito">Depósito</option>
-                  <option value="pie">Pie de máquina</option>
+                  <option value="deposito">Stock general</option>
+                  <option value="pie">Stock a pie de máquina</option>
                 </select>
               </label>
               <label className="campo">
@@ -479,7 +468,7 @@ async function Ajustes({ stock, ajusta, alta }: { stock: Stock; ajusta: boolean;
       )}
       {ajusta && (
         <section className="panel">
-          <h2 className="panel-titulo">Molienda o sobrante en bolsón</h2>
+          <h2 className="panel-titulo">Molienda (bolsones)</h2>
           <p className="mb-3 text-xs text-foreground-muted">El scrap molido se pesa y se vuelca en bolsones de peso variable. Cada bolsón queda con su código para retirarlo y descontarlo al usarlo.</p>
           <FormAccion accion={bolsonAction} boton="Registrar bolsón" className="space-y-3">
             <label className="campo">
@@ -553,7 +542,7 @@ async function Ajustes({ stock, ajusta, alta }: { stock: Stock; ajusta: boolean;
       )}
       {alta && (
         <section className="panel">
-          <h2 className="panel-titulo">Alta de material (Supervisión o Gerencia)</h2>
+          <h2 className="panel-titulo">Alta de material</h2>
           <p className="mb-3 text-xs text-foreground-muted">Un color nuevo de master, o un material que resulta de una mezcla (ej. «polipropileno con master negro»): se identifica como tal para no confundirlo con material virgen.</p>
           <FormAccion accion={altaMpAction} boton="Dar de alta" className="space-y-3">
             <div className="grid grid-cols-3 gap-2">
@@ -585,6 +574,15 @@ async function Ajustes({ stock, ajusta, alta }: { stock: Stock; ajusta: boolean;
           </FormAccion>
         </section>
       )}
+      {corrige && (
+        <section className="panel">
+          <h2 className="panel-titulo">Corrección autorizada (Supervisión o Gerencia)</h2>
+          <p className="text-sm text-foreground-muted">
+            Los datos ya confirmados se corrigen con anulaciones o ajustes auditados, nunca borrando: los kg de un lote se corrigen desde la materia prima (botón «Lotes y
+            certificados»); retiros y cargas, desde el retiro («Anular línea» / «Anular movimiento»).
+          </p>
+        </section>
+      )}
     </div>
   );
 }
@@ -604,5 +602,44 @@ function SelectMp({ stock }: { stock: Stock }) {
         ))}
       </select>
     </label>
+  );
+}
+
+function TablaMovs({ movs }: { movs: Awaited<ReturnType<typeof movimientosMp>> }) {
+  return (
+    <table className="tabla">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Material</th>
+          <th className="text-right">Kg</th>
+          <th>Origen</th>
+          <th>Observaciones</th>
+          <th>Responsable</th>
+        </tr>
+      </thead>
+      <tbody>
+        {movs.map((m) => (
+          <tr key={m.id}>
+            <td className="whitespace-nowrap text-xs">{fmtFechaHora(m.fecha)}</td>
+            <td>{m.materiaPrima}</td>
+            <td className={`text-right font-semibold tabular-nums ${m.kg < 0 ? "text-[var(--estado-critico-fg)]" : "text-[var(--estado-ok-fg)]"}`}>
+              {m.kg > 0 ? "+" : ""}
+              {fmtNumero(m.kg, 3)}
+            </td>
+            <td className="whitespace-nowrap">{m.origen}</td>
+            <td className="max-w-80 text-xs text-foreground-muted">{m.motivo}</td>
+            <td className="whitespace-nowrap">{m.usuario}</td>
+          </tr>
+        ))}
+        {movs.length === 0 && (
+          <tr>
+            <td colSpan={6} className="text-foreground-muted">
+              Sin movimientos.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
   );
 }

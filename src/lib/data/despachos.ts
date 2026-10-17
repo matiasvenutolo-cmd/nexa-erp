@@ -42,6 +42,8 @@ import { puedeOperarDespacho, puedeRegistrarRemitoLegal } from "@/lib/auth/permi
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
 import { crearAviso } from "@/lib/data/avisos";
 import { hoyISO } from "@/lib/format";
+import { obtenerParametros } from "@/lib/data/parametros";
+import { unidadesPorCaja } from "@/lib/data/catalogo";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Ejecutor = Tx | typeof db;
@@ -345,7 +347,7 @@ export type ResultadoPiqueo = Resultado & { alerta?: string; ok?: string };
 export async function piquear(
   actor: Actor,
   despachoId: number,
-  input: { codigo: string; cantidad?: number | null },
+  input: { codigo: string; cantidad?: number | null; cajaCompleta?: boolean },
 ): Promise<ResultadoPiqueo> {
   if (!puedeOperarDespacho(actor.rol)) return { error: "No tenés permiso para piquear." };
   const codigo = input.codigo.trim().toUpperCase();
@@ -418,7 +420,15 @@ export async function piquear(
         }
         disponibleCaja = c.cantidad - ((await usadoDeCajas(tx, [c.id])).get(c.id) ?? 0);
       }
-      const cantidad = input.cantidad ?? (c ? Math.min(disponibleCaja, pendiente) : 1);
+      // «Caja completa»: todas las unidades que le quedan a la caja; si no,
+      // la cantidad exacta de baldosas que se toman (nunca más de las que tiene).
+      if (input.cajaCompleta && !c) {
+        return { error: `${codigo} es un código de producto, no de caja: destildá «Caja completa» e indicá la cantidad.` };
+      }
+      if (input.cajaCompleta === false && input.cantidad == null) {
+        return { error: "Indicá cuántas baldosas o unidades se toman (o tildá «Caja completa»)." };
+      }
+      const cantidad = input.cajaCompleta && c ? disponibleCaja : (input.cantidad ?? (c ? Math.min(disponibleCaja, pendiente) : 1));
       if (c && disponibleCaja <= 0) {
         await registrar(input.cantidad ?? 0, linea.id, "La caja no tiene unidades disponibles (ya fue armada).");
         return { alerta: `La caja ${codigo} ya está armada: no tiene unidades disponibles.` };
@@ -525,7 +535,7 @@ function describir(lineas: { codigo: string | null; unidades: number; pendiente:
 }
 
 /** Primer control: cierra el armado, el pedido queda listo y se avisa a ventas. */
-export async function confirmarPrimerControl(actor: Actor, despachoId: number, observaciones?: string | null): Promise<Resultado> {
+export async function confirmarPrimerControl(actor: Actor, despachoId: number, observaciones?: string | null): Promise<Resultado & { parcial?: boolean }> {
   if (!puedeOperarDespacho(actor.rol)) return { error: "No tenés permiso para controlar despachos." };
   return db.transaction(async (tx) => {
     const d = await despachoBloqueado(tx, despachoId);
@@ -567,7 +577,9 @@ export async function confirmarPrimerControl(actor: Actor, despachoId: number, o
       despachoId,
       creadoPorId: actor.id,
     });
-    return {};
+    // Parcial: quedó algún renglón con producto sin armar del todo.
+    const parcial = resumen.some((l) => l.codigo != null && l.pendiente > 0);
+    return { parcial };
   });
 }
 
@@ -764,4 +776,71 @@ export async function obtenerDespachoParaRemito(despachoId: number) {
     .leftJoin(producto, eq(pedidoLinea.productoId, producto.id))
     .where(eq(despachoLinea.despachoId, despachoId));
   return { ...cab, items };
+}
+
+/** Despacho activo (armando o controlado) de cada pedido, para los listados. */
+export async function listarDespachosActivos(pedidoIds: number[]): Promise<Map<number, "ARMANDO" | "CONTROLADO">> {
+  if (pedidoIds.length === 0) return new Map();
+  const filas = await db
+    .select({ pedidoId: despacho.pedidoId, estado: despacho.estado })
+    .from(despacho)
+    .where(and(inArray(despacho.pedidoId, pedidoIds), inArray(despacho.estado, ["ARMANDO", "CONTROLADO"])));
+  return new Map(filas.map((f) => [f.pedidoId, f.estado as "ARMANDO" | "CONTROLADO"]));
+}
+
+export type CajaExistencia = {
+  id: number;
+  codigo: string;
+  partidaNumero: number;
+  fecha: string;
+  cantidadOriginal: number;
+  disponible: number;
+  capacidad: number | null;
+  completa: boolean;
+  estado: (typeof caja.$inferSelect)["estado"];
+};
+
+/**
+ * Existencias de un producto, caja por caja (listado de mejoras: «Ver
+ * existencias»). La cantidad de cada caja sale de lo que entró en ella menos
+ * lo leído en despachos (piqueos), no de un cálculo aparte; las cajas abiertas
+ * (con menos que la capacidad) quedan marcadas. Lo que hay en el stock sin
+ * caja (importado del Excel, anterior a las cajas) se informa aparte.
+ */
+export async function existenciasProducto(productoId: number) {
+  const [prod] = await db
+    .select({ id: producto.id, esAccesorio: producto.esAccesorio, unidadesPorCaja: producto.unidadesPorCaja })
+    .from(producto)
+    .where(eq(producto.id, productoId));
+  if (!prod) return null;
+  const params = await obtenerParametros();
+  const capacidad = unidadesPorCaja(prod, params);
+  const cajas = await db
+    .select({ id: caja.id, codigo: caja.codigoBarra, cantidad: caja.cantidad, estado: caja.estado, fecha: caja.fecha, partidaNumero: partida.numero })
+    .from(caja)
+    .innerJoin(partida, eq(caja.partidaId, partida.id))
+    .where(and(eq(caja.productoId, productoId), inArray(caja.estado, ["EN_STOCK", "ARMADA"])))
+    .orderBy(asc(caja.fecha), asc(caja.id));
+  const usado = await usadoDeCajas(db, cajas.map((c) => c.id));
+  const lista: CajaExistencia[] = cajas
+    .map((c) => {
+      const disponible = c.cantidad - (usado.get(c.id) ?? 0);
+      return {
+        id: c.id,
+        codigo: c.codigo,
+        partidaNumero: c.partidaNumero,
+        fecha: c.fecha,
+        cantidadOriginal: c.cantidad,
+        disponible,
+        capacidad,
+        completa: capacidad != null ? disponible >= capacidad : false,
+        estado: c.estado,
+      };
+    })
+    .filter((c) => c.disponible > 0);
+  const depositoId = await getDepositoNexaId();
+  const [s] = await db.select({ cantidad: saldo.cantidad }).from(saldo).where(and(eq(saldo.depositoId, depositoId), eq(saldo.productoId, productoId)));
+  const stock = Number(s?.cantidad ?? 0);
+  const enCajas = lista.reduce((t, c) => t + c.disponible, 0);
+  return { capacidad, cajas: lista, stock, enCajas, sinCaja: Math.max(0, stock - enCajas) };
 }

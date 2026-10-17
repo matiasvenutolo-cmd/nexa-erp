@@ -12,6 +12,9 @@ import { registrarCambios, ultimasModificaciones, type Actor, type Resultado } f
 export const PARAMETROS = {
   SEMAFORO_MARGEN_BAJO: "semaforo_margen_bajo",
   UNIDADES_POR_CAJA_PISOS: "unidades_por_caja_pisos",
+  TURNO_MANANA_INICIO: "turno_manana_inicio",
+  TURNO_TARDE_INICIO: "turno_tarde_inicio",
+  TURNO_NOCHE_INICIO: "turno_noche_inicio",
 } as const;
 
 export type ClaveParametro = (typeof PARAMETROS)[keyof typeof PARAMETROS];
@@ -20,6 +23,9 @@ export type Parametros = Record<ClaveParametro, number>;
 const ETIQUETA: Record<ClaveParametro, string> = {
   semaforo_margen_bajo: "Margen del semáforo para \"Bajo\"",
   unidades_por_caja_pisos: "Unidades por caja de pisos",
+  turno_manana_inicio: "Hora de inicio del turno Mañana (−1 = sin configurar)",
+  turno_tarde_inicio: "Hora de inicio del turno Tarde (−1 = sin configurar)",
+  turno_noche_inicio: "Hora de inicio del turno Noche (−1 = sin configurar)",
 };
 
 export async function obtenerParametros(): Promise<Parametros> {
@@ -52,6 +58,9 @@ export async function listarParametros(): Promise<FilaParametro[]> {
 }
 
 function validar(clave: ClaveParametro, valor: number): string | null {
+  if (clave.startsWith("turno_")) {
+    return valor === -1 || (Number.isInteger(valor) && valor >= 0 && valor <= 23) ? null : "La hora del turno va de 0 a 23 (o −1 si todavía no está definida).";
+  }
   if (!Number.isFinite(valor) || valor < 0) return "El valor tiene que ser un número mayor o igual a cero.";
   if (clave === PARAMETROS.UNIDADES_POR_CAJA_PISOS && (!Number.isInteger(valor) || valor === 0)) {
     return "Las unidades por caja tienen que ser un número entero mayor que cero.";

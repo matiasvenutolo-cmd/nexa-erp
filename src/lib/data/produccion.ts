@@ -28,6 +28,7 @@ import {
   retiroMp,
   materiaPrima,
   tanda,
+  eventoProduccion,
 } from "@/lib/db/schema";
 import { getDepositoNexaId, ubicacionesMp } from "@/lib/data/depositos";
 import { ErrorStock, moverEnUbicacion, repartirProporcional } from "@/lib/data/ubicaciones";
@@ -328,6 +329,7 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
       await tx.update(partida).set({ fechaCierre: hoyISO() }).where(eq(partida.id, ciclo.partidaId));
     }
     await registrarConsumo(tx, cicloId, ub.proceso, input.usuarioId);
+    await tx.insert(eventoProduccion).values({ cicloId, tipo: "FINALIZACION", motivo: `Golpes ${input.golpesFin ?? "—"} · ${input.piezasEntregadas ?? 0} piezas a stock`, usuarioId: input.usuarioId });
     if (ciclo.tandaId) {
       await tx.update(tanda).set({ estado: "COMPLETADA", actualizadoEn: new Date() }).where(eq(tanda.id, ciclo.tandaId));
     }

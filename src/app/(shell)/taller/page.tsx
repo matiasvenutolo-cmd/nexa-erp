@@ -1,69 +1,107 @@
 import Link from "next/link";
 import { getUsuarioActual } from "@/lib/session";
-import { inyectorasActivas, vistaTaller, type MaterialEnMaquina, MOTIVOS_DIFERENCIA_RELEVO, MOTIVOS_EXCEPCION_CARGA, MOTIVOS_INTERRUPCION, MOTIVOS_NO_CARGA } from "@/lib/data/taller";
-import { TURNOS, etiquetaTurno } from "@/lib/data/planificacion";
+import {
+  eventosDe,
+  inyectorasActivas,
+  turnoActual,
+  vistaTaller,
+  type MaterialEnMaquina,
+  MOTIVOS_DIFERENCIA_RELEVO,
+  MOTIVOS_EXCEPCION_CARGA,
+  MOTIVOS_INTERRUPCION,
+  MOTIVOS_NO_CARGA,
+} from "@/lib/data/taller";
+import { TURNOS, etiquetaTurno, ultimosGolpes } from "@/lib/data/planificacion";
+import { codigosDeSobrante } from "@/lib/data/maquina";
 import { FormAccion } from "@/components/form-accion";
-import { cargarRecetaAction, cerrarProduccionTallerAction, cerrarTurnoAction, novedadAction, tomarTurnoAction } from "@/app/actions/taller";
-import { fmtFechaHora, fmtNumero } from "@/lib/format";
+import {
+  cancelarProduccionAction,
+  cargarRecetaAction,
+  cerrarProduccionTallerAction,
+  cerrarTurnoAction,
+  iniciarTandaAction,
+  novedadAction,
+  pausarAction,
+  tomarTurnoAction,
+} from "@/app/actions/taller";
+import { fmtFecha, fmtFechaHora, fmtNumero } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
-import { CantidadesCarga, ElegirTurno, LectorCodigo, RecepcionRelevo, type ItemCarga } from "./componentes";
+import { CargaTolva, DosBotonesCierre, ElegirTurno, RecepcionRelevo, type ItemCarga } from "./componentes";
 import type { Receta } from "@/lib/data/recetas";
 
 /**
- * Mi turno — pantalla del operario, pensada para el celular (minuta
- * 15/10/2026): qué producir, cuánto falta, la receta en bolsas, el material
- * que hay, y el relevo. Sin datos administrativos.
+ * Mi turno — pantalla del operario (celular). Listado de mejoras:
+ *  - al entrar elige la máquina en la que trabaja (las disponibles);
+ *  - inicia la tanda que le asignó el Encargado anotando los golpes;
+ *  - el turno sale de la hora (horarios en Parámetros) y el responsable es el
+ *    usuario autenticado;
+ *  - registra la carga en tolva en un solo paso, con la receta precargada;
+ *  - puede pausar, cancelar o finalizar, y deja el relevo con dos botones.
  */
 export default async function TallerPage({ searchParams }: { searchParams: Promise<{ iny?: string }> }) {
   const usuario = await getUsuarioActual();
   const sp = await searchParams;
-  const activas = await inyectorasActivas();
-  const iny = sp.iny && /^\d+$/.test(sp.iny) ? sp.iny : (activas[0]?.inyectora ?? "8");
+  const [activas, turno] = await Promise.all([inyectorasActivas(), turnoActual()]);
+  const iny = sp.iny && /^\d+$/.test(sp.iny) ? sp.iny : activas.length === 1 ? activas[0].inyectora : null;
+
+  if (!iny) {
+    return (
+      <div className="mx-auto max-w-xl space-y-4">
+        <section className="panel">
+          <h1 className="text-2xl">¿En qué máquina vas a trabajar?</h1>
+          <p className="mt-1 text-sm text-foreground-muted">
+            {turno ? `Turno ${etiquetaTurno(turno.turno)}` : "Turno: los horarios todavía no están configurados"} · {usuario.nombre}
+          </p>
+          {activas.length === 0 ? (
+            <p className="aviso aviso-info mt-4">No hay producciones en curso ni tandas asignadas. Cuando el Encargado asigne una tanda a una máquina, aparece acá.</p>
+          ) : (
+            <ul className="mt-4 space-y-2">
+              {activas.map((a) => (
+                <li key={a.inyectora}>
+                  <Link href={`/taller?iny=${a.inyectora}`} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-white p-4 hover:border-accent">
+                    <span>
+                      <span className="block font-[family-name:var(--font-display)] text-xl font-bold text-brand-azul">Inyectora {a.inyectora}</span>
+                      <span className="block text-sm text-foreground-muted">{a.detalle}</span>
+                    </span>
+                    <span className="btn btn-primary btn-sm">Elegir</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    );
+  }
+
   const v = await vistaTaller(iny);
   const p = v.produccion;
+  const [golpes, sobrantes, eventos] = await Promise.all([ultimosGolpes(iny), p ? codigosDeSobrante() : Promise.resolve([]), p ? eventosDe(p.cicloId) : Promise.resolve([])]);
+  const pausa = p?.pausada ? [...eventos].reverse().find((e) => e.e.tipo === "PAUSA") : null;
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
-      {activas.length > 1 && (
-        <nav className="flex gap-2 overflow-x-auto pb-1">
-          {activas.map((a) => (
-            <Link key={a.inyectora} href={`/taller?iny=${a.inyectora}`} className={`btn btn-sm ${a.inyectora === iny ? "btn-azul" : "btn-outline"}`}>
-              Inyectora {a.inyectora}
-            </Link>
-          ))}
-        </nav>
-      )}
+      <div className="flex items-center justify-between gap-2">
+        <Link href="/taller" className="btn btn-ghost btn-sm">
+          ← Cambiar de máquina
+        </Link>
+        <span className="text-xs font-semibold text-foreground-muted">
+          {turno ? `Turno ${etiquetaTurno(turno.turno)}` : "Horarios de turno sin configurar"} · {usuario.nombre}
+        </span>
+      </div>
 
       {!p ? (
-        <section className="panel text-center">
-          <h1 className="text-2xl">Inyectora {iny}</h1>
-          <p className="mt-2 text-foreground-muted">No hay una producción en curso en esta máquina.</p>
-          {v.proxima ? (
-            <p className="aviso aviso-info mt-4">
-              Próxima tanda: <b>{v.proxima.colorNombre}</b> · {v.proxima.productoDescripcion} · {fmtNumero(v.proxima.cantidad, 0)} piezas
-              {v.proxima.turno ? ` · turno ${etiquetaTurno(v.proxima.turno)}` : ""}. La inicia el Encargado.
-            </p>
-          ) : (
-            <p className="mt-4 text-sm text-foreground-muted">Cuando el Encargado inicie una producción, aparece acá con su receta.</p>
-          )}
-          {v.pie.length > 0 && <Materiales titulo="Material a pie de máquina" lista={v.pie} />}
-        </section>
+        <SinProduccion v={v} iny={iny} golpes={golpes} turnoAuto={Boolean(turno)} usuarioNombre={usuario.nombre} />
       ) : (
         <>
-          {/* Qué producir */}
           <section className="panel">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <div className="text-xs font-bold uppercase tracking-wider text-foreground-muted">
-                  Inyectora {iny}
-                  {p.turnoAbierto ? ` · Turno ${etiquetaTurno(p.turnoAbierto.turno)}` : ""}
-                </div>
-                <h1 className="mt-1 text-[1.7rem] leading-tight">{p.colorNombre ?? "—"}</h1>
-                <div className="text-sm text-foreground-muted">
-                  {p.productoDescripcion} · partida N° {p.partidaNumero ?? "—"}
-                </div>
-              </div>
-              {p.turnoAbierto && <span className="badge-estado badge-ok">{p.turnoAbierto.operarioNombre ?? p.turnoAbierto.usuarioNombre}</span>}
+            <div className="text-xs font-bold uppercase tracking-wider text-foreground-muted">
+              Inyectora {iny}
+              {p.turnoAbierto ? ` · Turno ${etiquetaTurno(p.turnoAbierto.turno)} · ${p.turnoAbierto.operarioNombre ?? p.turnoAbierto.usuarioNombre}` : " · sin turno tomado"}
+            </div>
+            <h1 className="mt-1 text-[1.7rem] leading-tight">{p.colorNombre ?? "—"}</h1>
+            <div className="text-sm text-foreground-muted">
+              {p.productoDescripcion} · partida N° {p.partidaNumero ?? "—"} · {p.piezasPorGolpe} pieza{p.piezasPorGolpe === 1 ? "" : "s"} por golpe
             </div>
             <Progreso producido={p.producido} objetivo={p.objetivo} />
             <div className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -71,35 +109,77 @@ export default async function TallerPage({ searchParams }: { searchParams: Promi
               <Cifra valor={p.objetivo != null ? fmtNumero(p.objetivo, 0) : "—"} label="a producir" />
               <Cifra valor={p.falta != null ? fmtNumero(p.falta, 0) : "—"} label={p.golpesFaltantes != null ? `faltan (${fmtNumero(p.golpesFaltantes, 0)} golpes)` : "faltan"} destacar />
             </div>
+            {p.pausada && (
+              <div className="aviso aviso-alerta mt-3 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <b>Producción pausada</b>
+                  {pausa?.e.motivo ? `: ${pausa.e.motivo}` : ""}
+                </span>
+                <FormAccion accion={pausarAction} ocultos={{ cicloId: p.cicloId, reanudar: 1 }} boton="Reanudar" claseBoton="btn btn-azul btn-sm" className="flex" />
+              </div>
+            )}
           </section>
 
           {!p.turnoAbierto ? (
-            <TomarTurno p={p} pie={v.pie} usuarioNombre={usuario.nombre} />
+            <Retomar p={p} pie={v.pie} usuarioNombre={usuario.nombre} turnoAuto={Boolean(turno)} />
           ) : (
             <>
-              <CargarTolva p={p} />
-              <section className="panel">
-                <h2 className="panel-titulo">Leer bolsa</h2>
-                <LectorCodigo productoNumero={p.productoNumero} materialesReceta={[...(p.receta?.items ?? []), ...(p.recetaArranque?.items ?? [])].map((i) => i.materiaPrimaId)} />
-              </section>
+              {!p.pausada && <RegistrarCarga p={p} pie={v.pie} />}
               <section className="panel">
                 <h2 className="panel-titulo">Material</h2>
-                <Materiales titulo="A pie de máquina" lista={v.pie} vacio="No hay material a pie de máquina: pedí el retiro." />
+                <Materiales titulo="A pie de máquina" lista={v.pie} vacio="No hay material a pie de máquina." />
                 <Materiales titulo="Cargado en la tolva (esta producción)" lista={p.tolva} vacio="Todavía no se cargó." />
-                <p className="mt-2 text-xs text-foreground-muted">
-                  En este turno: {p.cargasDelTurno} registro{p.cargasDelTurno === 1 ? "" : "s"} de carga · {fmtPeso(p.kgCargadosTurno)}
-                </p>
               </section>
-              <CerrarTurno p={p} />
+              <section className="panel space-y-3">
+                <h2 className="panel-titulo">Terminar</h2>
+                <DosBotonesCierre relevo={<FormRelevo p={p} />} finalizar={<FormFinalizar p={p} sobrantes={sobrantes} />} />
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {!p.pausada && (
+                    <details className="rounded-xl border border-border p-3">
+                      <summary className="cursor-pointer font-semibold">Pausar producción</summary>
+                      <FormAccion accion={pausarAction} ocultos={{ cicloId: p.cicloId }} boton="Pausar" claseBoton="btn btn-outline btn-block" className="mt-2 space-y-2">
+                        <select name="motivo" required defaultValue="" className="input">
+                          <option value="" disabled>
+                            Motivo…
+                          </option>
+                          {MOTIVOS_NO_CARGA.map((m) => (
+                            <option key={m}>{m}</option>
+                          ))}
+                        </select>
+                      </FormAccion>
+                    </details>
+                  )}
+                  <details className="rounded-xl border border-border p-3">
+                    <summary className="cursor-pointer font-semibold">Cancelar producción</summary>
+                    <p className="mt-2 text-xs text-foreground-muted">Sólo si todavía no se produjo nada. La tanda vuelve a la planificación.</p>
+                    <FormAccion
+                      accion={cancelarProduccionAction}
+                      ocultos={{ cicloId: p.cicloId }}
+                      boton="Cancelar la producción"
+                      claseBoton="btn btn-outline btn-block"
+                      confirmar="¿Cancelar la producción? La tanda vuelve a la planificación."
+                      className="mt-2 space-y-2"
+                    >
+                      <input name="motivo" required placeholder="Motivo" className="input" />
+                    </FormAccion>
+                  </details>
+                </div>
+              </section>
             </>
           )}
 
-          {p.novedades.length > 0 && (
+          {(p.novedades.length > 0 || eventos.length > 0) && (
             <section className="panel">
-              <h2 className="panel-titulo">Novedades de esta producción</h2>
+              <h2 className="panel-titulo">Historial de esta producción</h2>
               <ul className="space-y-1.5 text-sm">
+                {eventos.map(({ e, usuarioNombre }) => (
+                  <li key={`e${e.id}`}>
+                    <b>{{ INICIO: "Inicio", PAUSA: "Pausa", REANUDACION: "Reanudación", CANCELACION: "Cancelación", FINALIZACION: "Finalización" }[e.tipo]}</b>
+                    {e.motivo ? ` · ${e.motivo}` : ""} <span className="text-xs text-foreground-muted">({fmtFechaHora(e.fecha)} · {usuarioNombre})</span>
+                  </li>
+                ))}
                 {p.novedades.map((n) => (
-                  <li key={n.id}>
+                  <li key={`n${n.id}`}>
                     <b>{n.motivo}</b>
                     {n.detalle ? ` · ${n.detalle}` : ""} <span className="text-xs text-foreground-muted">({fmtFechaHora(n.fecha)})</span>
                   </li>
@@ -113,7 +193,8 @@ export default async function TallerPage({ searchParams }: { searchParams: Promi
   );
 }
 
-type Prod = NonNullable<Awaited<ReturnType<typeof vistaTaller>>["produccion"]>;
+type Vista = Awaited<ReturnType<typeof vistaTaller>>;
+type Prod = NonNullable<Vista["produccion"]>;
 type Mat = readonly MaterialEnMaquina[];
 
 function Cifra({ valor, label, destacar }: { valor: string; label: string; destacar?: boolean }) {
@@ -155,11 +236,66 @@ function Materiales({ titulo, lista, vacio }: { titulo: string; lista: Mat; vaci
   );
 }
 
-function TomarTurno({ p, pie, usuarioNombre }: { p: Prod; pie: Mat; usuarioNombre: string }) {
+/** Sin producción en curso: la tanda asignada por el Encargado, para iniciarla. */
+function SinProduccion({ v, iny, golpes, turnoAuto, usuarioNombre }: { v: Vista; iny: string; golpes: number | null; turnoAuto: boolean; usuarioNombre: string }) {
+  const t = v.asignadas[0];
+  return (
+    <section className="panel space-y-4">
+      <h1 className="text-2xl">Inyectora {iny}</h1>
+      {!t ? (
+        <p className="aviso aviso-info">No hay ninguna tanda asignada a esta máquina. Cuando el Encargado asigne una, aparece acá para iniciarla.</p>
+      ) : (
+        <>
+          <div className="rounded-xl border border-border bg-white p-3">
+            <div className="text-xs font-bold uppercase tracking-wide text-foreground-muted">
+              Tanda asignada{t.fecha ? ` · ${fmtFecha(t.fecha)}` : ""}
+              {t.turno ? ` · turno ${etiquetaTurno(t.turno)}` : ""}
+            </div>
+            <div className="mt-1 flex items-center gap-2">
+              {t.colorHex && <span className="h-5 w-5 rounded border border-[rgba(29,43,58,0.2)]" style={{ background: t.colorHex }} />}
+              <span className="font-[family-name:var(--font-display)] text-xl font-bold">{t.colorNombre}</span>
+            </div>
+            <div className="text-sm text-foreground-muted">
+              {t.productoDescripcion} · {fmtNumero(t.cantidad, 0)} piezas · {t.piezasPorGolpe ?? 1} por golpe
+            </div>
+            {t.receta ? (
+              <div className="mt-2 text-sm">Receta: {t.receta.items.map((i) => `${i.texto} ${i.materiaPrimaNombre}`).join(" + ")}</div>
+            ) : (
+              <p className="aviso aviso-alerta mt-2 text-sm">Esta tanda no tiene receta de carga: avisale al Encargado.</p>
+            )}
+            {t.observaciones && <p className="mt-2 text-sm">Indicaciones: {t.observaciones}</p>}
+          </div>
+          <FormAccion accion={iniciarTandaAction} ocultos={{ tandaId: t.id }} boton="Iniciar producción" claseBoton="btn btn-primary btn-lg btn-block" className="space-y-3">
+            <label className="campo">
+              <span>Golpes que marca la máquina al iniciar</span>
+              <input name="golpesInicio" inputMode="numeric" required defaultValue={golpes ?? ""} className="input text-lg" />
+              {golpes != null && <span className="campo-ayuda">Último registro de esta máquina: {fmtNumero(golpes, 0)}.</span>}
+            </label>
+            <label className="campo">
+              <span>Tu nombre</span>
+              <input name="operarioNombre" defaultValue={usuarioNombre === "Taller" ? "" : usuarioNombre} placeholder="Quién trabaja en este turno" className="input" />
+            </label>
+            {!turnoAuto && (
+              <div className="campo">
+                <span>Turno (los horarios no están configurados)</span>
+                <ElegirTurno turnos={TURNOS} />
+              </div>
+            )}
+          </FormAccion>
+          {v.asignadas.length > 1 && <p className="text-xs text-foreground-muted">Después siguen {v.asignadas.length - 1} tanda(s) más en esta máquina.</p>}
+        </>
+      )}
+      {v.pie.length > 0 && <Materiales titulo="Material a pie de máquina" lista={v.pie} />}
+    </section>
+  );
+}
+
+/** Turno entrante: ve lo que recibe y lo que falta, y acepta el relevo. */
+function Retomar({ p, pie, usuarioNombre, turnoAuto }: { p: Prod; pie: Mat; usuarioNombre: string; turnoAuto: boolean }) {
   const u = p.ultimoTurno;
   return (
     <section className="panel space-y-4">
-      <h2 className="panel-titulo">Empezar mi turno</h2>
+      <h2 className="panel-titulo">Retomar la máquina</h2>
       {u && (
         <div className="rounded-xl bg-surface-muted p-3 text-sm">
           <div className="font-semibold">
@@ -170,15 +306,13 @@ function TomarTurno({ p, pie, usuarioNombre }: { p: Prod; pie: Mat; usuarioNombr
           </div>
           {u.motivoInterrupcion && <div>Interrupción: {u.motivoInterrupcion}</div>}
           {u.observaciones && <div>Indicaciones: {u.observaciones}</div>}
-          <Materiales titulo="Material que recibís a pie de máquina" lista={pie} vacio="No queda material a pie de máquina." />
-          <Materiales titulo="En la tolva" lista={p.tolva} vacio="Nada registrado en la tolva." />
+          {u.materialAlCierre && <div className="mt-1">Informado al cierre: {u.materialAlCierre}</div>}
+          <div className="mt-1">Queda por producir: <b>{p.falta != null ? `${fmtNumero(p.falta, 0)} piezas` : "—"}</b></div>
         </div>
       )}
-      <FormAccion accion={tomarTurnoAction} ocultos={{ cicloId: p.cicloId }} boton="Tomar el turno" claseBoton="btn btn-primary btn-lg btn-block" className="space-y-4">
-        <div className="campo">
-          <span>Turno</span>
-          <ElegirTurno turnos={TURNOS} />
-        </div>
+      <Materiales titulo="Material que recibís a pie de máquina (según el sistema)" lista={pie} vacio="No queda material a pie de máquina." />
+      <Materiales titulo="En la tolva" lista={p.tolva} vacio="Nada registrado en la tolva." />
+      <FormAccion accion={tomarTurnoAction} ocultos={{ cicloId: p.cicloId }} boton="Aceptar el relevo y empezar mi turno" claseBoton="btn btn-primary btn-lg btn-block" className="space-y-4">
         {u && (
           <div className="campo">
             <span>¿El material que recibís coincide con lo informado?</span>
@@ -194,52 +328,53 @@ function TomarTurno({ p, pie, usuarioNombre }: { p: Prod; pie: Mat; usuarioNombr
           <input name="golpesInicio" inputMode="numeric" defaultValue={u?.golpesFin ?? p.golpesInicioProduccion ?? ""} className="input text-lg" />
           <span className="campo-ayuda">Ya viene del relevo anterior; cambialo sólo si la máquina marca otro número.</span>
         </label>
+        {!turnoAuto && (
+          <div className="campo">
+            <span>Turno (los horarios no están configurados)</span>
+            <ElegirTurno turnos={TURNOS} />
+          </div>
+        )}
       </FormAccion>
     </section>
   );
 }
 
-function itemsDe(r: Receta): ItemCarga[] {
-  return r.items.map((i) => ({ materiaPrimaId: i.materiaPrimaId, presentacionId: i.presentacionId, nombre: i.materiaPrimaNombre, presentacion: i.presentacionNombre, kgPres: i.kgPresentacion, cantidad: i.cantidad, esMaster: i.esMaster }));
+function itemsDe(r: Receta, pie: Mat): ItemCarga[] {
+  return r.items.map((i) => ({
+    materiaPrimaId: i.materiaPrimaId,
+    presentacionId: i.presentacionId,
+    nombre: i.materiaPrimaNombre,
+    presentacion: i.presentacionNombre,
+    kgPres: i.kgPresentacion,
+    cantidad: i.cantidad,
+    esMaster: i.esMaster,
+    enPie: pie.find((m) => m.materiaPrimaId === i.materiaPrimaId)?.kg ?? 0,
+  }));
 }
 
-function CargarTolva({ p }: { p: Prod }) {
+/** Registrar carga en tolva de material a pie de máquina (un solo paso). */
+function RegistrarCarga({ p, pie }: { p: Prod; pie: Mat }) {
   const receta = p.usarArranque && p.recetaArranque ? p.recetaArranque : p.receta;
   const tipo = p.usarArranque && p.recetaArranque ? "ARRANQUE" : "REGIMEN";
   if (!receta) {
     return (
       <section className="panel">
-        <h2 className="panel-titulo">Cargar la tolva</h2>
+        <h2 className="panel-titulo">Registrar carga en tolva de material a pie de máquina</h2>
         <p className="aviso aviso-alerta">Este producto no tiene receta de carga. Avisale al Encargado para que la defina.</p>
       </section>
     );
   }
+  const cargas = p.falta != null && receta.kgVirgen > 0 && p.kgPorUnidad ? Math.ceil((p.falta * p.kgPorUnidad) / receta.kgVirgen) : null;
   return (
-    <section className="panel space-y-4">
-      <h2 className="panel-titulo">{tipo === "ARRANQUE" ? "Cargar la tolva · arranque por cambio de color" : "Cargar la tolva"}</h2>
-      <ul className="space-y-2">
-        {receta.items.map((i) => (
-          <li key={`${i.materiaPrimaId}-${i.presentacionId}`} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-white px-3 py-2.5">
-            <span className="font-[family-name:var(--font-display)] text-xl font-bold">{i.texto}</span>
-            <span className="text-right text-sm text-foreground-muted">{i.materiaPrimaNombre}</span>
-          </li>
-        ))}
-      </ul>
-      <FormAccion accion={cargarRecetaAction} ocultos={{ cicloId: p.cicloId, tipo }} boton="Cargué la tanda completa" claseBoton="btn btn-primary btn-lg btn-block" className="space-y-2" />
-      <details className="rounded-xl border border-border p-3">
-        <summary className="cursor-pointer font-semibold">Cargué distinto</summary>
-        <FormAccion accion={cargarRecetaAction} ocultos={{ cicloId: p.cicloId, tipo }} boton="Registrar lo que cargué" claseBoton="btn btn-azul btn-block" className="mt-3 space-y-3">
-          <CantidadesCarga items={itemsDe(receta)} />
-          <select name="motivo" required defaultValue="" className="input">
-            <option value="" disabled>
-              ¿Por qué?
-            </option>
-            {MOTIVOS_EXCEPCION_CARGA.map((m) => (
-              <option key={m}>{m}</option>
-            ))}
-          </select>
-        </FormAccion>
-      </details>
+    <section className="panel space-y-3">
+      <h2 className="panel-titulo">Registrar carga en tolva de material a pie de máquina</h2>
+      <p className="text-sm text-foreground-muted">
+        {tipo === "ARRANQUE" ? "Primera carga después del cambio de color (receta reforzada). " : ""}
+        Tildá lo que cargaste. {cargas != null ? `Para lo que falta producir son unas ${cargas} cargas como esta.` : ""} Responsable: vos.
+      </p>
+      <FormAccion accion={cargarRecetaAction} ocultos={{ cicloId: p.cicloId, tipo }} boton="Registrar carga en tolva" claseBoton="btn btn-primary btn-lg btn-block" className="space-y-3">
+        <CargaTolva items={itemsDe(receta, pie)} motivos={MOTIVOS_EXCEPCION_CARGA} productoNumero={p.productoNumero} />
+      </FormAccion>
       <details className="rounded-xl border border-border p-3">
         <summary className="cursor-pointer font-semibold">No pude cargar</summary>
         <FormAccion accion={novedadAction} ocultos={{ cicloId: p.cicloId, tipo: "NO_CARGA" }} boton="Registrar" claseBoton="btn btn-outline btn-block" className="mt-3 space-y-2">
@@ -254,69 +389,87 @@ function CargarTolva({ p }: { p: Prod }) {
           <input name="detalle" placeholder="Detalle (opcional)" className="input" />
         </FormAccion>
       </details>
-      {p.usarArranque && p.receta && <p className="text-xs text-foreground-muted">Después del arranque, la pantalla pasa sola a la receta normal.</p>}
     </section>
   );
 }
 
-function CerrarTurno({ p }: { p: Prod }) {
+function FormRelevo({ p }: { p: Prod }) {
   return (
-    <section className="panel space-y-3">
-      <h2 className="panel-titulo">Terminar mi turno</h2>
-      <FormAccion accion={cerrarTurnoAction} ocultos={{ cicloId: p.cicloId }} boton="Cerrar turno y dejar el relevo" claseBoton="btn btn-azul btn-lg btn-block" className="space-y-3">
+    <FormAccion accion={cerrarTurnoAction} ocultos={{ cicloId: p.cicloId }} boton="Cerrar mi turno y dejar relevo" claseBoton="btn btn-azul btn-lg btn-block" className="space-y-3 rounded-xl border border-border p-3">
+      <label className="campo">
+        <span>Golpes que marca la máquina</span>
+        <input name="golpesFin" inputMode="numeric" required className="input text-lg" />
+        <span className="campo-ayuda">
+          Al empezar tu turno marcaba {p.turnoAbierto?.golpesInicio != null ? fmtNumero(p.turnoAbierto.golpesInicio, 0) : "—"}. Las piezas se calculan solas.
+        </span>
+      </label>
+      <label className="campo">
+        <span>Descarte pesado (kg)</span>
+        <input name="descarteKg" inputMode="decimal" placeholder="0" className="input" />
+      </label>
+      <label className="campo">
+        <span>¿Hubo interrupciones?</span>
+        <select name="motivoInterrupcion" defaultValue="Sin interrupciones" className="input">
+          {MOTIVOS_INTERRUPCION.map((m) => (
+            <option key={m}>{m}</option>
+          ))}
+        </select>
+      </label>
+      <label className="campo">
+        <span>Indicaciones para el que entra (opcional)</span>
+        <input name="observaciones" className="input" />
+      </label>
+      <p className="campo-ayuda">El material que queda a pie de máquina y en tolva lo informa el sistema.</p>
+    </FormAccion>
+  );
+}
+
+function FormFinalizar({ p, sobrantes }: { p: Prod; sobrantes: { id: number; nombre: string }[] }) {
+  return (
+    <FormAccion
+      accion={cerrarProduccionTallerAction}
+      ocultos={{ cicloId: p.cicloId }}
+      boton="Finalizar producción"
+      claseBoton="btn btn-primary btn-lg btn-block"
+      confirmar="¿Finalizar la producción? Lo producido entra a stock y la tanda queda completada."
+      className="space-y-3 rounded-xl border border-border p-3"
+    >
+      <label className="campo">
+        <span>Golpes que marca la máquina</span>
+        <input name="golpesFin" inputMode="numeric" required className="input text-lg" />
+      </label>
+      <label className="campo">
+        <span>Descarte pesado de este turno (kg)</span>
+        <input name="descarteKg" inputMode="decimal" placeholder="0" className="input" />
+      </label>
+      <div className="grid grid-cols-2 gap-2">
         <label className="campo">
-          <span>Golpes que marca la máquina</span>
-          <input name="golpesFin" inputMode="numeric" required className="input text-lg" />
-          <span className="campo-ayuda">Al empezar el turno marcaba {p.turnoAbierto?.golpesInicio != null ? fmtNumero(p.turnoAbierto.golpesInicio, 0) : "—"}.</span>
+          <span>Rebarba (kg)</span>
+          <input name="rebarbaKg" inputMode="decimal" placeholder="opcional" className="input" />
         </label>
         <label className="campo">
-          <span>Descarte pesado (kg)</span>
-          <input name="descarteKg" inputMode="decimal" placeholder="0" className="input" />
+          <span>Scrap (kg)</span>
+          <input name="scrapKg" inputMode="decimal" placeholder="opcional" className="input" />
+        </label>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="campo">
+          <span>Sobrante bajado de tolva (kg)</span>
+          <input name="sobranteKg" inputMode="decimal" placeholder="0" className="input" />
         </label>
         <label className="campo">
-          <span>¿Hubo interrupciones?</span>
-          <select name="motivoInterrupcion" defaultValue="Sin interrupciones" className="input">
-            {MOTIVOS_INTERRUPCION.map((m) => (
-              <option key={m}>{m}</option>
+          <span>Código del sobrante</span>
+          <select name="sobranteMpId" defaultValue="" className="input">
+            <option value="">—</option>
+            {sobrantes.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
+              </option>
             ))}
           </select>
         </label>
-        <label className="campo">
-          <span>Indicaciones para el que entra (opcional)</span>
-          <input name="observaciones" className="input" />
-        </label>
-      </FormAccion>
-      <details className="rounded-xl border border-border p-3">
-        <summary className="cursor-pointer font-semibold">Terminó la producción (no sigue en el turno siguiente)</summary>
-        <FormAccion
-          accion={cerrarProduccionTallerAction}
-          ocultos={{ cicloId: p.cicloId }}
-          boton="Cerrar la producción"
-          claseBoton="btn btn-primary btn-block"
-          confirmar="¿Cerrar la producción? Lo producido entra a stock y no se puede seguir cargando en esta tanda."
-          className="mt-3 space-y-3"
-        >
-          <label className="campo">
-            <span>Golpes que marca la máquina</span>
-            <input name="golpesFin" inputMode="numeric" required className="input text-lg" />
-          </label>
-          <label className="campo">
-            <span>Descarte pesado de este turno (kg)</span>
-            <input name="descarteKg" inputMode="decimal" placeholder="0" className="input" />
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="campo">
-              <span>Rebarba (kg)</span>
-              <input name="rebarbaKg" inputMode="decimal" placeholder="opcional" className="input" />
-            </label>
-            <label className="campo">
-              <span>Scrap (kg)</span>
-              <input name="scrapKg" inputMode="decimal" placeholder="opcional" className="input" />
-            </label>
-          </div>
-          <p className="campo-ayuda">La colada se calcula sola. Lo que entra a stock es lo producido menos el descarte.</p>
-        </FormAccion>
-      </details>
-    </section>
+      </div>
+      <p className="campo-ayuda">La colada se calcula sola. Entra a stock lo producido menos el descarte.</p>
+    </FormAccion>
   );
 }

@@ -30,14 +30,16 @@ import {
   tanda,
   tandaPedido,
   turnoProduccion,
+  eventoProduccion,
 } from "@/lib/db/schema";
 import { getDepositoNexaId, getDepositoPieId } from "@/lib/data/depositos";
 import { coberturaPorLinea } from "@/lib/data/pedidos";
-import { puedePlanificar } from "@/lib/auth/permisos";
+import { puedeOperarTaller, puedePlanificar } from "@/lib/auth/permisos";
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
 import { crearCiclo, partidasAbiertasDe } from "@/lib/data/produccion";
 import { recetasDe, type Receta } from "@/lib/data/recetas";
 import { INYECTORA_BALDOSAS, resolverInyectora } from "@/lib/inyectoras";
+import { obtenerRetirosMaquina } from "@/lib/data/maquina";
 import { hoyISO } from "@/lib/format";
 import { aGramos } from "@/lib/presentaciones";
 
@@ -699,12 +701,26 @@ export async function iniciarProduccionDeTanda(
   tandaId: number,
   input: { golpesInicio: number | null; fecha?: string },
 ): Promise<Resultado & { cicloId?: number }> {
-  if (!puedePlanificar(actor.rol)) return { error: "No tenés permiso para iniciar producciones." };
+  // Listado de mejoras: el Encargado asigna la tanda; la inicia el operario
+  // (o quien planifica). El operario sólo inicia tandas asignadas a una máquina.
+  const operario = !puedePlanificar(actor.rol);
+  if (operario && !puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para iniciar producciones." };
   const r = await tandaEditable(tandaId);
   if ("error" in r) return r;
   const { t } = r;
   if (t.estado === "EN_CURSO") return { error: "La tanda ya está en producción.", cicloId: t.cicloId ?? undefined };
-  if (!t.inyectora) return { error: "Asigná una inyectora a la tanda antes de iniciar la producción." };
+  if (t.estado === "POSTERGADA") return { error: "La tanda está postergada: la reactiva el Encargado." };
+  if (!t.inyectora) return { error: operario ? "La tanda todavía no tiene máquina asignada: la asigna el Encargado." : "Asigná una inyectora a la tanda antes de iniciar la producción." };
+  if (operario && t.fecha && t.fecha > hoyISO()) return { error: `La tanda está planificada para el ${t.fecha.split("-").reverse().join("/")}.` };
+  if (input.golpesInicio == null) return { error: "Anotá los golpes que marca la máquina al iniciar." };
+  // Máquina con material de otra producción a pie de máquina: primero se
+  // devuelve o se registra (no se mezcla con la tanda nueva).
+  const otros = (await obtenerRetirosMaquina({ estado: "ABIERTO", inyectora: t.inyectora })).filter(
+    (rt) => rt.totales.pie > 0 && rt.productoPrevistoId != null && rt.productoPrevistoId !== t.productoId,
+  );
+  if (otros.length) {
+    return { error: `En la inyectora ${t.inyectora} queda material de otra producción a pie de máquina (${otros.map((o) => o.numero).join(", ")}): devolvelo o conciliá el retiro antes de iniciar.` };
+  }
   if (input.golpesInicio != null && (!Number.isInteger(input.golpesInicio) || input.golpesInicio < 0)) {
     return { error: "Los golpes de inicio tienen que ser un número entero." };
   }
@@ -746,6 +762,7 @@ export async function iniciarProduccionDeTanda(
     await tx.update(cicloProduccion).set({ tandaId }).where(eq(cicloProduccion.id, creado.id));
     await tx.update(tanda).set({ estado: "EN_CURSO", cicloId: creado.id, actualizadoEn: new Date() }).where(eq(tanda.id, tandaId));
     await registrarCambios(tx, actor.id, [{ entidad: "tanda", entidadId: tandaId, campo: "estado", anterior: t.estado, nuevo: "EN_CURSO", motivo: `Inicio de producción #${creado.id}` }]);
+    await tx.insert(eventoProduccion).values({ cicloId: creado.id, tipo: "INICIO", motivo: `Tanda ${tandaId} · golpes ${input.golpesInicio}`, usuarioId: actor.id });
   });
   return { cicloId: creado.id };
 }

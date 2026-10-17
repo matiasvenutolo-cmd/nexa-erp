@@ -6,25 +6,34 @@ import { puedeCrearPedido } from "@/lib/auth/permisos";
 export default async function ClientesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ texto?: string }>;
+  searchParams: Promise<{ texto?: string; orden?: string }>;
 }) {
-  const { texto } = await searchParams;
-  const [clientes, usuario] = await Promise.all([listarClientes(texto), getUsuarioActual()]);
+  const { texto, orden } = await searchParams;
+  const za = orden === "za";
+  const [clientes, usuario] = await Promise.all([listarClientes(texto, za ? "za" : "az"), getUsuarioActual()]);
   const puedeEditar = puedeCrearPedido(usuario.rol);
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-brand-azul-oscuro">Clientes</h1>
-        <Link
-          href="/clientes/nuevo"
-          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90"
-        >
+      <div className="encabezado mb-0">
+        <div>
+          <h1>Clientes</h1>
+          <p>Entrá a cada cliente para ver su historial de pedidos.</p>
+        </div>
+        <Link href="/clientes/nuevo" className="btn btn-primary">
           + Nuevo cliente
         </Link>
       </div>
 
-      <form action="/clientes">
+      <form action="/clientes" className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold text-foreground-muted">Ordenar por nombre:</span>
+        <Link href={`/clientes${texto ? `?texto=${encodeURIComponent(texto)}` : ""}`} className={`btn btn-sm ${!za ? "btn-azul" : "btn-outline"}`}>
+          A → Z
+        </Link>
+        <Link href={`/clientes?orden=za${texto ? `&texto=${encodeURIComponent(texto)}` : ""}`} className={`btn btn-sm ${za ? "btn-azul" : "btn-outline"}`}>
+          Z → A
+        </Link>
+        {za && <input type="hidden" name="orden" value="za" />}
         <input
           type="search"
           name="texto"
@@ -49,7 +58,11 @@ export default async function ClientesPage({
           <tbody>
             {clientes.map((c) => (
               <tr key={c.id} className="border-b border-border last:border-0">
-                <td className="px-4 py-3 font-medium text-foreground">{c.nombre}</td>
+                <td className="px-4 py-3">
+                  <Link href={`/clientes/${c.id}`} className="font-semibold text-foreground hover:text-accent">
+                    {c.nombre}
+                  </Link>
+                </td>
                 <td className="px-4 py-3 text-foreground-muted">{c.cuit ?? "—"}</td>
                 <td className="px-4 py-3 text-foreground-muted">{c.telefono ?? "—"}</td>
                 <td className="px-4 py-3 text-foreground-muted">
@@ -57,6 +70,9 @@ export default async function ClientesPage({
                 </td>
                 {puedeEditar && (
                   <td className="px-4 py-3 text-right">
+                    <Link href={`/clientes/${c.id}`} className="mr-3 text-sm font-medium text-accent hover:underline">
+                      Historial
+                    </Link>
                     <Link href={`/clientes/${c.id}/editar`} className="text-sm font-medium text-accent hover:underline">
                       Editar
                     </Link>

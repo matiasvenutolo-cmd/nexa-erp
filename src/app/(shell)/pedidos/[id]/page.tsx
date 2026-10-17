@@ -1,3 +1,4 @@
+import { Printer } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -7,6 +8,7 @@ import {
   PRIORIDAD_AUTOMATICA,
   compatibilidadRenglon,
   coberturaPorLinea,
+  disponibilidadArmado,
   etiquetaPrioridad,
   obtenerPedido,
 } from "@/lib/data/pedidos";
@@ -72,6 +74,11 @@ export default async function DetallePedidoPage({
   // Misma cuenta que la lista de pedidos y la cola: el stock se reparte por prioridad.
   const cobertura = await coberturaPorLinea(lineas.map((l) => l.productoId).filter((x): x is number => x != null));
   const activo = despachos.find((d) => d.estado === "ARMANDO" || d.estado === "CONTROLADO");
+  const entregados = despachos.filter((d) => d.estado === "ENTREGADO").sort((a, b) => b.id - a.id);
+  const conProducto = lineas.filter((l) => l.productoId != null && l.pendiente > 0);
+  const pendCon = conProducto.reduce((t, l) => t + l.pendiente, 0);
+  const cubiertoPedido = conProducto.reduce((t, l) => t + (cobertura.get(l.lineaId)?.cubierto ?? 0), 0);
+  const armable = disponibilidadArmado({ pendiente: pendCon, sinProducto: 0, faltaProducir: pendCon - cubiertoPedido, despachoEnCurso: false, pendienteConProducto: pendCon, cubierto: cubiertoPedido });
   const hayPendienteDespachable = lineas.some((l) => l.productoId != null && l.pendiente > 0);
   const lineaPorId = new Map(pedido.lineas.map((l) => [l.id, l]));
   const posicionEnCola = new Map(cola.map((f, i) => [f.productoId, { posicion: i + 1, total: cola.length }]));
@@ -133,8 +140,16 @@ export default async function DetallePedidoPage({
       )}
 
       {sp.entregado && (
-        <div className="rounded-md bg-[var(--estado-ok-bg)] px-3 py-2 text-sm font-medium text-[var(--estado-ok-fg)]">
-          Entrega registrada con el remito interno {sp.entregado}.
+        <div className="aviso aviso-ok">Entrega registrada con el remito interno {sp.entregado}.</div>
+      )}
+      {entregados.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Link href={`/pedidos/${pedido.id}/remito/${entregados[0].id}`} className="btn btn-primary btn-lg">
+            <Printer size={20} /> Imprimir remito para entrega
+          </Link>
+          <span className="text-xs text-foreground-muted">
+            Remito interno {remitoInterno(entregados[0].numeroInterno)} (última entrega). El formato definitivo del remito está pendiente de definición.
+          </span>
         </div>
       )}
 
@@ -153,7 +168,7 @@ export default async function DetallePedidoPage({
           ) : (
             <span className="text-foreground-muted">
               {hayPendienteDespachable
-                ? "Sin despacho en curso."
+                ? "Sin armado en curso."
                 : sinProducto.length
                   ? "Hay renglones sin producto (datos pendientes del Excel): no se pueden armar hasta vincularlos a un producto."
                   : "No queda nada pendiente de entregar."}
@@ -165,10 +180,10 @@ export default async function DetallePedidoPage({
                 href={`/pedidos/${pedido.id}/despacho`}
                 className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90"
               >
-                {activo.estado === "ARMANDO" ? "Continuar armado →" : "Hacer control final →"}
+                {activo.estado === "ARMANDO" ? "Continuar armado →" : "Despachar →"}
               </Link>
             ) : (
-              hayPendienteDespachable && <BotonPrepararDespacho pedidoId={pedido.id} />
+              hayPendienteDespachable && <BotonPrepararDespacho pedidoId={pedido.id} {...armable} />
             ))}
         </div>
       )}

@@ -45,12 +45,12 @@ export default async function DespachoPage({ params }: { params: Promise<{ id: s
         <Link href={`/pedidos/${pedidoId}`} className="text-sm text-foreground-muted hover:text-foreground">
           ← Pedido #{pedidoId}
         </Link>
-        <h1 className="mt-1 text-xl font-semibold text-brand-azul-oscuro">
-          Despacho del pedido #{pedidoId} · {pedido.clienteNombre}
+        <h1 className="mt-1 text-[1.6rem] leading-tight">
+          {etapa === "ARMADO" ? "Armado de pedido" : "Despacho"} #{pedidoId} · {pedido.clienteNombre}
         </h1>
         <div className="mt-2 flex flex-wrap gap-2 text-sm">
-          <Paso hecho={etapa === "CONTROL_FINAL"} actual={etapa === "ARMADO"} texto="1. Armado y primer control" />
-          <Paso hecho={false} actual={etapa === "CONTROL_FINAL"} texto="2. Control final y entrega" />
+          <Paso hecho={etapa === "CONTROL_FINAL"} actual={etapa === "ARMADO"} texto="1. Armado de pedido y primer control" />
+          <Paso hecho={false} actual={etapa === "CONTROL_FINAL"} texto="2. Segundo picking (control final) y despacho" />
         </div>
         {d.control1En && (
           <p className="mt-2 text-sm text-foreground-muted">
@@ -63,7 +63,8 @@ export default async function DespachoPage({ params }: { params: Promise<{ id: s
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
-              <th className="px-4 py-2.5">Producto</th>
+              <th className="px-4 py-2.5">Producto y color</th>
+              <th className="px-4 py-2.5 text-right">Comprometido</th>
               <th className="px-4 py-2.5 text-right">Pendiente (baldosas/unidades)</th>
               <th className="px-4 py-2.5 text-right">Armado (u.)</th>
               {etapa === "CONTROL_FINAL" && <th className="px-4 py-2.5 text-right">Controlado (u.)</th>}
@@ -79,6 +80,7 @@ export default async function DespachoPage({ params }: { params: Promise<{ id: s
                     {l.productoCodigo ?? <span className="italic text-foreground-muted">sin producto (no se despacha)</span>}
                     {l.productoDescripcion && <span className="text-foreground-muted"> · {l.productoDescripcion}</span>}
                   </td>
+                  <td className="px-4 py-2.5 text-right text-foreground-muted">{fmtNumero(l.pedido, 0)}</td>
                   <td className="px-4 py-2.5 text-right">{fmtNumero(l.pedido - l.entregado, 0)}</td>
                   <td className="px-4 py-2.5 text-right font-medium">{fmtNumero(armado, 0)}</td>
                   {etapa === "CONTROL_FINAL" && (
@@ -92,6 +94,22 @@ export default async function DespachoPage({ params }: { params: Promise<{ id: s
           </tbody>
         </table>
       </div>
+
+      {etapa === "CONTROL_FINAL" && (
+        <section className="panel text-sm">
+          <h2 className="panel-titulo">Qué incluye este despacho (lo armado en el primer control)</h2>
+          <ul className="flex flex-wrap gap-2">
+            {validos
+              .filter((p) => p.tipo === "ARMADO")
+              .map((p) => (
+                <li key={p.id} className="badge-estado badge-info font-mono">
+                  {p.codigoLeido} · {p.cantidad} u.{p.partidaNumero != null ? ` · partida ${p.partidaNumero}` : ""}
+                </li>
+              ))}
+          </ul>
+          <p className="mt-2 text-xs text-foreground-muted">Volvé a leer cada caja o producto que sale: lo controlado tiene que coincidir con lo armado para poder despachar.</p>
+        </section>
+      )}
 
       <div className="rounded-lg border border-border bg-surface p-4">
         <Piqueo key={etapa} pedidoId={pedidoId} despachoId={d.id} etapa={etapa} sugerencias={sugerencias} />

@@ -36,7 +36,12 @@ export type FilaPedido = {
   lineas: number;
 };
 
-export async function listarPedidos(estado?: (typeof pedido.$inferSelect)["estado"], opts: { archivados?: boolean } = {}): Promise<FilaPedido[]> {
+export type OrdenPedidos = "fecha" | "cliente" | "entrega";
+
+export async function listarPedidos(
+  estado?: (typeof pedido.$inferSelect)["estado"] | (typeof pedido.$inferSelect)["estado"][],
+  opts: { archivados?: boolean; orden?: OrdenPedidos } = {},
+): Promise<FilaPedido[]> {
   const filas = await db
     .select({
       id: pedido.id,
@@ -52,14 +57,45 @@ export async function listarPedidos(estado?: (typeof pedido.$inferSelect)["estad
     .from(pedido)
     .innerJoin(cliente, eq(pedido.clienteId, cliente.id))
     .leftJoin(pedidoLinea, eq(pedidoLinea.pedidoId, pedido.id))
-    .where(and(estado ? eq(pedido.estado, estado) : undefined, eq(pedido.archivado, Boolean(opts.archivados))))
+    .where(
+      and(
+        Array.isArray(estado) ? inArray(pedido.estado, estado) : estado ? eq(pedido.estado, estado) : undefined,
+        eq(pedido.archivado, Boolean(opts.archivados)),
+      ),
+    )
     .groupBy(pedido.id, cliente.nombre)
-    .orderBy(pedido.prioridad, desc(pedido.fechaPedido));
+    // Por defecto, lo más nuevo arriba (listado de mejoras).
+    .orderBy(
+      ...(opts.orden === "cliente"
+        ? [sql`lower(${cliente.nombre})`, desc(pedido.fechaPedido)]
+        : opts.orden === "entrega"
+          ? [sql`${pedido.fechaEntregaPactada} asc nulls last`, desc(pedido.id)]
+          : [desc(pedido.fechaPedido), desc(pedido.id)]),
+    );
 
   return filas;
 }
 
-export type SituacionPedido = { pendiente: number; sinProducto: number; faltaProducir: number; despachoEnCurso: boolean };
+export type SituacionPedido = {
+  pendiente: number;
+  sinProducto: number;
+  faltaProducir: number;
+  despachoEnCurso: boolean;
+  /** Pendiente de los renglones con producto (lo único que se puede armar). */
+  pendienteConProducto: number;
+  /** Lo que el stock libre cubre hoy, por prioridad (sin tomar lo asignado a otros pedidos). */
+  cubierto: number;
+};
+
+/** Qué se puede armar de un pedido: todo, una parte (con aviso) o nada. */
+export function disponibilidadArmado(s: SituacionPedido | undefined): { disponible: boolean; aviso: string | null } {
+  if (!s || s.pendienteConProducto === 0) return { disponible: false, aviso: null };
+  if (s.cubierto <= 0) return { disponible: false, aviso: null };
+  if (s.faltaProducir > 0) {
+    return { disponible: true, aviso: `Se pueden armar ${s.cubierto} de ${s.pendienteConProducto} unidades; faltan ${s.faltaProducir} por producir (quedan pendientes).` };
+  }
+  return { disponible: true, aviso: null };
+}
 export type CoberturaLinea = { pendiente: number; cubierto: number; faltaProducir: number };
 
 /**
@@ -144,10 +180,15 @@ export async function situacionPedidos(pedidoIds: number[]): Promise<Map<number,
   ]);
   const enCurso = new Set(enCursoFilas.map((d) => d.pedidoId));
   for (const l of lineas) {
-    const s = res.get(l.pedidoId) ?? { pendiente: 0, sinProducto: 0, faltaProducir: 0, despachoEnCurso: enCurso.has(l.pedidoId) };
+    const s = res.get(l.pedidoId) ?? { pendiente: 0, sinProducto: 0, faltaProducir: 0, despachoEnCurso: enCurso.has(l.pedidoId), pendienteConProducto: 0, cubierto: 0 };
     s.pendiente += l.pendiente;
     if (l.productoId == null) s.sinProducto += 1;
-    else s.faltaProducir += cobertura.get(l.lineaId)?.faltaProducir ?? l.pendiente;
+    else {
+      const c = cobertura.get(l.lineaId);
+      s.faltaProducir += c?.faltaProducir ?? l.pendiente;
+      s.cubierto += c?.cubierto ?? 0;
+      s.pendienteConProducto += l.pendiente;
+    }
     res.set(l.pedidoId, s);
   }
   return res;
@@ -255,7 +296,19 @@ export type NuevoPedidoInput = {
   observaciones: string | null;
   usuarioId: number;
   lineas: NuevaLineaInput[];
+  /** Prioridad elegida en la misma carga (0 = automática), con su motivo. */
+  prioridad?: number;
+  motivoPrioridad?: string | null;
+  /** Clave del formulario: un doble envío devuelve el pedido ya creado. */
+  token?: string | null;
 };
+
+/** Sin fecha comprometida, la entrega se fija una semana después del pedido. */
+export function entregaPorDefecto(fechaPedido: string): string {
+  const d = new Date(`${fechaPedido}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 7);
+  return d.toISOString().slice(0, 10);
+}
 
 /**
  * Crea el pedido y, por cada línea con SKU resuelto, su reserva de stock —
@@ -275,6 +328,13 @@ export async function crearPedido(input: NuevoPedidoInput): Promise<{ id: number
   if (input.lineas.some((l) => !Number.isInteger(l.unidadesPedidas) || l.unidadesPedidas <= 0)) {
     return { error: "Cada ítem tiene que tener una cantidad mayor que cero." };
   }
+  const prioridad = input.prioridad ?? 0;
+  if (!NIVELES_PRIORIDAD.some((n) => n.valor === prioridad)) return { error: "Nivel de prioridad inválido." };
+  if (prioridad !== 0 && !input.motivoPrioridad?.trim()) return { error: "Indicá el motivo de la prioridad (queda registrado)." };
+  if (input.token) {
+    const [ya] = await db.select({ id: pedido.id }).from(pedido).where(eq(pedido.token, input.token));
+    if (ya) return { id: ya.id };
+  }
   const depositoId = await getDepositoNexaId();
   // Bug de la demo ("al crear un pedido aparece una pantalla inesperada"): el
   // N° de orden es único y un duplicado rompía con un error de la base.
@@ -284,13 +344,23 @@ export async function crearPedido(input: NuevoPedidoInput): Promise<{ id: number
   }
 
   return db.transaction(async (tx) => {
+    // N° de orden correlativo: la secuencia es segura ante altas simultáneas.
+    let numeroOrden = input.numeroOrden;
+    if (!numeroOrden) {
+      const [{ n }] = await tx.execute<{ n: string }>(sql`select nextval('pedido_numero_seq') as n`).then((r) =>
+        "rows" in r ? (r.rows as { n: string }[]) : (r as unknown as { n: string }[]),
+      );
+      numeroOrden = String(n);
+    }
     const [nuevo] = await tx
       .insert(pedido)
       .values({
         clienteId: input.clienteId,
         fechaPedido: input.fechaPedido,
-        fechaEntregaPactada: input.fechaEntregaPactada,
-        numeroOrden: input.numeroOrden,
+        fechaEntregaPactada: input.fechaEntregaPactada ?? entregaPorDefecto(input.fechaPedido),
+        numeroOrden: numeroOrden || null,
+        prioridad,
+        token: input.token || null,
         estado: "PEDIDO",
         contacto: input.contacto,
         domicilioEntrega: input.domicilioEntrega,
@@ -326,6 +396,11 @@ export async function crearPedido(input: NuevoPedidoInput): Promise<{ id: number
       }
     }
 
+    if (prioridad !== 0) {
+      await registrarCambios(tx, input.usuarioId, [
+        { entidad: "pedido", entidadId: nuevo.id, campo: "prioridad", anterior: etiquetaPrioridad(0), nuevo: etiquetaPrioridad(prioridad), motivo: input.motivoPrioridad },
+      ]);
+    }
     return { id: nuevo.id };
   });
 }

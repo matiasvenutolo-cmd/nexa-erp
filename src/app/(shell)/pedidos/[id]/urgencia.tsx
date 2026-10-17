@@ -108,18 +108,38 @@ export function VincularProducto({
   );
 }
 
-export function BotonPrepararDespacho({ pedidoId }: { pedidoId: number }) {
+/**
+ * «Comenzar a armar pedido» (antes "Preparar despacho"). Se deshabilita si no
+ * hay nada disponible para armar; si sólo hay una parte, avisa qué falta.
+ */
+export function BotonPrepararDespacho({
+  pedidoId,
+  disponible = true,
+  aviso,
+  chico,
+}: {
+  pedidoId: number;
+  disponible?: boolean;
+  aviso?: string | null;
+  chico?: boolean;
+}) {
   const [state, action, pendiente] = useActionState(async () => iniciarDespachoAction(pedidoId), {} as { error?: string });
   return (
-    <form action={action} className="flex items-center gap-2">
+    <form action={action} className="flex flex-col items-start gap-1">
       <button
         type="submit"
-        disabled={pendiente}
-        className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-60"
+        disabled={pendiente || !disponible}
+        title={!disponible ? "Hace falta producir o tener stock libre para armar este pedido" : undefined}
+        className={`btn ${chico ? "btn-sm" : ""} ${disponible ? "btn-primary" : "btn-outline"}`}
+        onClick={(e) => {
+          if (aviso && !window.confirm(`${aviso}\n\n¿Comenzar a armar igual? Lo que falta queda pendiente.`)) e.preventDefault();
+        }}
       >
-        Preparar despacho
+        {pendiente ? "Abriendo…" : "Comenzar a armar pedido"}
       </button>
-      {state.error && <span className="text-sm text-[var(--estado-critico-fg)]">{state.error}</span>}
+      {!disponible && <span className="text-xs text-foreground-muted">Necesita producción o stock libre.</span>}
+      {disponible && aviso && <span className="text-xs font-semibold text-[var(--estado-bajo-fg)]">{aviso}</span>}
+      {state.error && <span className="text-xs text-[var(--estado-critico-fg)]">{state.error}</span>}
     </form>
   );
 }

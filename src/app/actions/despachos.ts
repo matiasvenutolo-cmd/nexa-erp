@@ -34,9 +34,11 @@ export async function piquearAction(_prev: EstadoForm, fd: FormData): Promise<Es
   const usuario = await getUsuarioActual();
   const pedidoId = Number(fd.get("pedidoId"));
   const cantidadTxt = String(fd.get("cantidad") ?? "").trim();
+  const cajaCompleta = fd.get("cajaCompleta") === "1";
   const r = await piquear(usuario, Number(fd.get("despachoId")), {
     codigo: String(fd.get("codigo") ?? ""),
-    cantidad: cantidadTxt ? Number(cantidadTxt) : null,
+    cantidad: cajaCompleta ? null : cantidadTxt ? Number(cantidadTxt) : null,
+    cajaCompleta: fd.has("cajaCompleta") ? cajaCompleta : undefined,
   });
   revalidar(pedidoId);
   return { error: r.error, ok: r.ok, alerta: r.alerta };
@@ -48,7 +50,12 @@ export async function primerControlAction(_prev: EstadoForm, fd: FormData): Prom
   const r = await confirmarPrimerControl(usuario, Number(fd.get("despachoId")), String(fd.get("observaciones") ?? ""));
   if (r.error) return { error: r.error };
   revalidar(pedidoId);
-  return { ok: "Primer control registrado. El pedido quedó listo para despachar y se avisó a ventas." };
+  // Vuelve al listado de pedidos con el estado alcanzado (no se queda en la
+  // pantalla, donde se podría pasar directo al control final).
+  const msg = r.parcial
+    ? `Pedido #${pedidoId}: el pedido quedó parcialmente armado. Lo armado pasó a «Listo para despachar»; el resto queda pendiente.`
+    : `Pedido #${pedidoId}: el pedido pasó a «Listo para despachar».`;
+  redirect(`/pedidos?ok=${encodeURIComponent(msg)}`);
 }
 
 export async function controlFinalAction(_prev: EstadoForm, fd: FormData): Promise<EstadoForm> {
