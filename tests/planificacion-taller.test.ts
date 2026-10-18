@@ -298,7 +298,7 @@ describe("Operario: turno, receta, relevo y stock por ubicación", () => {
     expect(await totalMp(s.materiaPrima.copo2240.id)).toBe(totalAntes);
     const v = await vistaTaller("8");
     expect(v.pie.find((m) => m.materiaPrimaId === s.materiaPrima.copo2240.id)).toMatchObject({ kg: 300, bolsas: "12 bolsas de 25 kg" });
-    expect(v.pie.find((m) => m.materiaPrimaId === masterId)).toMatchObject({ kg: 4.8, bolsas: "6 bolsitas de 750 g + 0,3 kg" });
+    expect(v.pie.find((m) => m.materiaPrimaId === masterId)).toMatchObject({ kg: 4.8, bolsas: "8 bolsitas de 600 g" });
   });
 
   it("sin turno no se carga; tomado el turno, la receta de arranque se carga con un toque y una sola vez", async () => {

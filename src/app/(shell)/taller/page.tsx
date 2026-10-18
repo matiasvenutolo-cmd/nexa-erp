@@ -178,7 +178,8 @@ export default async function TallerPage({ searchParams }: { searchParams: Promi
                     {e.motivo ? ` · ${e.motivo}` : ""} <span className="text-xs text-foreground-muted">({fmtFechaHora(e.fecha)} · {usuarioNombre})</span>
                   </li>
                 ))}
-                {p.novedades.map((n) => (
+                {/* La pausa ya figura como evento: su novedad (para supervisión) no se repite acá. */}
+                {p.novedades.filter((n) => !n.motivo.startsWith("Pausa: ")).map((n) => (
                   <li key={`n${n.id}`}>
                     <b>{n.motivo}</b>
                     {n.detalle ? ` · ${n.detalle}` : ""} <span className="text-xs text-foreground-muted">({fmtFechaHora(n.fecha)})</span>
@@ -271,14 +272,11 @@ function SinProduccion({ v, iny, golpes, turnoAuto, usuarioNombre }: { v: Vista;
               <input name="golpesInicio" inputMode="numeric" required defaultValue={golpes ?? ""} className="input text-lg" />
               {golpes != null && <span className="campo-ayuda">Último registro de esta máquina: {fmtNumero(golpes, 0)}.</span>}
             </label>
-            <label className="campo">
-              <span>Tu nombre</span>
-              <input name="operarioNombre" defaultValue={usuarioNombre === "Taller" ? "" : usuarioNombre} placeholder="Quién trabaja en este turno" className="input" />
-            </label>
+            <NombreOperario usuarioNombre={usuarioNombre} />
             {!turnoAuto && (
               <div className="campo">
                 <span>Turno (los horarios no están configurados)</span>
-                <ElegirTurno turnos={TURNOS} />
+                <ElegirTurno turnos={TURNOS} sugerido={t.turno} />
               </div>
             )}
           </FormAccion>
@@ -319,10 +317,7 @@ function Retomar({ p, pie, usuarioNombre, turnoAuto }: { p: Prod; pie: Mat; usua
             <RecepcionRelevo motivos={MOTIVOS_DIFERENCIA_RELEVO} />
           </div>
         )}
-        <label className="campo">
-          <span>Tu nombre</span>
-          <input name="operarioNombre" defaultValue={usuarioNombre === "Taller" ? "" : usuarioNombre} placeholder="Quién trabaja en este turno" className="input" />
-        </label>
+        <NombreOperario usuarioNombre={usuarioNombre} />
         <label className="campo">
           <span>Golpes que marca la máquina ahora</span>
           <input name="golpesInicio" inputMode="numeric" defaultValue={u?.golpesFin ?? p.golpesInicioProduccion ?? ""} className="input text-lg" />
@@ -336,6 +331,30 @@ function Retomar({ p, pie, usuarioNombre, turnoAuto }: { p: Prod; pie: Mat; usua
         )}
       </FormAccion>
     </section>
+  );
+}
+
+/** Nombre de la cuenta compartida del taller (usuario «Taller» con PIN). */
+const CUENTA_COMPARTIDA = "Taller";
+
+/**
+ * Con un usuario propio, lo registrado queda a nombre del operario logueado
+ * (no se escribe). Sólo la cuenta compartida «Taller» pide el nombre de quien
+ * trabaja el turno, para que no quede todo a nombre de «Taller».
+ */
+function NombreOperario({ usuarioNombre }: { usuarioNombre: string }) {
+  if (usuarioNombre !== CUENTA_COMPARTIDA)
+    return (
+      <p className="text-sm text-foreground-muted">
+        Queda registrado a nombre de <b className="text-foreground">{usuarioNombre}</b>.
+      </p>
+    );
+  return (
+    <label className="campo">
+      <span>Tu nombre</span>
+      <input name="operarioNombre" required placeholder="Quién trabaja en este turno" className="input" />
+      <span className="campo-ayuda">Estás con la cuenta compartida del taller: escribí tu nombre para que el registro quede a tu nombre.</span>
+    </label>
   );
 }
 
@@ -370,7 +389,8 @@ function RegistrarCarga({ p, pie }: { p: Prod; pie: Mat }) {
       <h2 className="panel-titulo">Registrar carga en tolva de material a pie de máquina</h2>
       <p className="text-sm text-foreground-muted">
         {tipo === "ARRANQUE" ? "Primera carga después del cambio de color (receta reforzada). " : ""}
-        Tildá lo que cargaste. {cargas != null ? `Para lo que falta producir son unas ${cargas} cargas como esta.` : ""} Responsable: vos.
+        Tildá lo que cargaste. {cargas != null ? `Para lo que falta producir son unas ${cargas} cargas como esta.` : ""} Responsable:{" "}
+        <b className="text-foreground">{p.turnoAbierto ? (p.turnoAbierto.operarioNombre ?? p.turnoAbierto.usuarioNombre) : "vos"}</b>.
       </p>
       <FormAccion accion={cargarRecetaAction} ocultos={{ cicloId: p.cicloId, tipo }} boton="Registrar carga en tolva" claseBoton="btn btn-primary btn-lg btn-block" className="space-y-3">
         <CargaTolva items={itemsDe(receta, pie)} motivos={MOTIVOS_EXCEPCION_CARGA} productoNumero={p.productoNumero} />

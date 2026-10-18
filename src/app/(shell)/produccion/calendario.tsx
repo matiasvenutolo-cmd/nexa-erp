@@ -127,7 +127,13 @@ function Tarjeta({ t, dias, editable, onMover }: { t: TarjetaCal; dias: string[]
       </div>
       <div className="truncate text-foreground-muted">{t.matriz}</div>
       <div className="mt-1 font-[family-name:var(--font-display)] text-sm font-bold">{t.cantidad.toLocaleString("es-AR")} u.</div>
-      {t.material && <div className="truncate text-[11px] text-foreground-muted" title={t.material}>{t.material}</div>}
+      {t.material ? (
+        <div className="line-clamp-2 text-[11px] text-foreground-muted" title={t.material}>
+          {t.material}
+        </div>
+      ) : (
+        <div className="text-[11px] italic text-[var(--estado-bajo-fg)]">Receta sin definir</div>
+      )}
       <div className="mt-1 flex flex-wrap gap-1">
         {t.enCurso && <span className="badge-estado badge-ok px-1.5 py-0 text-[10px]">En producción</span>}
         {t.estado === "POSTERGADA" && <span className="badge-estado badge-bajo px-1.5 py-0 text-[10px]">Postergada</span>}

@@ -53,7 +53,8 @@ export function SelectorVisual({
         aria-expanded={abierto}
         aria-label={etiqueta}
         onClick={() => setAbierto((x) => !x)}
-        className="input flex min-h-[46px] items-center gap-2.5 text-left"
+        className="input min-h-[46px] items-center gap-2.5 text-left"
+        style={{ display: "flex" }}
       >
         {actual ? <Muestra o={actual} /> : <Muestra o={{ label: "" }} />}
         <span className="min-w-0 flex-1">

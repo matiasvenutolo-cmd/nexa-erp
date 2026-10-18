@@ -43,7 +43,7 @@ import { obtenerParametros } from "@/lib/data/parametros";
 import { horariosDesdeParametros, turnoDe } from "@/lib/turnos";
 import { disponibleDeLotes, registrarRetiroMaquina, registrarSobrante } from "@/lib/data/maquina";
 import { INYECTORAS } from "@/lib/inyectoras";
-import { aGramos, fmtPresentacion, kgDe } from "@/lib/presentaciones";
+import { aGramos, fmtPeso, fmtPresentacion, kgDe } from "@/lib/presentaciones";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const EPS = 1e-6;
@@ -68,12 +68,17 @@ export type MaterialEnMaquina = { materiaPrimaId: number; nombre: string; esMast
 
 /** «12 bolsas de 25 kg + 0,3 kg»: la presentación más grande que entra. */
 export function enBolsas(kg: number, pres: { nombre: string; kg: number }[]): string | null {
-  // La presentación más grande que entra entera al menos una vez.
-  const p = [...pres].sort((a, b) => b.kg - a.kg).find((x) => kg + EPS >= x.kg) ?? null;
-  if (!p) return null;
-  const cant = Math.floor((aGramos(kg) * 2) / aGramos(p.kg)) / 2;
-  const resto = (aGramos(kg) - aGramos(kgDe(cant, p.kg))) / 1000;
-  return `${fmtPresentacion(cant, p.nombre)}${resto > 0.0005 ? ` + ${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(resto)} kg` : ""}`;
+  const g = aGramos(kg);
+  const orden = [...pres].sort((a, b) => b.kg - a.kg).filter((x) => kg + EPS >= x.kg);
+  if (!orden.length) return null;
+  // Primero la presentación más grande que lo expresa exacto en medias bolsas
+  // (1,2 kg de master = 2 bolsitas de 600 g, no 1½ de 750 g + resto); si
+  // ninguna es exacta, la más grande que entra entera, con el resto aparte.
+  const p = orden.find((x) => (g * 2) % aGramos(x.kg) === 0) ?? orden[0];
+  const cant = Math.floor((g * 2) / aGramos(p.kg)) / 2;
+  const resto = g - aGramos(kgDe(cant, p.kg));
+  const fmtResto = resto >= 1000 ? `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(resto / 1000)} kg` : `${resto} g`;
+  return `${fmtPresentacion(cant, p.nombre)}${resto > 0 ? ` + ${fmtResto}` : ""}`;
 }
 
 export type VistaTaller = Awaited<ReturnType<typeof vistaTaller>>;
@@ -584,7 +589,7 @@ async function fotoMaterial(cicloId: number): Promise<string | null> {
   const [c] = await db.select({ inyectora: cicloProduccion.inyectora }).from(cicloProduccion).where(eq(cicloProduccion.id, cicloId));
   if (!c) return null;
   const v = await vistaTaller(c.inyectora);
-  const t = (l: readonly MaterialEnMaquina[]) => l.map((m) => `${m.nombre} ${m.bolsas ?? `${m.kg} kg`}`).join(", ") || "nada";
+  const t = (l: readonly MaterialEnMaquina[]) => l.map((m) => `${m.nombre} ${m.bolsas ?? fmtPeso(m.kg, { gramos: m.esMaster })}`).join(", ") || "nada";
   return `A pie de máquina: ${t(v.pie)}. En tolva: ${t(v.produccion?.tolva ?? [])}.`;
 }
 
@@ -791,8 +796,20 @@ export async function cancelarProduccion(actor: Actor, input: { cicloId: number;
 
 /** Historial de la producción (inicio, pausas, cancelación, fin). */
 export async function eventosDe(cicloId: number) {
+  // Con la cuenta compartida del taller, el nombre real es el que el operario
+  // escribió en su turno: se toma el del turno de ese usuario vigente al evento.
   return db
-    .select({ e: eventoProduccion, usuarioNombre: usuario.nombre })
+    .select({
+      e: eventoProduccion,
+      usuarioNombre: sql<string>`coalesce((
+        select tp.operario_nombre from turno_produccion tp
+        where tp.ciclo_id = ${eventoProduccion.cicloId} and tp.operario_id = ${eventoProduccion.usuarioId}
+          and tp.operario_nombre is not null
+          and tp.inicio <= ${eventoProduccion.fecha} + interval '5 minutes'
+          and (tp.fin is null or tp.fin >= ${eventoProduccion.fecha} - interval '5 minutes')
+        order by tp.inicio desc limit 1
+      ), ${usuario.nombre})`,
+    })
     .from(eventoProduccion)
     .innerJoin(usuario, eq(eventoProduccion.usuarioId, usuario.id))
     .where(eq(eventoProduccion.cicloId, cicloId))

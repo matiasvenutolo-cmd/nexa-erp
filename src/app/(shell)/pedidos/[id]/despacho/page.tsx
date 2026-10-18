@@ -65,8 +65,9 @@ export default async function DespachoPage({ params }: { params: Promise<{ id: s
             <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
               <th className="px-4 py-2.5">Producto y color</th>
               <th className="px-4 py-2.5 text-right">Comprometido</th>
-              <th className="px-4 py-2.5 text-right">Pendiente (baldosas/unidades)</th>
+              <th className="px-4 py-2.5 text-right">Pendiente de entregar</th>
               <th className="px-4 py-2.5 text-right">Armado (u.)</th>
+              {etapa === "ARMADO" && <th className="px-4 py-2.5 text-right">Falta armar</th>}
               {etapa === "CONTROL_FINAL" && <th className="px-4 py-2.5 text-right">Controlado (u.)</th>}
             </tr>
           </thead>
@@ -83,6 +84,7 @@ export default async function DespachoPage({ params }: { params: Promise<{ id: s
                   <td className="px-4 py-2.5 text-right text-foreground-muted">{fmtNumero(l.pedido, 0)}</td>
                   <td className="px-4 py-2.5 text-right">{fmtNumero(l.pedido - l.entregado, 0)}</td>
                   <td className="px-4 py-2.5 text-right font-medium">{fmtNumero(armado, 0)}</td>
+                  {etapa === "ARMADO" && <td className="px-4 py-2.5 text-right">{fmtNumero(Math.max(0, l.pedido - l.entregado - armado), 0)}</td>}
                   {etapa === "CONTROL_FINAL" && (
                     <td className={`px-4 py-2.5 text-right font-medium ${controlado === armado ? "text-[var(--estado-ok-fg)]" : ""}`}>
                       {fmtNumero(controlado, 0)}

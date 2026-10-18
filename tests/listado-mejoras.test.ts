@@ -26,7 +26,7 @@ import { historialCliente, listarClientes } from "@/lib/data/clientes";
 import { turnoDe } from "@/lib/turnos";
 import { actualizarTanda, crearTanda, listarTandas } from "@/lib/data/planificacion";
 import { guardarReceta, listarPresentaciones } from "@/lib/data/recetas";
-import { cancelarProduccion, cargarReceta, cerrarProduccionTaller, cerrarTurno, eventosDe, iniciarTandaAsignada, pausarProduccion, vistaTaller } from "@/lib/data/taller";
+import { cancelarProduccion, cargarReceta, cerrarProduccionTaller, cerrarTurno, enBolsas, eventosDe, iniciarTandaAsignada, pausarProduccion, vistaTaller } from "@/lib/data/taller";
 import { registrarRetiroMaquina } from "@/lib/data/maquina";
 import { actualizarDatosTecnicos } from "@/lib/data/catalogo";
 import { listarAuditoria } from "@/lib/data/auditoria";
@@ -301,5 +301,21 @@ describe("Operario: inicia la tanda, carga en un paso, pausa, cancela y finaliza
     await cerrarCiclo(c.id, { golpesFin: 0, piezasDescartadas: 0, piezasEntregadas: 0, coladaKg: null, rebarbaKg: null, scrapKg: null, cambioCicloCausa: null, observaciones: null, cerrarPartida: false, usuarioId: s.usuarios.ENCARGADO.id });
     const r = await iniciarTandaAsignada(s.usuarios.OPERARIO, { tandaId: t.id!, golpesInicio: 0, turno: "MANANA" });
     expect(r.error).toMatch(/material de otra producción/);
+  });
+});
+
+describe("Stock a pie de máquina en bolsas", () => {
+  const master = [
+    { nombre: "Bolsita 600 g", kg: 0.6 },
+    { nombre: "Bolsita 750 g", kg: 0.75 },
+  ];
+  it("elige la presentación que lo expresa exacto", () => {
+    expect(enBolsas(1.2, master)).toBe("2 bolsitas de 600 g");
+    expect(enBolsas(1.5, master)).toBe("2 bolsitas de 750 g");
+    expect(enBolsas(50, [{ nombre: "Bolsa 25 kg", kg: 25 }])).toBe("2 bolsas de 25 kg");
+  });
+  it("si ninguna es exacta, muestra el resto en gramos", () => {
+    expect(enBolsas(1.3, master)).toBe("1½ bolsitas de 750 g + 175 g");
+    expect(enBolsas(0.1, master)).toBeNull();
   });
 });

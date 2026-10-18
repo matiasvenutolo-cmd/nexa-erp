@@ -101,19 +101,20 @@ export async function cargarRecetaAction(_p: EstadoAccion, fd: FormData): Promis
       return { error: "No se pudieron leer los códigos." };
     }
   }
+  const usarPie = fd.get("usarPie") !== "0";
   const r = await cargarReceta(u, {
     cicloId: Number(fd.get("cicloId")),
     tipo: fd.get("tipo") === "ARRANQUE" ? "ARRANQUE" : "REGIMEN",
     ajustes,
     motivoExcepcion: txt(fd, "motivo"),
     token: txt(fd, "token"),
-    usarPie: fd.get("usarPie") !== "0",
+    usarPie,
     codigos,
   });
   if (r.error) return { error: r.error };
   revalidar();
   if (r.repetido) return { ok: "Esa carga ya estaba registrada (no se duplicó)." };
-  return { ok: `Carga registrada: ${fmtPeso(r.kg ?? 0)} pasaron del pie de máquina a la tolva.` };
+  return { ok: `Carga registrada: ${fmtPeso(r.kg ?? 0)} pasaron ${usarPie ? "del pie de máquina" : "del stock general (retiro a tu nombre)"} a la tolva.` };
 }
 
 export async function novedadAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {

@@ -39,7 +39,7 @@ export default async function PedidosPage({
   searchParams: Promise<{ estado?: string; q?: string; archivados?: string; orden?: string; vista?: string; creado?: string; ok?: string }>;
 }) {
   const sp = await searchParams;
-  const vista = sp.vista === "armar" ? "armar" : sp.estado === "LISTO_PARA_DESPACHAR" ? "despachar" : "todos";
+  const vista = sp.vista === "armar" ? "armar" : sp.vista === "despachar" || sp.estado === "LISTO_PARA_DESPACHAR" ? "despachar" : "todos";
   const estadoValido = vista === "todos" && (FILTROS as readonly string[]).includes(sp.estado ?? "") ? (sp.estado as (typeof FILTROS)[number]) : undefined;
   const orden: OrdenPedidos = ORDENES.some((o) => o.id === sp.orden) ? (sp.orden as OrdenPedidos) : "fecha";
   const usuario = await getUsuarioActual();
@@ -121,8 +121,8 @@ export default async function PedidosPage({
               <th>N° · Cliente</th>
               <th>Ingreso</th>
               <th>Entrega</th>
-              <th>Líneas</th>
-              {verPrecios && <th className="text-right">Total</th>}
+              <th className="hidden xl:table-cell">Líneas</th>
+              {verPrecios && <th className="hidden text-right xl:table-cell">Total</th>}
               <th>Estado</th>
               <th>{vista === "todos" ? "Situación" : "Acción"}</th>
             </tr>
@@ -144,13 +144,17 @@ export default async function PedidosPage({
                     </div>
                   </td>
                   <td className="whitespace-nowrap text-foreground-muted">{fmtFecha(p.fechaPedido)}</td>
-                  <td className="whitespace-nowrap">
-                    <span className="text-foreground-muted">{p.fechaEntregaPactada ? fmtFecha(p.fechaEntregaPactada) : "—"}</span>
-                    {alerta && <span className={`badge-estado ml-1 ${alerta.nivel === "semana" ? "badge-bajo" : "badge-critico"}`}>{alerta.texto}</span>}
-                    {p.prioridad !== 0 && p.estado !== "ENTREGADO" && p.estado !== "CANCELADO" && <span className="badge-estado badge-naranja ml-1">{etiquetaPrioridad(p.prioridad)}</span>}
+                  <td>
+                    <div className="whitespace-nowrap text-foreground-muted">{p.fechaEntregaPactada ? fmtFecha(p.fechaEntregaPactada) : "—"}</div>
+                    {(alerta || (p.prioridad !== 0 && p.estado !== "ENTREGADO" && p.estado !== "CANCELADO")) && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {alerta && <span className={`badge-estado ${alerta.nivel === "semana" ? "badge-bajo" : "badge-critico"}`}>{alerta.texto}</span>}
+                        {p.prioridad !== 0 && p.estado !== "ENTREGADO" && p.estado !== "CANCELADO" && <span className="badge-estado badge-naranja">{etiquetaPrioridad(p.prioridad)}</span>}
+                      </div>
+                    )}
                   </td>
-                  <td className="text-foreground-muted">{p.lineas}</td>
-                  {verPrecios && <td className="text-right text-foreground-muted">{fmtMoneda(p.total)}</td>}
+                  <td className="hidden text-foreground-muted xl:table-cell">{p.lineas}</td>
+                  {verPrecios && <td className="hidden text-right text-foreground-muted xl:table-cell">{fmtMoneda(p.total)}</td>}
                   <td>
                     <EstadoPedido estado={p.estado} />
                   </td>
@@ -213,27 +217,27 @@ function Situacion({ s, estado }: { s: SituacionPedido | undefined; estado: stri
   const partes: React.ReactNode[] = [];
   if (estado === "LISTO_PARA_DESPACHAR" || estado === "EN_ARMADO")
     partes.push(
-      <span key="i" className="badge-estado badge-bajo" title="Estado traído del Excel: no tiene armado ni control en el sistema">
+      <span key="i" style={{ whiteSpace: "normal" }} className="badge-estado badge-bajo" title="Estado traído del Excel: no tiene armado ni control en el sistema">
         Estado importado sin armado
       </span>,
     );
   if (s.sinProducto > 0)
     partes.push(
-      <span key="d" className="badge-estado badge-exceso">
+      <span key="d" style={{ whiteSpace: "normal" }} className="badge-estado badge-exceso">
         Datos pendientes: {s.sinProducto} {s.sinProducto === 1 ? "renglón" : "renglones"} sin producto
       </span>,
     );
   if (s.faltaProducir > 0)
     partes.push(
-      <span key="f" className="badge-estado badge-critico">
+      <span key="f" style={{ whiteSpace: "normal" }} className="badge-estado badge-critico">
         Falta producir {fmtNumero(s.faltaProducir, 0)}
       </span>,
     );
   if (partes.length === 0)
     partes.push(
-      <span key="ok" className="badge-estado badge-ok">
+      <span key="ok" style={{ whiteSpace: "normal" }} className="badge-estado badge-ok">
         Stock disponible para armar
       </span>,
     );
-  return <div className="flex flex-wrap gap-1">{partes}</div>;
+  return <div className="flex max-w-[15rem] flex-wrap gap-1">{partes}</div>;
 }
