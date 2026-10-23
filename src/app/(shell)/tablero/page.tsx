@@ -26,9 +26,10 @@ export default async function TableroPage() {
   const gestion = puedeVerVentas(usuario.rol);
   const fabrica = puedeVerProduccion(usuario.rol);
   const t = await obtenerTablero();
-  const [tandas, grupos, compras, relevos] = fabrica || gestion
-    ? await Promise.all([listarTandas(), gruposParaPlanificar(), necesidadDeCompra(), relevosRecientes(8)])
-    : [[], [], [], { turnos: [], novedades: [], excepciones: [] }];
+  const [tandas, grupos, relevos] = fabrica || gestion
+    ? await Promise.all([listarTandas(), gruposParaPlanificar(), relevosRecientes(8)])
+    : [[], [], { turnos: [], novedades: [], excepciones: [] }];
+  const compras = fabrica || gestion ? await necesidadDeCompra(tandas) : [];
   const enCurso = tandas.filter((x) => x.estado === "EN_CURSO");
   const proximas = tandas.filter((x) => x.estado === "PLANIFICADA").slice(0, 5);
   const urgentes = [

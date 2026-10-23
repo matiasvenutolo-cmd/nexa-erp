@@ -63,7 +63,10 @@ export default async function LoginPage({
         </div>
 
         <div className="panel space-y-4">
-          <h2 className="panel-titulo mb-0">Planta (operarios)</h2>
+          <h2 className="panel-titulo mb-0">Planta (nombre y PIN)</h2>
+          {operarios.length === 0 && (
+            <p className="text-sm text-foreground-muted">Todavía nadie tiene PIN cargado: lo carga Supervisión en Administración → Usuarios.</p>
+          )}
           <form action={iniciarSesionOperarioAction} className="space-y-3">
             <select name="usuarioId" required className="input" defaultValue="">
               <option value="" disabled>

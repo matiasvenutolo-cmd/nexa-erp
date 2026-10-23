@@ -106,6 +106,9 @@ describe("Perfiles y permisos (Excel de usuarios)", () => {
     expect(perfilesDe(dylan, "clave")).toEqual(["RETIROS_MP", "OPERARIO", "ENCARGADO"]);
     expect(perfilesDe(dylan, "pin")).toEqual(["OPERARIO", "RETIROS_MP"]);
     expect(perfilesDe({ rol: "SUPERVISOR", rolesAdicionales: [] }, "pin")).toEqual([]);
+    // Con la sesión en otro perfil, el principal no se pierde de la lista.
+    expect(perfilesDe({ ...dylan, rol: "OPERARIO", rolPrincipal: "RETIROS_MP" }, "pin")).toEqual(["OPERARIO", "RETIROS_MP"]);
+    expect(perfilesDe({ ...dylan, rol: "ENCARGADO", rolPrincipal: "RETIROS_MP" }, "clave")).toEqual(["RETIROS_MP", "OPERARIO", "ENCARGADO"]);
   });
 });
 

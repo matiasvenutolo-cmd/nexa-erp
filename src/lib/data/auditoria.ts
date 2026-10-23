@@ -82,11 +82,17 @@ export type FilaAuditoria = typeof auditoriaConfig.$inferSelect & { usuarioNombr
 export async function listarAuditoria(filtro?: {
   entidad?: string;
   entidadId?: string | number;
+  /** Varias entidades a la vez (una sola consulta en vez de una por fila). */
+  entidadIds?: (string | number)[];
   limite?: number;
 }): Promise<FilaAuditoria[]> {
   const condiciones = [];
   if (filtro?.entidad) condiciones.push(eq(auditoriaConfig.entidad, filtro.entidad));
   if (filtro?.entidadId != null) condiciones.push(eq(auditoriaConfig.entidadId, String(filtro.entidadId)));
+  if (filtro?.entidadIds) {
+    if (filtro.entidadIds.length === 0) return [];
+    condiciones.push(inArray(auditoriaConfig.entidadId, filtro.entidadIds.map(String)));
+  }
   const filas = await db
     .select({ a: auditoriaConfig, usuarioNombre: usuario.nombre })
     .from(auditoriaConfig)

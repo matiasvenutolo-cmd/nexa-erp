@@ -150,7 +150,7 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
       {vista === "turnos" && <TurnosSemana desde={sp.desde} edita={puedeAsignarTurnos(usuario.rol)} />}
       {vista === "curso" && <EnCurso />}
       {vista === "relevos" && <Relevos />}
-      {vista === "compras" && <Compras />}
+      {vista === "compras" && <Compras tandas={tandas} />}
       {vista === "historial" && <Historial puedeIniciar={puedeCargarProduccion(usuario.rol)} />}
     </div>
   );
@@ -352,8 +352,8 @@ async function Relevos() {
 
 const TIPO_NOVEDAD = { NO_CARGA: "No se cargó", CARGA_DISTINTA: "Carga distinta", DIFERENCIA_RELEVO: "Diferencia en el relevo", INTERRUPCION: "Interrupción" } as const;
 
-async function Compras() {
-  const nec = await necesidadDeCompra();
+async function Compras({ tandas }: { tandas: Awaited<ReturnType<typeof listarTandas>> }) {
+  const nec = await necesidadDeCompra(tandas);
   return (
     <section className="panel overflow-x-auto p-0">
       <div className="px-5 pt-4">

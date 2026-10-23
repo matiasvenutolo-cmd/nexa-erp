@@ -25,8 +25,10 @@ export async function getUsuarioPorEmail(email: string): Promise<Usuario | undef
  * adicionales, sin repetir. Con PIN, sólo los de planta (ROLES_CON_PIN); el
  * principal va primero salvo que no sea de planta.
  */
-export function perfilesDe(u: Pick<Usuario, "rol" | "rolesAdicionales">, via: "clave" | "pin"): Usuario["rol"][] {
-  const todos = [u.rol, ...(u.rolesAdicionales ?? [])].filter((r, i, a) => a.indexOf(r) === i);
+export function perfilesDe(u: Pick<Usuario, "rol" | "rolesAdicionales"> & { rolPrincipal?: Usuario["rol"] }, via: "clave" | "pin"): Usuario["rol"][] {
+  // Con la sesión, `rol` es el perfil activo: el principal viene aparte.
+  const principal = u.rolPrincipal ?? u.rol;
+  const todos = [principal, ...(u.rolesAdicionales ?? [])].filter((r, i, a) => a.indexOf(r) === i);
   if (via === "clave") return todos;
   const planta = todos.filter((r) => ROLES_CON_PIN.includes(r));
   // Quien opera la máquina entra por PIN para eso: Operario primero.

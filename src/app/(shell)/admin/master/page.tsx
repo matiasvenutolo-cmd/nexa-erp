@@ -205,15 +205,15 @@ function FilaMaster({ f, materias }: { f: FilaDosificacion; materias: { id: numb
       </td>
       <td className={TD}>
         <div className="flex items-center gap-1 whitespace-nowrap">
-          <input form={formId} name="gMaster" type="number" step="any" min="0" required defaultValue={f.gPorReferencia} className="input w-20" aria-label="Gramos de master" />
+          <input form={formId} name="gMaster" type="number" step="any" min="0" required defaultValue={f.gPorReferencia} className="input" style={{ width: "4.5rem", minWidth: "4.5rem" }} aria-label="Gramos de master" />
           g cada
-          <input form={formId} name="kgReferencia" type="number" step="any" min="0" required defaultValue={f.kgReferencia} className="input w-20" aria-label="kg de base" />
+          <input form={formId} name="kgReferencia" type="number" step="any" min="0" required defaultValue={f.kgReferencia} className="input" style={{ width: "4.5rem", minWidth: "4.5rem" }} aria-label="kg de base" />
           kg
         </div>
         <div className="text-xs text-foreground-muted">= {Math.round(f.gPorKgMp * 100) / 100} g por kg</div>
       </td>
       <td className={TD}>
-        <input form={formId} name="observaciones" defaultValue={f.observaciones ?? ""} className="input min-w-[14rem]" />
+        <input form={formId} name="observaciones" defaultValue={f.observaciones ?? ""} className="input min-w-[12rem]" />
       </td>
       <td className={TD}>
         <UltimaModificacion valor={{ fecha: f.actualizadoEn, usuarioNombre: f.actualizadoPorNombre ?? "—" }} />
@@ -245,7 +245,7 @@ function FilaMaster({ f, materias }: { f: FilaDosificacion; materias: { id: numb
 
 function SelectMateria({ materias, form, valor, nombre = "materiaPrimaBaseId" }: { materias: { id: number; nombre: string }[]; form?: string; valor?: number | null; nombre?: string }) {
   return (
-    <select name={nombre} form={form} defaultValue={valor ?? ""} className="input min-w-[14rem]">
+    <select name={nombre} form={form} defaultValue={valor ?? ""} className="input min-w-[10rem] max-w-[13rem]">
       <option value="">—</option>
       {materias.map((m) => (
         <option key={m.id} value={m.id}>

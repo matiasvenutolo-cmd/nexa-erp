@@ -37,7 +37,7 @@ export async function destruirSesion() {
  *  vale si sigue siendo uno de los perfiles de la persona (y, si entró con
  *  PIN, uno de planta). Si no, vuelve a su perfil principal. Así todas las
  *  pantallas y acciones siguen usando `usuario.rol` sin cambios. */
-export const getUsuarioActual = cache(async (): Promise<Usuario> => {
+export const getUsuarioActual = cache(async (): Promise<Usuario & { rolPrincipal: Usuario["rol"] }> => {
   const jar = await cookies();
   const token = jar.get(COOKIE)?.value;
   const payload = await verificarSesion(token);
@@ -46,7 +46,7 @@ export const getUsuarioActual = cache(async (): Promise<Usuario> => {
   const permitidos = perfilesDe(usuario, payload.via ?? "clave");
   if (permitidos.length === 0) redirect("/login");
   const rol = permitidos.includes(payload.rol) ? payload.rol : permitidos[0];
-  return { ...usuario, rol };
+  return { ...usuario, rol, rolPrincipal: usuario.rol };
 });
 
 /** Cómo entró la sesión actual (PIN o contraseña). */

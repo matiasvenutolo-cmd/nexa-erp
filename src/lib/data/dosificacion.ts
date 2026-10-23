@@ -284,14 +284,20 @@ export type ComparacionReceta = {
 export async function compararRecetasConDosificacion(): Promise<ComparacionReceta[]> {
   const { productosConReceta, listarPresentaciones } = await import("@/lib/data/recetas");
   const { masterParaBase, enBolsas } = await import("@/lib/presentaciones");
-  const [productos, presentaciones, filas] = await Promise.all([productosConReceta(), listarPresentaciones(), db.select({ id: producto.id, colorId: producto.colorId }).from(producto)]);
+  const [productos, presentaciones, filas, dosificaciones] = await Promise.all([
+    productosConReceta(),
+    listarPresentaciones(),
+    db.select({ id: producto.id, colorId: producto.colorId }).from(producto),
+    listarDosificaciones(),
+  ]);
   const presMaster = presentaciones.filter((p) => p.tipoMp === "MASTER").map((p) => ({ nombre: p.nombre, kg: p.kg }));
   const out: ComparacionReceta[] = [];
   for (const p of productos) {
     const r = p.recetas.REGIMEN;
     if (!r) continue;
     const colorId = filas.find((f) => f.id === p.id)?.colorId ?? null;
-    const d = await resolverDosificacion(p.familia, colorId);
+    // Mismo criterio que resolverDosificacion, en memoria (una consulta en total).
+    const d = dosificaciones.find((x) => x.familia === p.familia && x.colorId != null && x.colorId === colorId) ?? dosificaciones.find((x) => x.familia === p.familia && x.colorId == null) ?? null;
     const esperado = d ? masterParaBase(r.kgVirgen, d.gPorKgMp) : null;
     out.push({
       productoId: p.id,

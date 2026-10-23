@@ -768,8 +768,9 @@ export async function iniciarProduccionDeTanda(
 }
 
 /** Necesidad de compra: material que pide la planificación activa y no alcanza. */
-export async function necesidadDeCompra(): Promise<(MaterialRequerido & { tandas: number[] })[]> {
-  const tandas = await listarTandas();
+export async function necesidadDeCompra(tandasLeidas?: TandaVista[]): Promise<(MaterialRequerido & { tandas: number[] })[]> {
+  // Si la pantalla ya leyó las tandas, no se vuelven a calcular.
+  const tandas = tandasLeidas ?? (await listarTandas());
   const porMp = new Map<number, MaterialRequerido & { tandas: number[] }>();
   for (const t of tandas) {
     if (t.estado === "POSTERGADA") continue;

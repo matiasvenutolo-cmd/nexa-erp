@@ -137,6 +137,8 @@ export default async function ComprasPage({ searchParams }: { searchParams: Prom
 
 async function ListaCompras({ compras, gestiona, ingresa }: { compras: FilaCompra[]; gestiona: boolean; ingresa: boolean }) {
   if (compras.length === 0) return <p className="aviso aviso-info">No hay compras para mostrar.</p>;
+  // El historial de todas las compras en una sola consulta (no una por compra).
+  const auditoria = await listarAuditoria({ entidad: "compra_mp", entidadIds: compras.map((c) => c.id), limite: 2000 });
   return (
     <ul className="space-y-2">
       {compras.map((c) => (
@@ -185,7 +187,7 @@ async function ListaCompras({ compras, gestiona, ingresa }: { compras: FilaCompr
                     </Link>
                   )}
                 </div>
-                <Historial id={c.id} />
+                <Historial filas={auditoria.filter((a) => a.entidadId === String(c.id)).slice(0, 30)} />
               </div>
               {gestiona && c.estado !== "ENTREGADA" && c.estado !== "CANCELADA" && (
                 <FormAccion accion={actualizarCompraAction} boton="Guardar cambios" ocultos={{ id: c.id }} className="grid gap-2 sm:grid-cols-2">
@@ -233,8 +235,7 @@ async function ListaCompras({ compras, gestiona, ingresa }: { compras: FilaCompr
   );
 }
 
-async function Historial({ id }: { id: number }) {
-  const filas = await listarAuditoria({ entidad: "compra_mp", entidadId: id, limite: 30 });
+function Historial({ filas }: { filas: Awaited<ReturnType<typeof listarAuditoria>> }) {
   if (filas.length === 0) return null;
   return (
     <details className="text-xs">
@@ -282,7 +283,7 @@ async function Necesidad() {
           </thead>
           <tbody>
             {n.filas.map((f) => {
-              const g = { gramos: f.esMaster };
+              const g = {};
               return (
                 <tr key={f.materiaPrimaId}>
                   <td>
