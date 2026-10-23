@@ -221,8 +221,8 @@ describe("Operario: inicia la tanda, carga en un paso, pausa, cancela y finaliza
     expect((await guardarReceta(s.usuarios.ENCARGADO, s.productos.ciegoNegro.id, "REGIMEN", { items: [{ materiaPrimaId: sobranteId, presentacionId: bolson.id, cantidad: 1 }] })).error).toBeUndefined();
   });
 
-  it("el operario inicia la tanda asignada con los golpes; sin horarios configurados pide el turno", async () => {
-    expect((await iniciarTandaAsignada(s.usuarios.OPERARIO, { tandaId, golpesInicio: 500 })).error).toMatch(/horarios/);
+  it("el operario inicia la tanda asignada con los golpes; sin esquema de turnos pide el turno", async () => {
+    expect((await iniciarTandaAsignada(s.usuarios.OPERARIO, { tandaId, golpesInicio: 500 })).error).toMatch(/esquema del día/);
     expect((await iniciarTandaAsignada(s.usuarios.DESPACHO, { tandaId, golpesInicio: 500, turno: "TARDE" })).error).toMatch(/permiso/);
     const r = await iniciarTandaAsignada(s.usuarios.OPERARIO, { tandaId, golpesInicio: 500, turno: "TARDE", operarioNombre: "Juan" });
     expect(r.error).toBeUndefined();
@@ -231,6 +231,9 @@ describe("Operario: inicia la tanda, carga en un paso, pausa, cancela y finaliza
     expect(v.produccion).toMatchObject({ cicloId, piezasPorGolpe: 1, objetivo: 100 });
     expect(v.produccion!.turnoAbierto).toMatchObject({ turno: "TARDE", golpesInicio: 500, operarioNombre: "Juan", operarioId: s.usuarios.OPERARIO.id });
     expect((await eventosDe(cicloId))[0].e.tipo).toBe("INICIO");
+    // Quien la inicia desde la máquina queda como operario de la producción.
+    const [c] = await db().select().from(schema.cicloProduccion).where(eq(schema.cicloProduccion.id, cicloId));
+    expect(c.operarioId).toBe(s.usuarios.OPERARIO.id);
   });
 
   it("carga en un paso: sin material a pie de máquina, destildando, se retira del stock general y se carga sin duplicar", async () => {

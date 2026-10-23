@@ -250,7 +250,7 @@ async function cicloAbierto(tx: Tx | typeof db, cicloId: number) {
 
 export type TomarTurnoInput = {
   cicloId: number;
-  /** Si no se indica, sale de la hora y de los horarios configurados. */
+  /** Si no se indica, sale de la hora y del esquema de turnos del día. */
   turno?: Turno | null;
   operarioNombre?: string | null;
   golpesInicio?: number | null;
@@ -721,7 +721,7 @@ export async function iniciarTandaAsignada(
 ): Promise<Resultado & { cicloId?: number }> {
   if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
   const turno = input.turno ?? (await turnoActual(new Date(), actor.id))?.turno ?? null;
-  if (!turno) return { error: "Los horarios de los turnos no están configurados (Administración → Parámetros): elegí el turno." };
+  if (!turno) return { error: "Ahora hay más de un turno posible (o el esquema del día no está cargado en Producción → Turnos y operarios): elegí el turno." };
   const r = await iniciarProduccionDeTanda(actor, input.tandaId, { golpesInicio: input.golpesInicio });
   if (r.error || !r.cicloId) return { error: r.error ?? "No se pudo iniciar la producción." };
   const t = await tomarTurno(actor, { cicloId: r.cicloId, turno, golpesInicio: input.golpesInicio, operarioNombre: input.operarioNombre });

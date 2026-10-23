@@ -59,7 +59,8 @@ export async function crearTandaAction(_p: EstadoAccion, fd: FormData): Promise<
 export async function actualizarTandaAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
   const u = await getUsuarioActual();
   const r = await actualizarTanda(u, Number(fd.get("id")), {
-    inyectora: txt(fd, "inyectora"),
+    // Los pisos no muestran el campo (van siempre a la 8): si no viene, no se toca.
+    inyectora: fd.has("inyectora") ? txt(fd, "inyectora") : undefined,
     fecha: txt(fd, "fecha"),
     turno: turno(fd),
     cantidadStock: num(fd, "cantidadStock") ?? 0,

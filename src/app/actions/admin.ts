@@ -14,7 +14,7 @@ import { actualizarMinMaxMateriaPrima, actualizarMinMaxProducto } from "@/lib/da
 import { actualizarParametro } from "@/lib/data/parametros";
 import { actualizarDosificacion, crearDosificacion, eliminarExcepcionDosificacion } from "@/lib/data/dosificacion";
 import { actualizarFichaColor, crearColorEspecial } from "@/lib/data/colores";
-import { actualizarDatosTecnicos } from "@/lib/data/catalogo";
+import { actualizarCodigoBarras, actualizarDatosTecnicos } from "@/lib/data/catalogo";
 import { actualizarUsuarioAdmin, cambiarSecretoAdmin, crearUsuarioAdmin } from "@/lib/data/usuarios";
 import type { usuario } from "@/lib/db/schema";
 
@@ -200,4 +200,10 @@ export async function guardarDatosTecnicosAction(fd: FormData) {
       ? { error: "Valor inválido." }
       : await actualizarDatosTecnicos(usuario, Number(fd.get("id")), { m2PorUnidad: m2, kgPorUnidad: kg, coladaKgPorGolpe: numero(fd, "coladaKgPorGolpe"), aceptaSobrante: fd.get("aceptaSobrante") === "1", aceptaMolienda: fd.get("aceptaMolienda") === "1", pesoConfirmado: fd.get("pesoConfirmado") === "1", motivo: texto(fd, "motivo") });
   volver(fd, r, "Datos técnicos guardados.");
+}
+
+export async function guardarCodigoBarrasAction(fd: FormData) {
+  const usuario = await getUsuarioActual();
+  const r = await actualizarCodigoBarras(usuario, Number(fd.get("id")), texto(fd, "codigoBarras"), texto(fd, "motivo"));
+  volver(fd, r, "Código de barras guardado.");
 }

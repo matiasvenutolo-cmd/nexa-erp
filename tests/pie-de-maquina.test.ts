@@ -205,7 +205,7 @@ describe("Circuito completo: retiro → tolva → producción → devolución �
     const { disponibleDeLotes } = await import("@/lib/data/maquina");
     expect((await disponibleDeLotes(db() as never, [lote.id])).get(lote.id)).toBe(420);
 
-    expect((await registrarSobrante(s.usuarios.RETIROS_MP, { retiroMaquinaId: retiroId, materiaPrimaDestinoId: s.materiaPrima.copo2240.id, cantidadKg: 1 })).error).toMatch(/sobrante o molienda/);
+    expect((await registrarSobrante(s.usuarios.RETIROS_MP, { retiroMaquinaId: retiroId, materiaPrimaDestinoId: s.materiaPrima.copo2240.id, cantidadKg: 1 })).error).toMatch(/código de sobrante/);
     expect((await registrarSobrante(s.usuarios.RETIROS_MP, { retiroMaquinaId: retiroId, materiaPrimaDestinoId: sobranteId, cantidadKg: 500 })).error).toMatch(/se cargaron/);
     expect((await registrarSobrante(s.usuarios.RETIROS_MP, { retiroMaquinaId: retiroId, materiaPrimaDestinoId: sobranteId, cantidadKg: 3.2 })).error).toBeUndefined();
     expect(await stockMp(sobranteId)).toBe(3.2);

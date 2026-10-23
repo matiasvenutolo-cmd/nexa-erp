@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeCorregirProduccionMp, puedeVerMateriaPrima } from "@/lib/auth/permisos";
+import { puedeAltaMateriaPrima, puedeCorregirProduccionMp, puedeVerMateriaPrima } from "@/lib/auth/permisos";
+import { FormAccion } from "@/components/form-accion";
+import { editarMpAction } from "@/app/actions/materia-prima";
 import { listarLotes } from "@/lib/data/materia-prima";
 import { movimientosMp, stockMpPorUbicacion } from "@/lib/data/stock-mp";
 import { fmtFecha, fmtFechaHora, fmtNumero } from "@/lib/format";
@@ -30,6 +32,25 @@ export default async function MateriaPrimaDetallePage({ params }: { params: Prom
         </Link>
         <h1 className="mt-1 text-[1.6rem]">{mp.nombre}</h1>
         <p className="text-sm text-foreground-muted">Código {mp.codigo}</p>
+        {puedeAltaMateriaPrima(usuario.rol) && (
+          <details className="mt-2 text-sm">
+            <summary className="cursor-pointer font-semibold text-accent">Corregir código o nombre</summary>
+            <FormAccion accion={editarMpAction} boton="Guardar" ocultos={{ id: mp.id }} className="mt-2 flex flex-wrap items-end gap-2">
+              <label className="campo w-28">
+                <span>Código</span>
+                <input name="codigoInterno" defaultValue={mp.codigo} required className="input" />
+              </label>
+              <label className="campo min-w-64 flex-1">
+                <span>Nombre</span>
+                <input name="nombre" defaultValue={mp.nombre} required className="input" />
+              </label>
+              <label className="campo min-w-48">
+                <span>Motivo</span>
+                <input name="motivo" className="input" />
+              </label>
+            </FormAccion>
+          </details>
+        )}
       </div>
       <div className="grid grid-cols-3 gap-3">
         <div className="stat-card">

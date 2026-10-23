@@ -551,7 +551,9 @@ export async function codigosDeSobrante() {
   return db
     .select({ id: materiaPrima.id, codigo: materiaPrima.codigoInterno, nombre: materiaPrima.nombre, tipo: materiaPrima.tipo })
     .from(materiaPrima)
-    .where(and(inArray(materiaPrima.tipo, ["SOBRANTE", "MOLIENDA"]), eq(materiaPrima.activo, true)))
+    // Sólo códigos de sobrante: la molienda (reciclado de coladas y descartes)
+    // entra por el Molino, no se mezcla con el sobrante (mejoras 22/10).
+    .where(and(eq(materiaPrima.tipo, "SOBRANTE"), eq(materiaPrima.activo, true)))
     .orderBy(asc(materiaPrima.codigoInterno));
 }
 
@@ -577,8 +579,8 @@ export async function registrarSobrante(
       if (!cab) return { error: "Retiro no encontrado." };
       if (cab.estado !== "ABIERTO") return { error: `El retiro ${numeroRetiro(cab.id)} está cerrado.` };
       const [destino] = await tx.select().from(materiaPrima).where(eq(materiaPrima.id, input.materiaPrimaDestinoId));
-      if (!destino || (destino.tipo !== "SOBRANTE" && destino.tipo !== "MOLIENDA")) {
-        return { error: "Elegí un código de sobrante o molienda existente en el depósito." };
+      if (!destino || destino.tipo !== "SOBRANTE") {
+        return { error: "Elegí un código de sobrante: la molienda entra por el Molino y no se mezcla con el sobrante." };
       }
       const movs = await tx
         .select({ id: movimientoMaquina.id, tipo: movimientoMaquina.tipo, cantidad: movimientoMaquina.cantidad, mpId: retiroMp.materiaPrimaId, mp: materiaPrima.nombre, movimientoId: movimientoMaquina.movimientoId })

@@ -25,7 +25,7 @@ import {
   pausarAction,
   tomarTurnoAction,
 } from "@/app/actions/taller";
-import { fmtFecha, fmtFechaHora, fmtNumero } from "@/lib/format";
+import { fmtFecha, fmtFechaHora, fmtNumero, hoyISO } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
 import { CargaTolva, DosBotonesCierre, ElegirTurno, RecepcionRelevo, type ItemCarga } from "./componentes";
 import type { Receta } from "@/lib/data/recetas";
@@ -34,7 +34,7 @@ import type { Receta } from "@/lib/data/recetas";
  * Mi turno — pantalla del operario (celular). Listado de mejoras:
  *  - al entrar elige la máquina en la que trabaja (las disponibles);
  *  - inicia la tanda que le asignó el Encargado anotando los golpes;
- *  - el turno sale de la hora (horarios en Parámetros) y el responsable es el
+ *  - el turno sale del esquema del día (Producción → Turnos y operarios) y el responsable es el
  *    usuario autenticado;
  *  - registra la carga en tolva en un solo paso, con la receta precargada;
  *  - puede pausar, cancelar o finalizar, y deja el relevo con dos botones.
@@ -282,6 +282,9 @@ function SinProduccion({ v, iny, golpes, ot, usuarioNombre }: { v: Vista; iny: s
             )}
             {t.observaciones && <p className="mt-2 text-sm">Indicaciones: {t.observaciones}</p>}
           </div>
+          {t.fecha && t.fecha > hoyISO() ? (
+            <p className="aviso aviso-info">Está programada para el {fmtFecha(t.fecha)}: todavía no se puede iniciar. Si hay que adelantarla, avisale al Encargado.</p>
+          ) : (
           <FormAccion accion={iniciarTandaAction} ocultos={{ tandaId: t.id }} boton="Iniciar producción" claseBoton="btn btn-primary btn-lg btn-block" className="space-y-3">
             <label className="campo">
               <span>Golpes que marca la máquina al iniciar</span>
@@ -296,6 +299,7 @@ function SinProduccion({ v, iny, golpes, ot, usuarioNombre }: { v: Vista; iny: s
               </div>
             )}
           </FormAccion>
+          )}
           {v.asignadas.length > 1 && <p className="text-xs text-foreground-muted">Después siguen {v.asignadas.length - 1} tanda(s) más en esta máquina.</p>}
         </>
       )}

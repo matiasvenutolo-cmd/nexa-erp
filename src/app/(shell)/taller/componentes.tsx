@@ -174,7 +174,7 @@ export function RecepcionRelevo({ motivos }: { motivos: readonly string[] }) {
   );
 }
 
-/** Botones grandes de turno (sólo si los horarios no están configurados). */
+/** Botones grandes de turno (sólo cuando hay superposición o no hay esquema cargado). */
 export function ElegirTurno({ turnos, sugerido }: { turnos: { valor: string; etiqueta: string }[]; sugerido?: string | null }) {
   const [valor, setValor] = useState(sugerido ?? "");
   return (

@@ -42,6 +42,10 @@ import { ingresarMateriaPrima } from "@/lib/data/materia-prima";
 import { actualizarIntervencion, listarIntervenciones, programarIntervencion } from "@/lib/data/matrices";
 import { confirmarMolienda, descartesPendientes, entregarMolienda, recibirDescarte } from "@/lib/data/molino";
 import { listarAuditoria } from "@/lib/data/auditoria";
+import { SECCIONES_ADMIN } from "@/lib/admin-secciones";
+import { actualizarCodigoBarras } from "@/lib/data/catalogo";
+import { editarMateriaPrima } from "@/lib/data/stock-mp";
+import { asignarOperario as asignar, guardarEsquema as esquema } from "@/lib/data/turnos";
 
 let s: Semilla;
 const db = () => holder.db!;
@@ -303,6 +307,15 @@ describe("Matrices", () => {
   });
 });
 
+describe("Sobrante y molienda separados", () => {
+  it("los códigos para registrar sobrante no incluyen molienda", async () => {
+    const { codigosDeSobrante } = await import("@/lib/data/maquina");
+    const cods = await codigosDeSobrante();
+    expect(cods.every((c) => c.tipo === "SOBRANTE")).toBe(true);
+    expect(cods.some((c) => c.id === molienda.id)).toBe(false);
+  });
+});
+
 describe("Molino", () => {
   it("descarte → molienda entregada → MP confirma: entra al stock una sola vez", async () => {
     const d = await recibirDescarte(s.usuarios.MOLINO, { origen: "Inyectora 8 · colada", material: "Rejilla negro", kg: 30 });
@@ -326,5 +339,72 @@ describe("Molino", () => {
     expect((await confirmarMolienda(s.usuarios.MATERIA_PRIMA, e.id!, { aceptar: false })).error).toMatch(/motivo/);
     expect((await confirmarMolienda(s.usuarios.MATERIA_PRIMA, e.id!, { aceptar: false, motivo: "húmeda" })).error).toBeUndefined();
     expect(await saldoDeposito(molienda.id)).toBe(27.5);
+  });
+});
+
+describe("Auditoría final: cambios estructurales y permisos del servidor", () => {
+  it("código de barras y datos de MP: sólo Supervisión o Gerencia, auditado y sin duplicar", async () => {
+    expect((await actualizarCodigoBarras(s.usuarios.ENCARGADO, s.productos.rejNegro.id, "001B-RU-NE")).error).toMatch(/Supervisión o Gerencia/);
+    expect((await actualizarCodigoBarras(s.usuarios.SUPERVISOR, s.productos.rejNegro.id, "001b-ru-ne", "lista oficial")).error).toBeUndefined();
+    expect((await actualizarCodigoBarras(s.usuarios.SUPERVISOR, s.productos.rejBlanco.id, "001B-RU-NE")).error).toMatch(/ya lo tiene/);
+    expect((await actualizarCodigoBarras(s.usuarios.GERENCIA, s.productos.rejBlanco.id, "004A RU")).error).toMatch(/letras/);
+    const [p] = await db().select().from(schema.producto).where(eq(schema.producto.id, s.productos.rejNegro.id));
+    expect(p.codigoBarras).toBe("001B-RU-NE");
+    expect((await editarMateriaPrima(s.usuarios.MATERIA_PRIMA, plastomer.id, { codigoInterno: "019", nombre: "019- Plastomer" })).error).toMatch(/Supervisión o Gerencia/);
+    expect((await editarMateriaPrima(s.usuarios.SUPERVISOR, plastomer.id, { codigoInterno: "31", nombre: "x" })).error).toMatch(/Ya existe/);
+    expect((await editarMateriaPrima(s.usuarios.SUPERVISOR, plastomer.id, { codigoInterno: "019", nombre: "019- Plastomer", motivo: "listado estandarizado" })).error).toBeUndefined();
+    const h = await listarAuditoria({ entidad: "materia_prima", entidadId: plastomer.id });
+    expect(h.map((x) => `${x.campo}:${x.valorAnterior}>${x.valorNuevo}`)).toContain("codigo_interno:19>019");
+  });
+
+  it("cada acción de los módulos nuevos rechaza a los roles sin permiso y no escribe nada", async () => {
+    const audit = (await db().select().from(schema.auditoriaConfig)).length;
+    const intentos: [string, () => Promise<{ error?: string }>][] = [
+      ["compra (operario)", () => crearCompra(s.usuarios.OPERARIO, { materiaPrimaId: master.id, cantidadKg: 1, fechaPedido: "2026-10-22" })],
+      ["compra (gerencia consulta)", () => crearCompra(s.usuarios.GERENCIA_CONSULTA, { materiaPrimaId: master.id, cantidadKg: 1, fechaPedido: "2026-10-22" })],
+      ["compra (encargado)", () => actualizarCompra(s.usuarios.ENCARGADO, 1, { estado: "DEMORA" })],
+      ["matriz (molino)", () => programarIntervencion(s.usuarios.MOLINO, { tipo: "SERVICE", matriz: "x", fechaProgramada: "2026-10-22" })],
+      ["matriz (consulta)", () => programarIntervencion(s.usuarios.GERENCIA_CONSULTA, { tipo: "SERVICE", matriz: "x", fechaProgramada: "2026-10-22" })],
+      ["descarte (despacho)", () => recibirDescarte(s.usuarios.DESPACHO, { origen: "x", material: "x", kg: 1 })],
+      ["molienda (matrices)", () => entregarMolienda(s.usuarios.MATRICES, { bolson: "x", materiaPrimaId: molienda.id, kg: 1 })],
+      ["confirmar molienda (molino)", () => confirmarMolienda(s.usuarios.MOLINO, 1, { aceptar: true })],
+      ["esquema (operario)", () => esquema(s.usuarios.OPERARIO, ["2026-10-30"], "SIMPLE")],
+      ["asignar (administración)", () => asignar(s.usuarios.ADMINISTRACION, { fecha: "2026-10-30", turno: "MANANA", usuarioId: s.usuarios.OPERARIO.id })],
+      ["usuario (encargado)", () => crearUsuarioAdmin(s.usuarios.ENCARGADO, { nombre: "x", rol: "OPERARIO", pin: "1234" })],
+      ["usuario (consulta)", () => crearUsuarioAdmin(s.usuarios.GERENCIA_CONSULTA, { nombre: "x", rol: "OPERARIO", pin: "1234" })],
+      ["dosificación (compras)", () => crearDosificacion(s.usuarios.COMPRAS, { familia: "REJILLA", colorId: s.colores.azul.id, materiaPrimaBaseId: null, gPorKgMp: 15 })],
+      ["código de barras (consulta)", () => actualizarCodigoBarras(s.usuarios.GERENCIA_CONSULTA, s.productos.rejRojo.id, "X-1")],
+    ];
+    for (const [n, f] of intentos) expect((await f()).error, n).toBeTruthy();
+    expect((await db().select().from(schema.auditoriaConfig)).length).toBe(audit);
+  });
+
+  it("las rutas se controlan por perfil (una URL escrita a mano no entra)", () => {
+    const casos: [string, string, boolean][] = [
+      ["OPERARIO", "/pedidos", false], ["OPERARIO", "/taller", true], ["OPERARIO", "/materia-prima", false],
+      ["MOLINO", "/molino", true], ["MOLINO", "/compras", false], ["MOLINO", "/admin/usuarios", false],
+      ["MATRICES", "/matrices", true], ["MATRICES", "/produccion", false],
+      ["COMPRAS", "/compras", true], ["COMPRAS", "/materia-prima", true], ["COMPRAS", "/pedidos", false],
+      ["ADMINISTRACION", "/produccion", false], ["ADMINISTRACION", "/pedidos/nuevo", true], ["ADMINISTRACION", "/compras", false],
+      ["DESPACHO", "/pedidos", true], ["DESPACHO", "/produccion", false],
+      ["MATERIA_PRIMA", "/molino", true], ["MATERIA_PRIMA", "/pedidos", false],
+      ["ENCARGADO", "/produccion", true], ["ENCARGADO", "/compras", true],
+    ];
+    for (const [rol, ruta, ok] of casos) expect(rutaPermitida(rol as never, ruta), `${rol} ${ruta}`).toBe(ok);
+    // Las secciones de Administración las vuelve a controlar cada página (exigirSeccion).
+    const seccion = (href: string) => SECCIONES_ADMIN.find((x) => x.href === href)!.permiso;
+    expect(seccion("/admin/usuarios")("ENCARGADO")).toBe(false);
+    expect(seccion("/admin/usuarios")("SUPERVISOR")).toBe(true);
+    expect(seccion("/admin/usuarios")("GERENCIA_CONSULTA")).toBe(false);
+    expect(seccion("/admin/historial")("GERENCIA_CONSULTA")).toBe(true);
+    expect(seccion("/admin/recetas")("GERENCIA_CONSULTA")).toBe(false);
+  });
+
+  it("la necesidad indica qué pedidos y fechas dependen del material que falta", async () => {
+    const n = await calcularNecesidad();
+    const f = n.filas.find((x) => x.materiaPrimaId === master.id)!;
+    expect(Array.isArray(f.pedidos)).toBe(true);
+    // Sólo hay riesgo para las entregas si lo disponible no cubre los pedidos.
+    for (const x of n.filas) expect(x.entregasEnRiesgo).toBe(x.pedidos.length > 0 && x.disponibleKg < x.pedidosKg);
   });
 });

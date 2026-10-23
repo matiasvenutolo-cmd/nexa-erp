@@ -1,6 +1,7 @@
 /**
  * Turno según la hora (listado de mejoras: «no debería tener que seleccionar
- * el turno, debería ya estar puesto según la hora del día»). Los horarios de
+ * el turno, debería ya estar puesto según la hora del día»). [En desuso desde
+ * el 22/10: ver los esquemas más abajo.] Los horarios de
  * inicio son parámetros (Administración → Parámetros); mientras alguno no esté
  * configurado (−1) no se adivina: devuelve null y la pantalla pide elegirlo.
  *

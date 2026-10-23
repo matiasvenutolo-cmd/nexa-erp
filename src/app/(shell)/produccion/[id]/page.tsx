@@ -172,7 +172,11 @@ export default async function ProduccionDetallePage({ params, searchParams }: { 
                 <span className="font-medium">Retiro {r.numero}</span>
               )}
               <span className={`badge-estado ${r.estado === "ABIERTO" ? "badge-bajo" : "badge-ok"}`}>{r.estado === "ABIERTO" ? "abierto" : "cerrado"}</span>
-              {r.cicloId !== ciclo.id && <span className="text-xs text-foreground-muted">retirado para el ciclo #{r.cicloId} (misma partida)</span>}
+              {r.cicloId == null ? (
+                <span className="text-xs text-foreground-muted">retirado a la máquina antes de iniciar la producción</span>
+              ) : (
+                r.cicloId !== ciclo.id && <span className="text-xs text-foreground-muted">retirado para el ciclo #{r.cicloId} (misma partida)</span>
+              )}
             </div>
             <OperacionesRetiro
               r={r}

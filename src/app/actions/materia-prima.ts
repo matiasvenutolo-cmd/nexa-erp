@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getUsuarioActual } from "@/lib/session";
 import { ingresarMateriaPrima } from "@/lib/data/materia-prima";
-import { ajustarStockMp, alertaCantidad, altaMateriaPrima, fraccionarMaster, ingresarBolsonMolienda, type TipoMp } from "@/lib/data/stock-mp";
+import { ajustarStockMp, alertaCantidad, altaMateriaPrima, editarMateriaPrima, fraccionarMaster, ingresarBolsonMolienda, type TipoMp } from "@/lib/data/stock-mp";
 import { fmtPeso, parseCantidadAR } from "@/lib/presentaciones";
 
 export type EstadoForm = { error?: string; ok?: string; confirmar?: string };
@@ -101,4 +101,12 @@ export async function altaMpAction(_p: EstadoForm, fd: FormData): Promise<Estado
   if (r.error) return { error: r.error };
   revalidar();
   return { ok: "Material dado de alta. Ya se puede ingresar, retirar y usar en recetas." };
+}
+
+export async function editarMpAction(_p: EstadoForm, fd: FormData): Promise<EstadoForm> {
+  const u = await getUsuarioActual();
+  const r = await editarMateriaPrima(u, Number(fd.get("id")), { codigoInterno: String(fd.get("codigoInterno") ?? ""), nombre: String(fd.get("nombre") ?? ""), motivo: txt(fd, "motivo") });
+  if (r.error) return { error: r.error };
+  revalidar();
+  return { ok: "Material actualizado. Su historial no cambia." };
 }

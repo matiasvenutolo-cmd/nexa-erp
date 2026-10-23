@@ -1,5 +1,6 @@
 import { listarProductos } from "@/lib/data/catalogo";
-import { guardarDatosTecnicosAction } from "@/app/actions/admin";
+import { guardarCodigoBarrasAction, guardarDatosTecnicosAction } from "@/app/actions/admin";
+import { puedeCrearProducto } from "@/lib/auth/permisos";
 import { Aviso, BOTON, TD, TH, exigirSeccion } from "../comunes";
 
 const VOLVER = "/admin/productos";
@@ -10,7 +11,8 @@ const VOLVER = "/admin/productos";
  * retiro y las piezas teóricas del control de material.
  */
 export default async function AdminProductosPage({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
-  await exigirSeccion(VOLVER);
+  const usuario = await exigirSeccion(VOLVER);
+  const estructura = puedeCrearProducto(usuario.rol);
   const sp = await searchParams;
   const productos = await listarProductos();
   const faltan = productos.filter((p) => (!p.esAccesorio && p.m2PorUnidad == null) || p.kgPorUnidad == null);
@@ -50,6 +52,16 @@ export default async function AdminProductosPage({ searchParams }: { searchParam
                   <td className={TD}>
                     <div className="font-mono text-xs text-foreground-muted">{p.codigo}</div>
                     <div className="text-xs">{p.descripcion}</div>
+                    {estructura ? (
+                      <form action={guardarCodigoBarrasAction} className="mt-1 flex items-center gap-1">
+                        <input type="hidden" name="id" value={p.id} />
+                        <input type="hidden" name="volver" value={VOLVER} />
+                        <input name="codigoBarras" defaultValue={p.codigoBarras ?? ""} placeholder="código de barras" className="input w-32 py-0.5 font-mono text-[11px]" aria-label="Código de barras" />
+                        <button type="submit" className="text-[11px] font-semibold text-accent">Guardar</button>
+                      </form>
+                    ) : (
+                      p.codigoBarras && <div className="font-mono text-[11px] text-foreground-muted">barras: {p.codigoBarras}</div>
+                    )}
                   </td>
                   <td className={TD} colSpan={7}>
                     <form action={guardarDatosTecnicosAction} className="grid grid-cols-[7rem_7rem_7rem_6rem_8rem_1fr_auto] items-center gap-2">

@@ -51,6 +51,9 @@ export async function registrarCambios(ex: Ejecutor, usuarioId: number, cambios:
 function mismoValor(a: string | null, b: string | null): boolean {
   if (a === b) return true;
   if (a == null || b == null) return false;
+  // «1500.000» y «1500» son el mismo número; «019» y «19» son códigos distintos.
+  const conCeroAdelante = (v: string) => /^-?0\d/.test(v.trim());
+  if (conCeroAdelante(a) || conCeroAdelante(b)) return false;
   const na = Number(a);
   const nb = Number(b);
   return Number.isFinite(na) && Number.isFinite(nb) && na === nb;

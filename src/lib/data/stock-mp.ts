@@ -356,3 +356,27 @@ export async function altaMateriaPrima(
     return { id: m.id };
   });
 }
+
+/**
+ * Corrección estructural de una materia prima (código interno y nombre):
+ * Supervisión o Gerencia (Excel de usuarios 22/10). El historial de
+ * movimientos y lotes no cambia (se refieren al material por su id).
+ */
+export async function editarMateriaPrima(actor: Actor, id: number, input: { codigoInterno: string; nombre: string; motivo?: string | null }): Promise<Resultado> {
+  if (!puedeAltaMateriaPrima(actor.rol)) return { error: "Los cambios de materias primas los hacen Supervisión o Gerencia." };
+  const codigo = input.codigoInterno.trim();
+  const nombre = input.nombre.trim();
+  if (!codigo || !nombre) return { error: "Faltan el código y el nombre." };
+  return db.transaction(async (tx) => {
+    const [m] = await tx.select().from(materiaPrima).where(eq(materiaPrima.id, id));
+    if (!m) return { error: "Materia prima no encontrada." };
+    const [otro] = await tx.select({ id: materiaPrima.id }).from(materiaPrima).where(sql`lower(${materiaPrima.codigoInterno}) = lower(${codigo}) and ${materiaPrima.id} <> ${id}`);
+    if (otro) return { error: `Ya existe otro material con el código ${codigo}.` };
+    await tx.update(materiaPrima).set({ codigoInterno: codigo, nombre }).where(eq(materiaPrima.id, id));
+    await registrarCambios(tx, actor.id, [
+      { entidad: "materia_prima", entidadId: id, campo: "codigo_interno", anterior: m.codigoInterno, nuevo: codigo, motivo: input.motivo },
+      { entidad: "materia_prima", entidadId: id, campo: "nombre", anterior: m.nombre, nuevo: nombre, motivo: input.motivo },
+    ]);
+    return {};
+  });
+}

@@ -350,3 +350,24 @@ export async function actualizarDatosTecnicos(
     return {};
   });
 }
+
+/**
+ * Código de barras de un producto (cambio estructural: Supervisión o
+ * Gerencia). No cambia el código interno del producto ni su historial.
+ */
+export async function actualizarCodigoBarras(actor: Actor, productoId: number, codigoBarras: string | null, motivo?: string | null): Promise<Resultado> {
+  if (!puedeCrearProducto(actor.rol)) return { error: "Los códigos de barras los cambian Supervisión o Gerencia." };
+  const codigo = codigoBarras?.trim().toUpperCase() || null;
+  if (codigo && !/^[A-Z0-9-]+$/.test(codigo)) return { error: "El código de barras sólo puede tener letras, números y guiones." };
+  return db.transaction(async (tx) => {
+    const [p] = await tx.select({ codigoBarras: producto.codigoBarras }).from(producto).where(eq(producto.id, productoId));
+    if (!p) return { error: "Producto no encontrado." };
+    if (codigo) {
+      const [otro] = await tx.select({ codigo: producto.codigo }).from(producto).where(sql`upper(${producto.codigoBarras}) = ${codigo} and ${producto.id} <> ${productoId}`);
+      if (otro) return { error: `Ese código de barras ya lo tiene ${otro.codigo}.` };
+    }
+    await tx.update(producto).set({ codigoBarras: codigo }).where(eq(producto.id, productoId));
+    await registrarCambios(tx, actor.id, [{ entidad: "producto", entidadId: productoId, campo: "codigo_barras", anterior: p.codigoBarras, nuevo: codigo, motivo }]);
+    return {};
+  });
+}

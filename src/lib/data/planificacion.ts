@@ -578,6 +578,7 @@ export async function actualizarTanda(
       inyectora = iny.inyectora;
     } else inyectora = null;
   }
+  if (!prod.esAccesorio && !inyectora) inyectora = INYECTORA_BALDOSAS; // las baldosas van siempre a la 8
   if (t.estado === "EN_CURSO" && inyectora !== t.inyectora) return { error: "La tanda ya está en producción: no se puede cambiar de inyectora." };
   const cantidadStock = input.cantidadStock ?? t.cantidadStock;
   if (!Number.isInteger(cantidadStock) || cantidadStock < 0) return { error: "La cantidad para stock tiene que ser un número entero (0 o más)." };
@@ -747,7 +748,8 @@ export async function iniciarProduccionDeTanda(
     fecha: input.fecha ?? hoyISO(),
     inyectora: t.inyectora,
     productoId: t.productoId,
-    operarioId: null,
+    // Quien la inicia desde la máquina queda como operario de la producción.
+    operarioId: actor.rol === "OPERARIO" ? actor.id : null,
     golpesInicio: input.golpesInicio,
     piezasPorGolpe: prod?.piezasPorGolpe ?? null,
     cicloSegundos: null,

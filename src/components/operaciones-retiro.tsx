@@ -184,12 +184,12 @@ export function OperacionesRetiro({
       {abierto && puedeOperar && mostrarSobrante && r.totales.cargado > 0 && (
         <div className="rounded-md border border-border p-3">
           <div className="mb-1 text-xs font-medium text-foreground-muted">
-            Sobrante mezclado (material con master que se saca de la tolva): entra al depósito con un código de sobrante o molienda.
+            Sobrante mezclado (material con master que se saca de la tolva): entra al depósito con su código de sobrante (la molienda entra por el Molino).
           </div>
           <Mini accion={sobranteAction} boton="Registrar sobrante" ocultos={base}>
             <select name="materiaPrimaDestinoId" required defaultValue="" className="input w-80 text-xs" aria-label="Código de sobrante">
               <option value="" disabled>
-                Código de sobrante / molienda…
+                Código de sobrante…
               </option>
               {codigosSobrante.map((c) => (
                 <option key={c.id} value={c.id}>

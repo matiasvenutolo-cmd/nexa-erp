@@ -290,6 +290,17 @@ async function Necesidad() {
                     <div className="font-semibold">{f.nombre}</div>
                     {f.estimado && <span className="badge-estado badge-bajo mr-1">estimado</span>}
                     {f.riesgo && <div className="text-xs font-semibold text-[var(--estado-critico-fg)]">{f.riesgo}</div>}
+                    {f.entregasEnRiesgo && (
+                      <div className="text-xs text-[var(--estado-critico-fg)]">
+                        Entregas en riesgo:{" "}
+                        {[...f.pedidos]
+                          .sort((a, b) => (a.fechaEntrega ?? "9999").localeCompare(b.fechaEntrega ?? "9999"))
+                          .slice(0, 5)
+                          .map((p) => `#${p.pedidoId} ${p.clienteNombre}${p.fechaEntrega ? ` (${fmtFecha(p.fechaEntrega)})` : ""}`)
+                          .join(" · ")}
+                        {f.pedidos.length > 5 ? ` y ${f.pedidos.length - 5} más` : ""}
+                      </div>
+                    )}
                   </td>
                   <td className="text-right">{f.pedidosKg ? fmtPeso(f.pedidosKg, g) : "—"}</td>
                   <td className="text-right">{f.stockProductoKg ? fmtPeso(f.stockProductoKg, g) : "—"}</td>

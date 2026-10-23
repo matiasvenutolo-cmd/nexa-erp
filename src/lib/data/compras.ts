@@ -245,6 +245,12 @@ export type FilaNecesidad = {
   estimado: boolean;
   /** Hay una compra de este material con demora o faltante en proveedor. */
   riesgo: string | null;
+  /** Pedidos cuyo material depende de esta fila (para avisar si la entrega
+   *  prometida corre riesgo cuando falta material). */
+  pedidos: { pedidoId: number; clienteNombre: string; fechaEntrega: string | null }[];
+  /** El material disponible no alcanza para los pedidos: sus fechas corren riesgo
+   *  (la necesidad por mínimos de inventario no pone en riesgo una entrega). */
+  entregasEnRiesgo: boolean;
 };
 
 export type ResultadoNecesidad = {
@@ -279,22 +285,25 @@ export async function calcularNecesidad(): Promise<ResultadoNecesidad> {
   const fila = (id: number, nombre: string, esMaster: boolean) => {
     let f = filas.get(id);
     if (!f) {
-      f = { materiaPrimaId: id, nombre, esMaster, pedidosKg: 0, stockProductoKg: 0, objetivoMpKg: 0, disponibleKg: 0, compradoPendienteKg: 0, necesidadKg: 0, proyectadaKg: 0, estimado: false, riesgo: null };
+      f = { materiaPrimaId: id, nombre, esMaster, pedidosKg: 0, stockProductoKg: 0, objetivoMpKg: 0, disponibleKg: 0, compradoPendienteKg: 0, necesidadKg: 0, proyectadaKg: 0, estimado: false, riesgo: null, pedidos: [], entregasEnRiesgo: false };
       filas.set(id, f);
     }
     return f;
   };
-  const sumar = (m: { materiaPrimaId: number; nombre: string; esMaster: boolean; kg: number }, campo: "pedidosKg" | "stockProductoKg", estimado: boolean) => {
+  type PedidoRef = FilaNecesidad["pedidos"][number];
+  const sumar = (m: { materiaPrimaId: number; nombre: string; esMaster: boolean; kg: number }, campo: "pedidosKg" | "stockProductoKg", estimado: boolean, pedidos: PedidoRef[] = []) => {
     const f = fila(m.materiaPrimaId, m.nombre, m.esMaster);
     f[campo] = (aGramos(f[campo]) + aGramos(m.kg)) / 1000;
     if (estimado) f.estimado = true;
+    for (const p of pedidos) if (!f.pedidos.some((x) => x.pedidoId === p.pedidoId)) f.pedidos.push(p);
   };
 
   // 1. Pedidos ya planificados (material de cada tanda activa).
   for (const t of tandas) {
     if (t.estado === "POSTERGADA") continue;
     const estimado = !porProd.get(t.productoId)?.pesoOk;
-    for (const m of t.material) sumar({ materiaPrimaId: m.materiaPrimaId, nombre: m.nombre, esMaster: m.esMaster, kg: m.requeridoKg }, "pedidosKg", estimado);
+    const peds = t.pedidos.map((p) => ({ pedidoId: p.pedidoId, clienteNombre: p.clienteNombre, fechaEntrega: p.fechaEntrega }));
+    for (const m of t.material) sumar({ materiaPrimaId: m.materiaPrimaId, nombre: m.nombre, esMaster: m.esMaster, kg: m.requeridoKg }, "pedidosKg", estimado, peds);
   }
   // 2. Pedidos todavía sin planificar, y 3. reposición de stock de producto.
   const recetas = await recetasDe(prods.map((p) => p.id));
@@ -303,7 +312,7 @@ export async function calcularNecesidad(): Promise<ResultadoNecesidad> {
   for (const t of await db.select({ productoId: tanda.productoId, n: sql<number>`sum(${tanda.cantidadStock})`.mapWith(Number) }).from(tanda).where(notInArray(tanda.estado, ["COMPLETADA", "CANCELADA"])).groupBy(tanda.productoId)) {
     stockPlanificado.set(t.productoId, t.n);
   }
-  const convertir = (productoId: number, unidades: number, campo: "pedidosKg" | "stockProductoKg", motivoUso: string) => {
+  const convertir = (productoId: number, unidades: number, campo: "pedidosKg" | "stockProductoKg", motivoUso: string, pedidos: PedidoRef[] = []) => {
     if (unidades <= 0) return;
     const p = porProd.get(productoId);
     if (!p) return;
@@ -314,9 +323,10 @@ export async function calcularNecesidad(): Promise<ResultadoNecesidad> {
       sinConfigurar.push({ codigo: p.codigo, unidades, motivo: `${motivoUso}: ${!r?.REGIMEN ? "sin receta de carga" : "sin peso por pieza"}` });
       return;
     }
-    for (const [id, m] of mat.porMp) sumar({ materiaPrimaId: id, nombre: m.nombre, esMaster: m.esMaster, kg: m.kg }, campo, !p.pesoOk);
+    for (const [id, m] of mat.porMp) sumar({ materiaPrimaId: id, nombre: m.nombre, esMaster: m.esMaster, kg: m.kg }, campo, !p.pesoOk, pedidos);
   };
-  for (const g of grupos) convertir(g.productoId, g.aPlanificar, "pedidosKg", "pedidos sin planificar");
+  for (const g of grupos)
+    convertir(g.productoId, g.aPlanificar, "pedidosKg", "pedidos sin planificar", g.lineas.filter((l) => l.aPlanificar > 0).map((l) => ({ pedidoId: l.pedidoId, clienteNombre: l.clienteNombre, fechaEntrega: l.fechaEntrega })));
   for (const p of prods) {
     if (p.minimo == null) continue;
     const falta = p.minimo - (disponiblesPt.get(p.id) ?? 0) - (stockPlanificado.get(p.id) ?? 0);
@@ -339,6 +349,7 @@ export async function calcularNecesidad(): Promise<ResultadoNecesidad> {
     const g = aGramos(f.pedidosKg) + aGramos(f.stockProductoKg) + aGramos(f.objetivoMpKg) - aGramos(f.disponibleKg);
     f.necesidadKg = Math.max(0, g) / 1000;
     f.proyectadaKg = Math.max(0, g - aGramos(f.compradoPendienteKg)) / 1000;
+    f.entregasEnRiesgo = f.pedidos.length > 0 && aGramos(f.disponibleKg) < aGramos(f.pedidosKg);
     const problema = compras.find((c) => c.materiaPrimaId === f.materiaPrimaId && (c.estado === "DEMORA" || c.estado === "FALTANTE" || c.atrasada));
     if (problema) {
       f.riesgo = problema.estado === "FALTANTE"
