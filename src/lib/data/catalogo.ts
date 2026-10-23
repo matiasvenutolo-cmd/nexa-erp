@@ -29,6 +29,8 @@ export type FilaProducto = {
   kgPorUnidad: number | null;
   coladaKgPorGolpe: number | null;
   aceptaSobrante: boolean;
+  aceptaMolienda: boolean;
+  pesoConfirmado: boolean;
   colorId: number;
   colorNombre: string;
   colorHex: string | null;
@@ -69,6 +71,8 @@ export async function listarProductos(filtro?: {
         kg: producto.kgPorUnidad,
         colada: producto.coladaKgPorGolpe,
         aceptaSobrante: producto.aceptaSobrante,
+        aceptaMolienda: producto.aceptaMolienda,
+        pesoConfirmado: producto.pesoConfirmado,
         colorId: producto.colorId,
         colorNombre: color.nombre,
         colorHex: color.hex,
@@ -317,26 +321,31 @@ export async function crearProductoNuevo(actor: Actor, input: NuevoProductoInput
 export async function actualizarDatosTecnicos(
   actor: Actor,
   productoId: number,
-  input: { m2PorUnidad: number | null; kgPorUnidad: number | null; coladaKgPorGolpe?: number | null; aceptaSobrante?: boolean; motivo?: string | null },
+  input: { m2PorUnidad: number | null; kgPorUnidad: number | null; coladaKgPorGolpe?: number | null; aceptaSobrante?: boolean; aceptaMolienda?: boolean; pesoConfirmado?: boolean; motivo?: string | null },
 ): Promise<Resultado> {
   if (!puedeEditarParametrosProduccion(actor.rol)) return { error: "No tenés permiso para cambiar datos técnicos de productos." };
   for (const v of [input.m2PorUnidad, input.kgPorUnidad, input.coladaKgPorGolpe ?? null]) {
     if (v != null && (!Number.isFinite(v) || v <= 0)) return { error: "Los valores tienen que ser mayores que cero (o quedar vacíos)." };
   }
   return db.transaction(async (tx) => {
-    const [p] = await tx.select({ esAccesorio: producto.esAccesorio, m2: producto.m2PorUnidad, kg: producto.kgPorUnidad, colada: producto.coladaKgPorGolpe, sobrante: producto.aceptaSobrante, codigo: producto.codigo }).from(producto).where(eq(producto.id, productoId));
+    const [p] = await tx.select({ esAccesorio: producto.esAccesorio, m2: producto.m2PorUnidad, kg: producto.kgPorUnidad, colada: producto.coladaKgPorGolpe, sobrante: producto.aceptaSobrante, molienda: producto.aceptaMolienda, pesoOk: producto.pesoConfirmado, codigo: producto.codigo }).from(producto).where(eq(producto.id, productoId));
     if (!p) return { error: "Producto no encontrado." };
     if (p.esAccesorio && input.m2PorUnidad != null) return { error: `${p.codigo} es un accesorio: no lleva superficie (no suma m²).` };
     const m2 = input.m2PorUnidad != null ? String(input.m2PorUnidad) : null;
     const kg = input.kgPorUnidad != null ? String(input.kgPorUnidad) : null;
     const colada = input.coladaKgPorGolpe === undefined ? p.colada : input.coladaKgPorGolpe != null ? String(input.coladaKgPorGolpe) : null;
     const sobrante = input.aceptaSobrante ?? p.sobrante;
-    await tx.update(producto).set({ m2PorUnidad: m2, kgPorUnidad: kg, coladaKgPorGolpe: colada, aceptaSobrante: sobrante }).where(eq(producto.id, productoId));
+    const molienda = input.aceptaMolienda ?? p.molienda;
+    // Sin peso no hay nada que confirmar.
+    const pesoOk = kg == null ? false : (input.pesoConfirmado ?? p.pesoOk);
+    await tx.update(producto).set({ m2PorUnidad: m2, kgPorUnidad: kg, coladaKgPorGolpe: colada, aceptaSobrante: sobrante, aceptaMolienda: molienda, pesoConfirmado: pesoOk }).where(eq(producto.id, productoId));
     await registrarCambios(tx, actor.id, [
       { entidad: "producto", entidadId: productoId, campo: "m2_por_unidad", anterior: p.m2, nuevo: m2, motivo: input.motivo },
       { entidad: "producto", entidadId: productoId, campo: "kg_por_unidad", anterior: p.kg, nuevo: kg, motivo: input.motivo },
       { entidad: "producto", entidadId: productoId, campo: "colada_kg_por_golpe", anterior: p.colada, nuevo: colada, motivo: input.motivo },
       { entidad: "producto", entidadId: productoId, campo: "acepta_sobrante", anterior: p.sobrante ? "sí" : "no", nuevo: sobrante ? "sí" : "no", motivo: input.motivo },
+      { entidad: "producto", entidadId: productoId, campo: "acepta_molienda", anterior: p.molienda ? "sí" : "no", nuevo: molienda ? "sí" : "no", motivo: input.motivo },
+      { entidad: "producto", entidadId: productoId, campo: "peso_confirmado", anterior: p.pesoOk ? "sí" : "no", nuevo: pesoOk ? "sí" : "no", motivo: input.motivo },
     ]);
     return {};
   });

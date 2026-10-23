@@ -33,7 +33,10 @@ const fmtDia = (f: string) => new Date(`${f}T12:00:00Z`).toLocaleDateString("es-
  * el mouse a otra casilla (día × turno). El cambio se guarda en el servidor y
  * se ve igual al recargar. En el celular, cada tarjeta tiene «Mover a…».
  */
-export function CalendarioPlan({ dias, tarjetas, editable }: { dias: string[]; tarjetas: TarjetaCal[]; editable: boolean }) {
+/** Trabajo de Matrices programado (cambio de matriz, reparación, service). */
+export type TrabajoCal = { id: number; fecha: string; turno: TarjetaCal["turno"]; texto: string; estado: string };
+
+export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquemas = {} }: { dias: string[]; tarjetas: TarjetaCal[]; editable: boolean; trabajos?: TrabajoCal[]; esquemas?: Record<string, string> }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [, start] = useTransition();
@@ -75,6 +78,14 @@ export function CalendarioPlan({ dias, tarjetas, editable }: { dias: string[]; t
         className={`min-h-24 space-y-1.5 rounded-lg border p-1.5 transition-colors ${sobre === clave ? "border-accent bg-[rgba(238,125,48,0.08)]" : "border-dashed border-border bg-surface-muted/60"}`}
         aria-label={fecha ? `${fmtDia(fecha)} · turno ${TURNOS.find((x) => x.valor === turno)?.etiqueta}` : "Sin día asignado"}
       >
+        {fecha != null &&
+          trabajos
+            .filter((w) => w.fecha === fecha && w.turno === turno)
+            .map((w) => (
+              <div key={`w${w.id}`} className="rounded-md border border-[var(--estado-bajo-fg)] bg-[var(--estado-bajo-bg)] px-1.5 py-1 text-[11px] font-semibold text-[var(--estado-bajo-fg)]" title="Programado por Matrices">
+                🔧 {w.texto}
+              </div>
+            ))}
         {enCasilla.map((t) => (
           <Tarjeta key={t.id} t={t} dias={dias} editable={editable} onMover={soltar} />
         ))}
@@ -91,6 +102,14 @@ export function CalendarioPlan({ dias, tarjetas, editable }: { dias: string[]; t
           {dias.map((d) => (
             <div key={d} className="text-center text-xs font-bold uppercase tracking-wide text-foreground-muted">
               {fmtDia(d)}
+              {esquemas[d] && <div className="text-[10px] font-semibold normal-case text-brand-azul">esquema {esquemas[d].toLowerCase()}</div>}
+              {trabajos
+                .filter((w) => w.fecha === d && w.turno == null)
+                .map((w) => (
+                  <div key={`w${w.id}`} className="mt-0.5 rounded bg-[var(--estado-bajo-bg)] px-1 text-[10px] normal-case text-[var(--estado-bajo-fg)]" title="Programado por Matrices (sin turno)">
+                    🔧 {w.texto}
+                  </div>
+                ))}
             </div>
           ))}
           {TURNOS.map((tu) => (

@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useMemo, useState, useTransition } from "react";
-import { identificarCodigoAction, registrarRetiroAction, type EstadoMaquina } from "@/app/actions/maquina";
+import { useActionState, useMemo, useState } from "react";
+import { identificarCodigoRetiroAction, registrarRetiroAction, type EstadoMaquina } from "@/app/actions/maquina";
+import { LectorCodigo, type ResultadoLectura } from "@/components/lector-codigo";
 import { INYECTORAS } from "@/lib/inyectoras";
 import { fmtNumero } from "@/lib/format";
 
@@ -44,9 +45,6 @@ export function FormRetiroMaquina({
   const ciclo = ciclos.find((c) => String(c.id) === cicloId) ?? null;
   const [piezas, setPiezas] = useState("");
   const [lineas, setLineas] = useState<Linea[]>([nueva()]);
-  const [codigo, setCodigo] = useState("");
-  const [lectura, setLectura] = useState<{ error?: string; aviso?: string } | null>(null);
-  const [leyendo, startLectura] = useTransition();
 
   const upd = (key: number, patch: Partial<Linea>) => setLineas((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
   const tipoDe = (id: string) => materias.find((m) => String(m.id) === id)?.tipo;
@@ -80,35 +78,33 @@ export function FormRetiroMaquina({
     setLineas((xs) => [...xs.filter((x) => x.materiaPrimaId), ...extra]);
   }
 
-  function leer() {
-    const c = codigo.trim();
-    if (!c) return;
-    startLectura(async () => {
-      const r = await identificarCodigoAction(c, ciclo?.productoNumero ?? null);
-      if (r.error || !r.dato) {
-        setLectura({ error: r.error ?? "No se pudo leer el código." });
-        return;
-      }
-      const d = r.dato;
-      if (d.lote && lineas.some((l) => l.loteMpId === String(d.lote!.id))) {
-        setLectura({ error: `El lote ${d.lote.numeroLote} ya está en el retiro (doble lectura).` });
-        return;
-      }
-      const fila = d.lote
-        ? nueva({ materiaPrimaId: String(d.lote.materiaPrimaId), loteMpId: String(d.lote.id), codigoLeido: d.codigo })
-        : nueva({ codigoLeido: null });
-      setLineas((xs) => [...xs.filter((x) => x.materiaPrimaId), fila]);
-      setLectura({
-        aviso: [
-          d.lote ? `${d.lote.materiaPrimaNombre} · lote ${d.lote.numeroLote} · ${fmtNumero(d.disponibleKg, 3)} kg disponibles` : null,
-          d.certificado ? `certificado N° ${d.certificado.numero} (${d.certificado.proveedor})` : null,
-          ...d.advertencias,
-        ]
-          .filter(Boolean)
-          .join(" · "),
-      });
-      setCodigo("");
-    });
+  /** Cada lectura agrega un renglón con el material (y el lote si es el
+   *  código de la bolsa). La vía manual (elegir el material) sigue disponible. */
+  async function leer(codigo: string): Promise<ResultadoLectura> {
+    const r = await identificarCodigoRetiroAction(codigo, ciclo?.productoNumero ?? null);
+    if (r.error || !r.lectura) return { ok: false, mensaje: r.error ?? "No se pudo leer el código." };
+    const l = r.lectura;
+    if (l.tipo === "material") {
+      const ya = lineas.find((x) => x.materiaPrimaId === String(l.materiaPrima.id) && !x.loteMpId);
+      if (!ya) setLineas((xs) => [...xs.filter((x) => x.materiaPrimaId), nueva({ materiaPrimaId: String(l.materiaPrima.id) })]);
+      return { ok: true, mensaje: `${l.materiaPrima.nombre}${ya ? " (ya estaba en el retiro)" : ""}: completá los kg.` };
+    }
+    const d = l.dato;
+    if (d.lote && lineas.some((x) => x.loteMpId === String(d.lote!.id))) {
+      return { ok: false, mensaje: `El lote ${d.lote.numeroLote} ya está en el retiro (doble lectura).` };
+    }
+    if (!d.lote) return { ok: false, mensaje: d.advertencias.join(" ") || "El código no corresponde a un lote ingresado." };
+    setLineas((xs) => [...xs.filter((x) => x.materiaPrimaId), nueva({ materiaPrimaId: String(d.lote!.materiaPrimaId), loteMpId: String(d.lote!.id), codigoLeido: d.codigo })]);
+    return {
+      ok: true,
+      mensaje: [
+        `${d.lote.materiaPrimaNombre} · lote ${d.lote.numeroLote} · ${fmtNumero(d.disponibleKg, 3)} kg disponibles`,
+        d.certificado ? `certificado N° ${d.certificado.numero} (${d.certificado.proveedor})` : null,
+        ...d.advertencias,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    };
   }
 
   const lineasJson = JSON.stringify(
@@ -207,29 +203,7 @@ export function FormRetiroMaquina({
       </section>
 
       <section className="space-y-2">
-        <div className="flex flex-wrap items-end gap-2 rounded-md bg-surface-muted p-3">
-          <Campo label="Leer código de barras (27 dígitos)">
-            <input
-              value={codigo}
-              onChange={(e) => setCodigo(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  leer();
-                }
-              }}
-              className="input w-80 font-mono"
-              placeholder="000…"
-              inputMode="numeric"
-            />
-          </Campo>
-          <button type="button" onClick={leer} disabled={leyendo} className="rounded-md bg-surface px-3 py-2 text-sm font-medium">
-            Identificar
-          </button>
-          {lectura?.error && <p className="w-full text-xs text-[var(--estado-critico-fg)]">{lectura.error}</p>}
-          {lectura?.aviso && <p className="w-full text-xs text-foreground-muted">{lectura.aviso}</p>}
-        </div>
-
+        <LectorCodigo onLeer={leer} etiqueta="Lector de código de barras" placeholder="Código de la bolsa (27 dígitos) o del material (ej. 031, B24)" />
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-foreground-muted">

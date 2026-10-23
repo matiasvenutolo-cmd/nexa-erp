@@ -250,31 +250,43 @@ export async function ingresarBolsonMolienda(actor: Actor, input: { materiaPrima
   const [mp] = await db.select().from(materiaPrima).where(eq(materiaPrima.id, input.materiaPrimaId));
   if (!mp || (mp.tipo !== "MOLIENDA" && mp.tipo !== "SOBRANTE")) return { error: "Elegí un código de molienda o sobrante." };
   const ub = await ubicacionesMp();
-  const codMp = (mp.codigoInterno.replace(/\D/g, "") || String(mp.id)).padStart(4, "0").slice(-4);
   return db.transaction(async (tx) => {
-    const [{ n }] = await tx
-      .select({ n: sql<number>`count(*)`.mapWith(Number) })
-      .from(loteMp)
-      .where(sql`${loteMp.codigoBarra} like ${`000${codMp}99999999%`}`);
-    const numero = String(n + 1).padStart(12, "0");
-    const codigo = `000${codMp}99999999${numero}`;
-    const [lote] = await tx
-      .insert(loteMp)
-      .values({ materiaPrimaId: mp.id, numeroLote: numero, codigoBarra: codigo, fechaIngreso: new Date().toISOString().slice(0, 10), cantidadIngresada: String(input.kg), ubicacion: input.observaciones?.trim() || null })
-      .returning();
-    await moverEnUbicacion(tx, {
-      depositoId: ub.deposito,
-      tipo: "ENTRADA",
-      mpId: mp.id,
-      loteMpId: lote.id,
-      delta: input.kg,
-      origen: "MOLIENDA",
-      origenId: lote.id,
-      motivo: `Bolsón de ${mp.nombre} N° ${n + 1}${input.observaciones?.trim() ? ` · ${input.observaciones.trim()}` : ""}`,
-      usuarioId: actor.id,
-    });
-    return { codigo };
+    const r = await bolsonEnTx(tx, { mp, kg: input.kg, observaciones: input.observaciones, usuarioId: actor.id, depositoId: ub.deposito });
+    return { codigo: r.codigo };
   });
+}
+
+type TxStock = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Bolsón de molienda/sobrante como lote propio + entrada al depósito (dentro de una transacción). */
+export async function bolsonEnTx(
+  tx: TxStock,
+  input: { mp: typeof materiaPrima.$inferSelect; kg: number; observaciones?: string | null; usuarioId: number; motivo?: string; depositoId: number },
+): Promise<{ codigo: string; loteId: number; movimientoId: number }> {
+  const { mp } = input;
+  const codMp = (mp.codigoInterno.replace(/\D/g, "") || String(mp.id)).padStart(4, "0").slice(-4);
+  const [{ n }] = await tx
+    .select({ n: sql<number>`count(*)`.mapWith(Number) })
+    .from(loteMp)
+    .where(sql`${loteMp.codigoBarra} like ${`000${codMp}99999999%`}`);
+  const numero = String(n + 1).padStart(12, "0");
+  const codigo = `000${codMp}99999999${numero}`;
+  const [lote] = await tx
+    .insert(loteMp)
+    .values({ materiaPrimaId: mp.id, numeroLote: numero, codigoBarra: codigo, fechaIngreso: new Date().toISOString().slice(0, 10), cantidadIngresada: String(input.kg), ubicacion: input.observaciones?.trim() || null })
+    .returning();
+  const movimientoId = await moverEnUbicacion(tx, {
+    depositoId: input.depositoId,
+    tipo: "ENTRADA",
+    mpId: mp.id,
+    loteMpId: lote.id,
+    delta: input.kg,
+    origen: "MOLIENDA",
+    origenId: lote.id,
+    motivo: input.motivo ?? `Bolsón de ${mp.nombre} N° ${n + 1}${input.observaciones?.trim() ? ` · ${input.observaciones.trim()}` : ""}`,
+    usuarioId: input.usuarioId,
+  });
+  return { codigo, loteId: lote.id, movimientoId };
 }
 
 // ---------------------------------------------------------------------------

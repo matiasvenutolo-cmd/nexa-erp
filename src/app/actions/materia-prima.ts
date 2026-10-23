@@ -41,10 +41,12 @@ export async function ingresoMpAction(_prev: EstadoForm, fd: FormData): Promise<
     conCertificado: fd.get("conCertificado") === "1",
     archivoUrl: txt(fd, "archivoUrl"),
     ubicacion: txt(fd, "ubicacion"),
+    compraId: Number(fd.get("compraId")) || null,
   });
   if (r.error) return { error: r.error };
   revalidar();
-  return { ok: `Ingreso registrado: ${fmtPeso(cantidad)}${r.certificado ? ` con el certificado N° ${r.certificado}` : ""}. Ya figura en el depósito.` };
+  if (Number(fd.get("compraId"))) revalidatePath("/compras");
+  return { ok: `Ingreso registrado: ${fmtPeso(cantidad)}${r.certificado ? ` con el certificado N° ${r.certificado}` : ""}. Ya figura en el depósito${Number(fd.get("compraId")) ? " y quedó imputado a la compra" : ""}.` };
 }
 
 export async function ajusteMpAction(_p: EstadoForm, fd: FormData): Promise<EstadoForm> {

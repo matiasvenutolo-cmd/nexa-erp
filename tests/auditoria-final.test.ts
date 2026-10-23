@@ -293,7 +293,8 @@ describe("Permisos en el servidor: la acción se rechaza aunque se llame sin la 
       ["prioridad (operario)", () => cambiarPrioridad(s.usuarios.OPERARIO, pedidoId, -2, "Urgencia")],
       ["cancelar pedido", () => cancelarPedido(op, pedidoId)],
       ["asignar producto", () => asignarProductoALinea(op, linea.id, s.productos.rejRojo.id)],
-      ["mín/máx (supervisor)", () => actualizarMinMaxProducto(s.usuarios.SUPERVISOR, s.productos.rejBlanco.id, { minimo: 1, maximo: 2, motivo: "x" })],
+      // Desde el 22/10 el Supervisor también gestiona mínimos y máximos.
+      ["mín/máx (administración)", () => actualizarMinMaxProducto(s.usuarios.ADMINISTRACION, s.productos.rejBlanco.id, { minimo: 1, maximo: 2, motivo: "x" })],
       ["parámetro (administración)", () => actualizarParametro(s.usuarios.ADMINISTRACION, "unidades_por_caja_pisos", 30, "x")],
       ["master (administración)", () => crearDosificacion(s.usuarios.ADMINISTRACION, { familia: "CIEGO", colorId: s.colores.rojo.id, materiaPrimaBaseId: null, gPorKgMp: 1, observaciones: null, motivo: "x" })],
       ["color especial", () => crearColorEspecial(op, { nombre: "Verde Prueba", clienteId: null, proveedorMasterId: null, masterNombre: null, masterCodigo: null, masterMateriaPrimaId: null, observaciones: null })],

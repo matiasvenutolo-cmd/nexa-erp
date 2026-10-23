@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { listarMoliendas } from "@/lib/data/molino";
 import { redirect } from "next/navigation";
 import { pieDeMaquina } from "@/lib/data/maquina";
 import { fraccionamientosRecientes, movimientosMp, stockMpPorUbicacion, MOTIVOS_AJUSTE_MP } from "@/lib/data/stock-mp";
@@ -11,8 +12,7 @@ import {
   puedeCorregirProduccionMp,
   puedeIngresarMateriaPrima,
   puedeRetirarMateriaPrima,
-  puedeVerMateriaPrima,
-} from "@/lib/auth/permisos";
+  puedeVerMateriaPrima, puedeRecibirMolienda } from "@/lib/auth/permisos";
 import { Semaforo } from "@/components/semaforo";
 import { FormAccion } from "@/components/form-accion";
 import { ajusteMpAction, altaMpAction, bolsonAction, fraccionarAction } from "@/app/actions/materia-prima";
@@ -52,7 +52,7 @@ export default async function MateriaPrimaPage({
   if (!puedeVerMateriaPrima(usuario.rol)) redirect("/tablero");
   const sp = await searchParams;
   const vista: Vista = VISTAS.some((v) => v.id === sp.vista) ? (sp.vista as Vista) : "stock";
-  const stock = await stockMpPorUbicacion();
+  const [stock, moliendasPorConfirmar] = await Promise.all([stockMpPorUbicacion(), puedeRecibirMolienda(usuario.rol) ? listarMoliendas({ estado: "ENTREGADA" }) : Promise.resolve([])]);
 
   return (
     <div>
@@ -74,6 +74,16 @@ export default async function MateriaPrimaPage({
           )}
         </div>
       </div>
+
+      {moliendasPorConfirmar.length > 0 && (
+        <p className="aviso aviso-alerta mb-4 text-sm">
+          El molino entregó {moliendasPorConfirmar.length === 1 ? "1 bolsón" : `${moliendasPorConfirmar.length} bolsones`} de molienda: confirmá la recepción en{" "}
+          <Link href="/molino" className="font-semibold underline">
+            Molino
+          </Link>{" "}
+          para que entren al stock.
+        </p>
+      )}
 
       <nav className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
         {VISTAS.map((v) => (

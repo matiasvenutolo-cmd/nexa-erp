@@ -183,11 +183,11 @@ describe("Menú por áreas (minuta 15/10)", () => {
   it("cada rol ve las secciones de su tarea, agrupadas Ventas → Fábrica → Administración", () => {
     for (const [rol, items] of Object.entries(NAV_POR_ROL) as [keyof typeof NAV_POR_ROL, (typeof NAV_POR_ROL)[keyof typeof NAV_POR_ROL]][]) {
       const hrefs = new Set(items.map((i) => i.href));
-      const planta = rol === "OPERARIO" || rol === "MATERIA_PRIMA";
+      const planta = ["OPERARIO", "MATERIA_PRIMA", "MATRICES", "MOLINO", "COMPRAS"].includes(rol);
       expect(hrefs.has("/pedidos"), rol).toBe(!planta);
       expect(hrefs.has("/tablero"), rol).toBe(!planta);
       expect(hrefs.has("/taller"), rol).toBe(rol === "OPERARIO");
-      expect(hrefs.has("/catalogo"), rol).toBe(ROLES_GESTION.includes(rol));
+      expect(hrefs.has("/catalogo"), rol).toBe(ROLES_GESTION.includes(rol) || rol === "GERENCIA_CONSULTA");
       expect(hrefs.has("/reclamos"), rol).toBe(puedeVerReclamos(rol));
       expect(hrefs.has("/produccion"), rol).toBe(rol !== "OPERARIO" && puedeVerProduccion(rol));
       expect(hrefs.has("/materia-prima"), rol).toBe(puedeVerMateriaPrima(rol));

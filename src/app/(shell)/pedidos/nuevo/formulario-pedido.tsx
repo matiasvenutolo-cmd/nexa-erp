@@ -12,10 +12,18 @@ import { SelectorVisual } from "@/components/selector-visual";
 
 /** Foto de cada tipo de piso (imagen de referencia del cliente). Los accesorios
  *  no tienen foto provista: se muestran sin imagen. */
+/** Dibujitos del selector. Esquineros y bordes: fotos del cliente (22/10;
+ *  los de volumen son de rejilla, los chatos de ciego). Las fotos de bordes
+ *  van al tipo Borde del catálogo, no a Rampa: no está confirmado que sean lo
+ *  mismo. */
 const IMAGEN_GRUPO: Record<string, string> = {
   "REJILLA-UNICO": "/pisos/rejilla.png",
   "CIEGO-TRAMA": "/pisos/trama.png",
   "CIEGO-MONEDA": "/pisos/moneda.png",
+  "REJILLA-ESQUINERO": "/pisos/esquinero-rejilla.jpg",
+  "CIEGO-ESQUINERO": "/pisos/esquinero-ciego.jpg",
+  "REJILLA-BORDE": "/pisos/borde-rejilla.jpg",
+  "CIEGO-BORDE": "/pisos/borde-ciego.jpg",
 };
 
 /** Entrega por defecto: una semana después del pedido. */

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { obtenerTablero } from "@/lib/data/tablero";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeCrearPedido, puedeVerProduccion } from "@/lib/auth/permisos";
+import { puedeVerProduccion, puedeVerVentas } from "@/lib/auth/permisos";
 import { ESTADO_LABEL } from "@/lib/data/pedidos";
 import { gruposParaPlanificar, listarTandas, necesidadDeCompra, etiquetaTurno } from "@/lib/data/planificacion";
 import { relevosRecientes } from "@/lib/data/taller";
@@ -23,7 +23,7 @@ const ESTADOS_SEMAFORO: EstadoSemaforo[] = ["critico", "bajo", "ok", "exceso"];
  */
 export default async function TableroPage() {
   const usuario = await getUsuarioActual();
-  const gestion = puedeCrearPedido(usuario.rol);
+  const gestion = puedeVerVentas(usuario.rol);
   const fabrica = puedeVerProduccion(usuario.rol);
   const t = await obtenerTablero();
   const [tandas, grupos, compras, relevos] = fabrica || gestion

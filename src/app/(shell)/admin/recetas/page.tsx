@@ -4,7 +4,11 @@ import { listarPresentaciones, materialesParaReceta, productosConReceta } from "
 import { matrizDe } from "@/lib/data/planificacion";
 import { FormAccion } from "@/components/form-accion";
 import { crearPresentacionAction, quitarArranqueAction } from "@/app/actions/planificacion";
-import { fmtPeso } from "@/lib/presentaciones";
+import { enBolsas, fmtPeso, masterParaBase } from "@/lib/presentaciones";
+import { resolverDosificacion, type Dosificacion } from "@/lib/data/dosificacion";
+import { db } from "@/lib/db/client";
+import { producto as productoT } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { EditorReceta } from "./editor";
 
 /**
@@ -22,14 +26,17 @@ export default async function RecetasPage({ searchParams }: { searchParams: Prom
     (p) => (!q || `${p.codigo} ${p.descripcion} ${p.colorNombre ?? ""}`.toLowerCase().includes(q)) && (sp.sin !== "1" || !p.recetas.REGIMEN),
   );
   const abierto = sp.producto ? Number(sp.producto) : null;
+  const prodAbierto = abierto ? productos.find((p) => p.id === abierto) : undefined;
+  const [colorAbierto] = abierto ? await db.select({ colorId: productoT.colorId }).from(productoT).where(eq(productoT.id, abierto)) : [];
+  const dosif = prodAbierto ? await resolverDosificacion(prodAbierto.familia, colorAbierto?.colorId ?? null) : null;
   const conReceta = productos.filter((p) => p.recetas.REGIMEN).length;
 
   return (
     <div className="space-y-5">
       <div className="aviso aviso-info text-sm">
         La receta se arma con presentaciones físicas (bolsas de 25 kg, bolsitas de 600 g o 750 g) y medias bolsas. El operario ve
-        «2 bolsitas de 600 g», nunca kilos con decimales. <b>No se calcula desde la dosificación anterior en g/kg</b>: esa definición
-        no coincide con las cargas de la planilla (ver Configuración → Master).
+        «2 bolsitas de 600 g», nunca kilos con decimales. Al editar una receta se muestra cuánto master corresponde según la dosificación
+        vigente (Configuración → Master y dosificación); el Encargado decide las bolsas y puede agregar extras en la receta de arranque.
       </div>
 
       <form className="flex flex-wrap items-end gap-2" action="/admin/recetas">
@@ -58,7 +65,7 @@ export default async function RecetasPage({ searchParams }: { searchParams: Prom
           </thead>
           <tbody>
             {filtrados.map((p) => (
-              <FilaReceta key={p.id} p={p} abierto={abierto === p.id} materiales={materiales} presentaciones={presentaciones} q={sp.q} />
+              <FilaReceta key={p.id} p={p} abierto={abierto === p.id} materiales={materiales} presentaciones={presentaciones} q={sp.q} dosif={abierto === p.id ? dosif : null} />
             ))}
             {filtrados.length === 0 && (
               <tr>
@@ -123,8 +130,10 @@ function FilaReceta({
   materiales,
   presentaciones,
   q,
+  dosif,
 }: {
   p: Prod;
+  dosif: Dosificacion | null;
   abierto: boolean;
   materiales: Awaited<ReturnType<typeof materialesParaReceta>>;
   presentaciones: Awaited<ReturnType<typeof listarPresentaciones>>;
@@ -154,6 +163,7 @@ function FilaReceta({
       {abierto && (
         <tr>
           <td colSpan={4} className="bg-surface-muted">
+            <AyudaDosificacion d={dosif} r={r} presentaciones={presentaciones} />
             <div className="grid gap-4 lg:grid-cols-2">
               <div>
                 <h3 className="mb-2 text-sm font-semibold text-brand-azul">Receta normal de producción</h3>
@@ -177,5 +187,27 @@ function FilaReceta({
         </tr>
       )}
     </>
+  );
+}
+
+/** Cuánto master corresponde a la receta actual según la dosificación vigente. */
+function AyudaDosificacion({ d, r, presentaciones }: { d: Dosificacion | null; r: Prod["recetas"]["REGIMEN"]; presentaciones: Awaited<ReturnType<typeof listarPresentaciones>> }) {
+  if (!d) return <p className="aviso aviso-alerta mb-3 text-sm">No hay dosificación de master para este tipo de piso (Configuración → Master y dosificación).</p>;
+  const presMaster = presentaciones.filter((x) => x.tipoMp === "MASTER").map((x) => ({ nombre: x.nombre, kg: x.kg }));
+  const regla = `${Math.round(d.gPorKgMp * d.kgReferencia * 1000) / 1000} g de master cada ${String(d.kgReferencia).replace(".", ",")} kg de ${d.materiaPrimaBase2Nombre ? `${d.materiaPrimaBaseNombre ?? "base"} + ${d.materiaPrimaBase2Nombre}` : (d.materiaPrimaBaseNombre ?? "material base")}`;
+  const esperado = r ? masterParaBase(r.kgVirgen, d.gPorKgMp) : null;
+  return (
+    <div className="aviso aviso-info mb-3 space-y-1 text-sm">
+      <p>
+        Dosificación {d.origen === "excepcion" ? `de ${d.colorNombre}` : "general"}: <b>{regla}</b> (= {Math.round(d.gPorKgMp * 100) / 100} g por kg).
+      </p>
+      {r && esperado != null && (
+        <p>
+          Con {fmtPeso(r.kgVirgen)} de material base por carga corresponden <b>{fmtPeso(esperado, { gramos: true })}</b> de master
+          {enBolsas(esperado, presMaster) ? ` (${enBolsas(esperado, presMaster)})` : ""}; la receta tiene {fmtPeso(r.kgMaster, { gramos: true })}.
+        </p>
+      )}
+      {d.materiaPrimaBase2Id && d.proporcionBase1 == null && <p className="text-[var(--estado-bajo-fg)]">La proporción entre los dos materiales de la mezcla todavía no está definida: las bolsas de cada uno las decide el Encargado.</p>}
+    </div>
   );
 }

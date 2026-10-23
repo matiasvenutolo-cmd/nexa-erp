@@ -14,10 +14,14 @@ import {
   ROLES_GESTION,
   puedeCargarProduccion,
   puedeOperarTaller,
+  puedeVerCompras,
   puedeVerMateriaPrima,
+  puedeVerMatrices,
+  puedeVerMolino,
   puedeVerProduccion,
   puedeVerReclamos,
   puedeVerTrazabilidad,
+  puedeVerVentas,
 } from "@/lib/auth/permisos";
 import { SECCIONES_ADMIN } from "@/lib/admin-secciones";
 
@@ -34,6 +38,8 @@ export const ROL_LABEL: Record<Rol, string> = {
   MOLINO: "Molino",
   DESPACHO: "Despacho",
   OPERARIO: "Operario",
+  COMPRAS: "Compras",
+  GERENCIA_CONSULTA: "Gerencia (consulta)",
 };
 
 /** Áreas de negocio del menú. */
@@ -46,7 +52,7 @@ export type ItemNav = { href: string; label: string; seccion?: SeccionNav };
 export const ROLES_CON_AVISOS: readonly Rol[] = ["ADMINISTRACION", "SUPERVISOR", "GERENCIA"];
 
 /** Roles que trabajan en la planta y no necesitan el tablero ni los pedidos. */
-const SOLO_SU_PANTALLA: readonly Rol[] = ["OPERARIO", "MATERIA_PRIMA"];
+const SOLO_SU_PANTALLA: readonly Rol[] = ["OPERARIO", "MATERIA_PRIMA", "MATRICES", "MOLINO", "COMPRAS"];
 
 /** Secciones de Administración: Usuarios, Parámetros, Configuración (stock,
  *  master, recetas, productos, colores) e Historial de cambios. */
@@ -64,7 +70,7 @@ function itemsAdministracion(r: Rol): ItemNav[] {
 
 export const NAV_POR_ROL: Record<Rol, ItemNav[]> = Object.fromEntries(
   (Object.keys(ROL_LABEL) as Rol[]).map((r) => {
-    const gestion = ROLES_GESTION.includes(r);
+    const gestion = puedeVerVentas(r);
     const planta = SOLO_SU_PANTALLA.includes(r);
     const items: (ItemNav | false)[] = [
       r === "OPERARIO" && { href: "/taller", label: "Mi turno" },
@@ -77,6 +83,9 @@ export const NAV_POR_ROL: Record<Rol, ItemNav[]> = Object.fromEntries(
       r !== "OPERARIO" && puedeVerProduccion(r) && { href: "/produccion", label: "Producción", seccion: "Fábrica" },
       puedeVerMateriaPrima(r) && { href: "/materia-prima", label: "Materia prima", seccion: "Fábrica" },
       puedeVerTrazabilidad(r) && { href: "/trazabilidad", label: "Trazabilidad", seccion: "Fábrica" },
+      puedeVerCompras(r) && { href: "/compras", label: "Compras", seccion: "Fábrica" },
+      puedeVerMatrices(r) && { href: "/matrices", label: "Matrices", seccion: "Fábrica" },
+      puedeVerMolino(r) && { href: "/molino", label: "Molino", seccion: "Fábrica" },
       ...itemsAdministracion(r),
     ];
     return [r, items.filter((i): i is ItemNav => Boolean(i))];
@@ -89,6 +98,9 @@ export const HOME_POR_ROL: Record<Rol, string> = Object.fromEntries(
     if (r === "OPERARIO") return [r, "/taller"];
     if (r === "MATERIA_PRIMA") return [r, "/materia-prima"];
     if (r === "ENCARGADO") return [r, "/produccion"];
+    if (r === "COMPRAS") return [r, "/compras"];
+    if (r === "MATRICES") return [r, "/matrices"];
+    if (r === "MOLINO") return [r, "/molino"];
     return [r, "/tablero"];
   }),
 ) as Record<Rol, string>;

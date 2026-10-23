@@ -168,14 +168,35 @@ export async function guardarReceta(
   if (new Set(items.map((i) => `${i.materiaPrimaId}-${i.presentacionId}`)).size !== items.length) {
     return { error: "Hay un material repetido con la misma presentación: sumá las cantidades en un solo renglón." };
   }
-  const [prod] = await db.select({ id: producto.id, aceptaSobrante: producto.aceptaSobrante }).from(producto).where(eq(producto.id, productoId));
+  const [prod] = await db
+    .select({ id: producto.id, aceptaSobrante: producto.aceptaSobrante, aceptaMolienda: producto.aceptaMolienda, colorClave: color.clave, colorNombre: color.nombre })
+    .from(producto)
+    .leftJoin(color, eq(producto.colorId, color.id))
+    .where(eq(producto.id, productoId));
   if (!prod) return { error: "Producto no encontrado." };
   const mps = await db.select().from(materiaPrima).where(inArray(materiaPrima.id, items.map((i) => i.materiaPrimaId)));
-  // Sobrante o molienda como materia prima sólo si el producto lo admite
-  // (parámetro del producto; sin definición validada queda desactivado).
-  const reciclado = mps.find((m) => m.tipo === "SOBRANTE" || m.tipo === "MOLIENDA");
-  if (reciclado && !prod.aceptaSobrante) {
-    return { error: `${reciclado.nombre} es sobrante o molienda y este producto no admite sobrante como materia prima (Configuración → Productos).` };
+  // Sobrante (habilitado en todos los productos desde el 22/10) y molienda
+  // (aparte, por producto) como materia prima, según el parámetro del producto.
+  const sobrante = mps.find((m) => m.tipo === "SOBRANTE");
+  if (sobrante && !prod.aceptaSobrante) {
+    return { error: `${sobrante.nombre} es sobrante y este producto no admite sobrante como materia prima (Configuración → Productos).` };
+  }
+  const molienda = mps.find((m) => m.tipo === "MOLIENDA");
+  if (molienda && !prod.aceptaMolienda) {
+    return { error: `${molienda.nombre} es molienda (material reciclado) y este producto no admite molienda en su receta (Configuración → Productos).` };
+  }
+  // No mezclar un sobrante con master de otro color: si el nombre del sobrante
+  // dice el color de su master y no es el del producto, se rechaza.
+  if (sobrante || molienda) {
+    const colores = await db.select({ clave: color.clave, nombre: color.nombre }).from(color);
+    for (const m of mps.filter((x) => x.tipo === "SOBRANTE" || x.tipo === "MOLIENDA")) {
+      const nombre = normalizarTexto(m.nombre);
+      const mencionados = colores.flatMap((c) => (c.clave && new RegExp(`(^|[^a-z])${c.clave}([^a-z]|$)`).test(nombre) ? [{ clave: c.clave, nombre: c.nombre }] : []));
+      const masLargos = mencionados.filter((c) => !mencionados.some((o) => o !== c && o.clave.includes(c.clave)));
+      if (masLargos.length && prod.colorClave && !masLargos.some((c) => c.clave === prod.colorClave)) {
+        return { error: `${m.nombre} lleva master ${masLargos.map((c) => c.nombre).join(" / ")}: no se mezcla en un producto ${prod.colorNombre}.` };
+      }
+    }
   }
   const pres = await db.select().from(presentacionMp).where(inArray(presentacionMp.id, items.map((i) => i.presentacionId)));
   for (const i of items) {
@@ -273,4 +294,9 @@ export async function materialesParaReceta() {
     .from(materiaPrima)
     .where(eq(materiaPrima.activo, true))
     .orderBy(asc(materiaPrima.tipo), asc(materiaPrima.codigoInterno));
+}
+
+/** minúsculas, sin acentos, espacios simples (mismo criterio que color.clave). */
+function normalizarTexto(t: string): string {
+  return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 }

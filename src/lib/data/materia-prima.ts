@@ -18,6 +18,7 @@
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
+  compraMp,
   certificadoCalidad,
   cicloProduccion,
   loteMp,
@@ -33,6 +34,7 @@ import { getDepositoNexaId } from "@/lib/data/depositos";
 import { puedeIngresarMateriaPrima } from "@/lib/auth/permisos";
 import type { Actor, Resultado } from "@/lib/data/auditoria";
 import { disponibleDeLotes, registrarRetiroMaquina } from "@/lib/data/maquina";
+import { ABIERTAS, imputarIngresoACompra } from "@/lib/data/compras";
 
 export type BloquesCodigo = { producto: string; materiaPrima: string; proveedorCertificado: string; lote: string };
 
@@ -57,6 +59,8 @@ export type IngresoMpInput = {
   conCertificado: boolean;
   archivoUrl?: string | null;
   ubicacion?: string | null;
+  /** Compra a la que corresponde esta entrega (opcional). */
+  compraId?: number | null;
 };
 
 export async function ingresarMateriaPrima(actor: Actor, input: IngresoMpInput): Promise<Resultado & { loteId?: number; certificado?: number }> {
@@ -77,6 +81,12 @@ export async function ingresarMateriaPrima(actor: Actor, input: IngresoMpInput):
     if (!mp) return { error: "Materia prima no encontrada." };
     const [ya] = await tx.select({ id: loteMp.id }).from(loteMp).where(eq(loteMp.codigoBarra, codigo));
     if (ya) return { error: "Ya existe un lote con ese código de barras." };
+    if (input.compraId) {
+      const [c] = await tx.select({ materiaPrimaId: compraMp.materiaPrimaId, estado: compraMp.estado }).from(compraMp).where(eq(compraMp.id, input.compraId));
+      if (!c) return { error: "La compra elegida no existe." };
+      if (c.materiaPrimaId !== mp.id) return { error: "La compra elegida es de otro material." };
+      if (!ABIERTAS.includes(c.estado)) return { error: "La compra elegida ya está cerrada." };
+    }
 
     let certificadoId: number | null = null;
     let numeroCertificado: number | undefined;
@@ -127,6 +137,7 @@ export async function ingresarMateriaPrima(actor: Actor, input: IngresoMpInput):
       .insert(saldo)
       .values({ depositoId, materiaPrimaId: mp.id, cantidad: String(input.cantidadKg) })
       .onConflictDoUpdate({ target: [saldo.depositoId, saldo.materiaPrimaId], set: { cantidad: sql`${saldo.cantidad} + ${input.cantidadKg}` } });
+    if (input.compraId) await imputarIngresoACompra(tx, actor, { compraId: input.compraId, materiaPrimaId: mp.id, kg: input.cantidadKg, loteMpId: lote.id });
     return { loteId: lote.id, certificado: numeroCertificado };
   });
 }

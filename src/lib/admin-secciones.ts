@@ -19,9 +19,10 @@ export const SECCIONES_ADMIN: { href: string; label: string; grupo: "config" | "
   { href: "/admin/recetas", label: "Recetas de carga", grupo: "config", permiso: puedeEditarRecetas },
   { href: "/admin/stock", label: "Mínimos y máximos", grupo: "config", permiso: puedeEditarMinMax },
   { href: "/admin/productos", label: "Productos", grupo: "config", permiso: puedeEditarParametrosProduccion },
-  { href: "/admin/master", label: "Master (dosificación anterior)", grupo: "config", permiso: puedeEditarParametrosProduccion },
+  { href: "/admin/master", label: "Master y dosificación", grupo: "config", permiso: puedeEditarParametrosProduccion },
   { href: "/admin/colores", label: "Colores", grupo: "config", permiso: puedeGestionarColores },
   { href: "/admin/parametros", label: "Parámetros", grupo: "propia", permiso: puedeEditarParametrosProduccion },
   { href: "/admin/usuarios", label: "Usuarios", grupo: "propia", permiso: puedeAdministrarOperarios },
-  { href: "/admin/historial", label: "Historial de cambios", grupo: "propia", permiso: puedeVerPanelAdmin },
+  // Gerencia de consulta mira datos y reportes: ve el historial, no edita nada.
+  { href: "/admin/historial", label: "Historial de cambios", grupo: "propia", permiso: (r) => puedeVerPanelAdmin(r) || r === "GERENCIA_CONSULTA" },
 ];

@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { getUsuariosPorRol } from "@/lib/data/usuarios";
+import { usuariosConPin } from "@/lib/data/usuarios";
 import { iniciarSesionStaffAction, iniciarSesionOperarioAction } from "@/app/actions/sesion";
 
 const ERRORES: Record<string, string> = {
@@ -13,7 +13,7 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const { error } = await searchParams;
-  const operarios = (await getUsuariosPorRol("OPERARIO")).filter((u) => u.activo);
+  const operarios = await usuariosConPin();
 
   return (
     <div className="min-h-screen">

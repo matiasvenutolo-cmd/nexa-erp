@@ -60,3 +60,28 @@ export function parseCantidadAR(texto: string): number | null {
   if (/^-?\d+\.\d{1,2}$/.test(t) || /^-?\d+\.\d{4,}$/.test(t)) return Number(t);
   return null;
 }
+
+/**
+ * Kilos expresados en bolsas: primero la presentación más grande que lo
+ * expresa exacto en medias bolsas (1,2 kg de master = 2 bolsitas de 600 g, no
+ * 1½ de 750 g + resto); si ninguna es exacta, la más grande que entra entera,
+ * con el resto aparte. Null si no entra ni una.
+ */
+export function enBolsas(kg: number, pres: { nombre: string; kg: number }[]): string | null {
+  const g = aGramos(kg);
+  const orden = [...pres].sort((a, b) => b.kg - a.kg).filter((x) => kg + 1e-6 >= x.kg);
+  if (!orden.length) return null;
+  const p = orden.find((x) => (g * 2) % aGramos(x.kg) === 0) ?? orden[0];
+  const cant = Math.floor((g * 2) / aGramos(p.kg)) / 2;
+  const resto = g - aGramos(kgDe(cant, p.kg));
+  const fmtResto = resto >= 1000 ? `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(resto / 1000)} kg` : `${resto} g`;
+  return `${fmtPresentacion(cant, p.nombre)}${resto > 0 ? ` + ${fmtResto}` : ""}`;
+}
+
+/**
+ * Master que corresponde a una carga según la dosificación (gramos de master
+ * por kg de base). Ej.: 100 kg de 2240P × 15 g/kg = 1,5 kg de master.
+ */
+export function masterParaBase(kgBase: number, gPorKg: number): number {
+  return Math.round(kgBase * gPorKg) / 1000;
+}

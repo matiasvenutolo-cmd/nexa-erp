@@ -387,9 +387,11 @@ describe("Resumen del pedido y superficie", () => {
 });
 
 describe("Vista de precios del Supervisor", () => {
-  it("sólo el Supervisor accede a la vista completa al elegirla; el resto de los roles no cambia", () => {
+  // Mejoras 22/10: el Excel de usuarios define al Supervisor «sin precios»;
+  // la vista completa que tenía desde octubre se retira.
+  it("el Supervisor ya no ve precios, ni eligiendo la vista completa; el resto de los roles no cambia", () => {
     expect(puedeVerPrecios("SUPERVISOR")).toBe(false);
-    expect(puedeVerPrecios("SUPERVISOR", true)).toBe(true);
+    expect(puedeVerPrecios("SUPERVISOR", true)).toBe(false);
     expect(puedeVerPrecios("ENCARGADO", true)).toBe(false);
     expect(puedeVerPrecios("DESPACHO", true)).toBe(false);
     expect(puedeVerPrecios("ADMINISTRACION")).toBe(true);

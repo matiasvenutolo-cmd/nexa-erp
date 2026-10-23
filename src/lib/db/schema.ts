@@ -48,6 +48,10 @@ export const rolEnum = pgEnum("rol", [
   "MOLINO",
   "DESPACHO",
   "OPERARIO",
+  // Mejoras 22/10 (Excel de usuarios): compras de MP y gerencia de consulta
+  // (ve todo con precios, no escribe).
+  "COMPRAS",
+  "GERENCIA_CONSULTA",
 ]);
 
 export const familiaEnum = pgEnum("familia", ["REJILLA", "CIEGO"]);
@@ -211,6 +215,9 @@ export const usuario = pgTable(
     passwordHash: text("password_hash"),
     pinHash: text("pin_hash"),
     rol: rolEnum("rol").notNull(),
+    /** Perfiles que la persona puede asumir además del principal (ej. Retiros
+     *  de MP que también opera y suple al Encargado). Elige cuál usa. */
+    rolesAdicionales: rolEnum("roles_adicionales").array().notNull().default(sql`'{}'::rol[]`),
     activo: boolean("activo").notNull().default(true),
     creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -314,6 +321,13 @@ export const producto = pgTable(
     /** Si el producto admite sobrante/molienda como materia prima en su receta.
      *  Lo define el Encargado; sin definición validada queda desactivado. */
     aceptaSobrante: boolean("acepta_sobrante").notNull().default(false),
+    /** Molienda (reciclado de coladas o descartes) como materia prima: se
+     *  maneja aparte del sobrante (mejoras 22/10). */
+    aceptaMolienda: boolean("acepta_molienda").notNull().default(false),
+    /** El peso por unidad viene de la planilla general (0,61 kg todos los
+     *  pisos); el cliente lo está averiguando por tipo. Sin confirmar, los
+     *  cálculos de material se muestran como estimados. */
+    pesoConfirmado: boolean("peso_confirmado").notNull().default(false),
 
     // Configurables desde el Panel Admin (cada cambio queda en auditoria_config).
     minimo: integer("minimo"),
@@ -388,8 +402,16 @@ export const dosificacionMaster = pgTable(
     colorId: integer("color_id").references(() => color.id),
     /** La materia prima base sobre la que se dosifica (Copolímero 2240P en rejilla). */
     materiaPrimaBaseId: integer("materia_prima_base_id").references(() => materiaPrima.id),
-    /** Gramos de master por kg de materia prima (definición del cliente, 05/10/2026). */
+    /** Gramos de master por kg de materia prima base. Desde la minuta del
+     *  22/10: rejilla 15 g por kg de 2240P; ciego 15 g por cada 0,5 kg de
+     *  mezcla (= 30 g/kg). Antes se había cargado 0,015 «g/kg» (unidad mal). */
     gPorKgMp: numeric("g_por_kg_mp", { precision: 10, scale: 5 }).notNull(),
+    /** Cómo lo expresó el cliente: «g de master cada X kg» (para mostrarlo igual). */
+    kgReferencia: numeric("kg_referencia", { precision: 10, scale: 3 }).notNull().default("1"),
+    /** Segundo material de la mezcla base (ciego: Plastomer junto al 2630PC). */
+    materiaPrimaBase2Id: integer("materia_prima_base2_id").references(() => materiaPrima.id),
+    /** Fracción del material base 1 en la mezcla (0..1). Null = pendiente. */
+    proporcionBase1: numeric("proporcion_base1", { precision: 6, scale: 4 }),
     observaciones: text("observaciones"),
     actualizadoEn: timestamp("actualizado_en", { withTimezone: true }).notNull().defaultNow(),
     actualizadoPorId: integer("actualizado_por_id").references(() => usuario.id),
@@ -1438,4 +1460,164 @@ export const eventoProduccion = pgTable(
     fecha: timestamp("fecha", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("evento_produccion_ciclo_idx").on(t.cicloId)],
+);
+
+// ---------------------------------------------------------------------------
+// Mejoras 22/10: turnos, compras, matrices y molino
+// ---------------------------------------------------------------------------
+
+/** Esquemas de turno de la planta (mejoras 22/10):
+ *  SIMPLE 7–16 · DOBLE 7–16 y 12–21 · TRIPLE 7–16, 13–22 y 22–7. */
+export const esquemaTurnoEnum = pgEnum("esquema_turno", ["SIMPLE", "DOBLE", "TRIPLE"]);
+
+/** Esquema elegido por el Encargado para cada día (lo puede cargar por semana). */
+export const esquemaTurnoDia = pgTable("esquema_turno_dia", {
+  fecha: date("fecha").primaryKey(),
+  esquema: esquemaTurnoEnum("esquema").notNull(),
+  actualizadoPorId: integer("actualizado_por_id").references(() => usuario.id),
+  actualizadoEn: timestamp("actualizado_en", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Operario asignado a un turno de un día (y opcionalmente a una inyectora). */
+export const asignacionOperario = pgTable(
+  "asignacion_operario",
+  {
+    id: serial("id").primaryKey(),
+    fecha: date("fecha").notNull(),
+    turno: turnoEnum("turno").notNull(),
+    usuarioId: integer("usuario_id")
+      .notNull()
+      .references(() => usuario.id),
+    inyectora: text("inyectora"),
+    creadoPorId: integer("creado_por_id").references(() => usuario.id),
+    creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("asignacion_operario_uq").on(t.fecha, t.turno, t.usuarioId), index("asignacion_operario_fecha_idx").on(t.fecha)],
+);
+
+/** Estados únicos de compra. Equivalencias con los nombres del cliente:
+ *  «pedido» / «en proceso» → PEDIDO; «comprado» → COMPRADO; «parcialmente
+ *  entregado» → PARCIAL; «con demora» / «con demoras de entrega» → DEMORA;
+ *  «faltante en proveedor» / «material faltante» → FALTANTE. ENTREGADA y
+ *  CANCELADA cierran la compra. */
+export const estadoCompraEnum = pgEnum("estado_compra", ["PEDIDO", "COMPRADO", "PARCIAL", "DEMORA", "FALTANTE", "ENTREGADA", "CANCELADA"]);
+
+export const compraMp = pgTable(
+  "compra_mp",
+  {
+    id: serial("id").primaryKey(),
+    materiaPrimaId: integer("materia_prima_id")
+      .notNull()
+      .references(() => materiaPrima.id),
+    proveedor: text("proveedor"),
+    cantidadKg: numeric("cantidad_kg", { precision: 14, scale: 3 }).notNull(),
+    fechaPedido: date("fecha_pedido").notNull(),
+    fechaEntregaEstimada: date("fecha_entrega_estimada"),
+    numeroOc: text("numero_oc"),
+    estado: estadoCompraEnum("estado").notNull().default("PEDIDO"),
+    observaciones: text("observaciones"),
+    creadoPorId: integer("creado_por_id")
+      .notNull()
+      .references(() => usuario.id),
+    creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("compra_mp_estado_idx").on(t.estado), index("compra_mp_mp_idx").on(t.materiaPrimaId)],
+);
+
+/** Entrega (total o parcial) de una compra. Se crea al registrar el ingreso
+ *  de proveedor imputado a la compra: el stock entra por el ingreso, nunca acá
+ *  (así no se cuenta dos veces). */
+export const compraEntrega = pgTable(
+  "compra_entrega",
+  {
+    id: serial("id").primaryKey(),
+    compraId: integer("compra_id")
+      .notNull()
+      .references(() => compraMp.id),
+    kg: numeric("kg", { precision: 14, scale: 3 }).notNull(),
+    loteMpId: integer("lote_mp_id").references(() => loteMp.id),
+    observaciones: text("observaciones"),
+    usuarioId: integer("usuario_id")
+      .notNull()
+      .references(() => usuario.id),
+    fecha: timestamp("fecha", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("compra_entrega_compra_idx").on(t.compraId)],
+);
+
+export const tipoIntervencionEnum = pgEnum("tipo_intervencion", ["CAMBIO_MATRIZ", "REPARACION", "SERVICE"]);
+export const estadoIntervencionEnum = pgEnum("estado_intervencion", ["PROGRAMADA", "EN_CURSO", "REALIZADA", "CANCELADA"]);
+
+/** Trabajos del área de Matrices: cambios de matriz programados, reparaciones
+ *  y services. Se ven en la planificación para que el Encargado los tenga en
+ *  cuenta; no bloquean la producción. */
+export const intervencionMatriz = pgTable(
+  "intervencion_matriz",
+  {
+    id: serial("id").primaryKey(),
+    tipo: tipoIntervencionEnum("tipo").notNull(),
+    matriz: text("matriz").notNull(),
+    /** En un cambio de matriz: la que sale de la máquina. */
+    matrizAnterior: text("matriz_anterior"),
+    inyectora: text("inyectora"),
+    fechaProgramada: date("fecha_programada").notNull(),
+    turno: turnoEnum("turno"),
+    estado: estadoIntervencionEnum("estado").notNull().default("PROGRAMADA"),
+    responsableId: integer("responsable_id").references(() => usuario.id),
+    tandaId: integer("tanda_id").references(() => tanda.id),
+    descripcion: text("descripcion"),
+    observaciones: text("observaciones"),
+    iniciadaEn: timestamp("iniciada_en", { withTimezone: true }),
+    realizadaEn: timestamp("realizada_en", { withTimezone: true }),
+    creadoPorId: integer("creado_por_id")
+      .notNull()
+      .references(() => usuario.id),
+    creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("intervencion_matriz_fecha_idx").on(t.fechaProgramada)],
+);
+
+export const estadoMoliendaEnum = pgEnum("estado_molienda", ["ENTREGADA", "RECIBIDA", "RECHAZADA"]);
+
+/** Molienda armada en el Molino (un bolsón/canasto pesado) y entregada a
+ *  Materia Prima. Entra al stock recién cuando MP confirma la recepción. */
+export const moliendaEntrega = pgTable("molienda_entrega", {
+  id: serial("id").primaryKey(),
+  /** Identificación del bolsón o canasto (ej. «n4»): pesos variables. */
+  bolson: text("bolson").notNull(),
+  materiaPrimaId: integer("materia_prima_id")
+    .notNull()
+    .references(() => materiaPrima.id),
+  kg: numeric("kg", { precision: 12, scale: 3 }).notNull(),
+  observaciones: text("observaciones"),
+  estado: estadoMoliendaEnum("estado").notNull().default("ENTREGADA"),
+  entregadoPorId: integer("entregado_por_id")
+    .notNull()
+    .references(() => usuario.id),
+  entregadoEn: timestamp("entregado_en", { withTimezone: true }).notNull().defaultNow(),
+  recibidoPorId: integer("recibido_por_id").references(() => usuario.id),
+  recibidoEn: timestamp("recibido_en", { withTimezone: true }),
+  /** Movimiento de entrada al stock general (al confirmar). */
+  movimientoId: integer("movimiento_id").references(() => movimiento.id),
+});
+
+/** Descarte recibido en el Molino (coladas, piezas falladas, scrap). No es
+ *  stock de materia prima: se convierte en molienda al molerlo. */
+export const descarteMolino = pgTable(
+  "descarte_molino",
+  {
+    id: serial("id").primaryKey(),
+    origen: text("origen").notNull(),
+    cicloId: integer("ciclo_id").references(() => cicloProduccion.id),
+    material: text("material").notNull(),
+    kg: numeric("kg", { precision: 12, scale: 3 }).notNull(),
+    observaciones: text("observaciones"),
+    /** La molienda en la que se usó (null = pendiente de moler). */
+    moliendaEntregaId: integer("molienda_entrega_id").references(() => moliendaEntrega.id),
+    recibidoPorId: integer("recibido_por_id")
+      .notNull()
+      .references(() => usuario.id),
+    fecha: timestamp("fecha", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("descarte_molino_pendiente_idx").on(t.moliendaEntregaId)],
 );

@@ -7,7 +7,7 @@ import {
   cargarEnTolva,
   cerrarRetiro,
   devolverADeposito,
-  identificarCodigoMp,
+  identificarCodigoMp, identificarCodigoRetiro,
   numeroRetiro,
   registrarRetiroMaquina,
   registrarSobrante,
@@ -35,6 +35,12 @@ function revalidar(cicloId?: number | null, retiroId?: number | null) {
 export async function identificarCodigoAction(codigo: string, productoNumero: string | null) {
   await getUsuarioActual();
   return identificarCodigoMp(codigo, productoNumero);
+}
+
+/** Lectura del retiro a pie de máquina: lote (27 dígitos) o código de material. */
+export async function identificarCodigoRetiroAction(codigo: string, productoNumero: string | null) {
+  await getUsuarioActual();
+  return identificarCodigoRetiro(codigo, productoNumero);
 }
 
 export async function registrarRetiroAction(_prev: EstadoMaquina, fd: FormData): Promise<EstadoMaquina> {

@@ -1,4 +1,6 @@
-import { listarDosificaciones, opcionesDosificacion, type FilaDosificacion } from "@/lib/data/dosificacion";
+import { compararRecetasConDosificacion, listarDosificaciones, opcionesDosificacion, type FilaDosificacion } from "@/lib/data/dosificacion";
+import { fmtPeso } from "@/lib/presentaciones";
+import Link from "next/link";
 import { actualizarDosificacionAction, crearDosificacionAction, eliminarDosificacionAction } from "@/app/actions/admin";
 import { Aviso, BOTON, BOTON_SECUNDARIO, TD, TH, UltimaModificacion, exigirSeccion } from "../comunes";
 
@@ -8,30 +10,37 @@ const VOLVER = "/admin/master";
 export default async function AdminMasterPage({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
   await exigirSeccion("/admin/master");
   const sp = await searchParams;
-  const [filas, { colores, materias }] = await Promise.all([listarDosificaciones(), opcionesDosificacion()]);
+  const [filas, { colores, materias }, impacto] = await Promise.all([listarDosificaciones(), opcionesDosificacion(), compararRecetasConDosificacion()]);
+  const pendienteProporcion = filas.some((f) => f.materiaPrimaBase2Id && f.proporcionBase1 == null);
 
   return (
     <div className="space-y-4">
       <Aviso ok={sp.ok} error={sp.error} />
-      <div className="aviso aviso-alerta space-y-1 text-sm">
+      <div className="aviso aviso-info space-y-1 text-sm">
         <p>
-          <b>Discrepancia a validar con el cliente.</b> Esta dosificación quedó definida como 0,015 g de master por kg (rejilla) y 0,012 (negro).
-          La planilla de carga en tolva registra 100 kg de copolímero con 1,2 kg de master negro (= 12 g por kg) y 1,5 kg de master gris
-          claro en el arranque (= 15 g por kg): mil veces más. Además, en g/kg el operario vería valores como «0,046 kg».
+          <b>Definición vigente (minuta del 22/10):</b> piso rejilla, 15 g de master por cada kg de 2240P; piso ciego, 15 g de master por
+          cada 0,5 kg de mezcla de 2630PC y Plastomer (= 30 g por kg de mezcla).
         </p>
         <p>
-          Por eso la carga en tolva <b>no se calcula con estos valores</b>: usa las recetas en bolsas (Configuración → Recetas de carga). Estos
-          valores se conservan sin cambios hasta que el cliente confirme una única fuente de verdad.
+          <b>Cambio respecto de lo anterior:</b> la dosificación estaba cargada como 0,015 / 0,012 / 0,018 «g por kg». El cliente confirmó
+          que eran kilos de master por kilo de materia prima, es decir 15 / 12 / 18 g por kg. Se corrigió la unidad; el ciego pasó a 30 g/kg
+          por la nueva regla. Las producciones ya cerradas no cambian: el consumo registrado es el que se cargó en tolva.
+        </p>
+        <p>
+          La carga en tolva sigue usando las <Link href="/admin/recetas" className="underline">recetas en bolsas</Link>; abajo se compara cada receta con esta
+          dosificación para que el Encargado decida si la ajusta.
         </p>
       </div>
+      {pendienteProporcion && (
+        <p className="aviso aviso-alerta text-sm">
+          Falta definir la proporción entre los dos materiales de la mezcla del piso ciego (2630PC y Plastomer). Sin ese dato se calcula el
+          master total, pero no cuántas bolsas de cada material.
+        </p>
+      )}
       <div className="rounded-lg border border-border bg-surface p-4 text-sm text-foreground-muted">
         <p>
-          Cantidad de master por cada kg de materia prima. La fila <strong>“Todos los colores”</strong> es el valor
-          base del tipo de producto; una fila con un color es una excepción para ese color (por ejemplo, el negro de
-          rejilla lleva menos por ser muy intenso). Si un color no tiene excepción, usa el valor base.
-        </p>
-        <p className="mt-2">
-          Unidad: <strong>gramos de master por kg de materia prima</strong> (g/kg).
+          La fila <strong>«Todos los colores»</strong> es el valor base del tipo de piso; una fila con un color es una excepción para ese color
+          (por ejemplo, el negro de rejilla). Se carga como el cliente lo dice: <strong>gramos de master cada X kg</strong> de material base.
         </p>
       </div>
 
@@ -42,8 +51,9 @@ export default async function AdminMasterPage({ searchParams }: { searchParams: 
               <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
                 <th className={TH}>Tipo de producto</th>
                 <th className={TH}>Color</th>
-                <th className={TH}>Materia prima base</th>
-                <th className={TH}>Master (g/kg de MP)</th>
+                <th className={TH}>Material base</th>
+                <th className={TH}>Segundo material (mezcla) y proporción</th>
+                <th className={TH}>Master</th>
                 <th className={TH}>Observaciones</th>
                 <th className={TH}>Última modificación</th>
                 <th className={TH} />
@@ -55,7 +65,7 @@ export default async function AdminMasterPage({ searchParams }: { searchParams: 
               ))}
               {filas.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-foreground-muted">
+                  <td colSpan={8} className="px-4 py-8 text-center text-foreground-muted">
                     Todavía no hay dosificaciones cargadas.
                   </td>
                 </tr>
@@ -64,6 +74,66 @@ export default async function AdminMasterPage({ searchParams }: { searchParams: 
           </table>
         </div>
       </div>
+
+      <section className="panel">
+        <h2 className="panel-titulo">Impacto en las recetas de carga activas</h2>
+        {impacto.length === 0 ? (
+          <p className="text-sm text-foreground-muted">Todavía no hay recetas de carga definidas.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="tabla">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Material base por carga</th>
+                  <th>Master en la receta</th>
+                  <th>Según la dosificación</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {impacto.map((x) => {
+                  const dif = x.kgMasterDosificacion == null ? null : Math.round((x.kgMasterDosificacion - x.kgMasterReceta) * 1000) / 1000;
+                  return (
+                    <tr key={x.productoId}>
+                      <td>
+                        <div className="font-semibold">{x.codigo}</div>
+                        <div className="text-xs text-foreground-muted">{x.descripcion}</div>
+                      </td>
+                      <td>{fmtPeso(x.kgBase)}</td>
+                      <td>
+                        {fmtPeso(x.kgMasterReceta, { gramos: true })}
+                        {x.gPorKgReceta != null && <div className="text-xs text-foreground-muted">{x.gPorKgReceta} g por kg</div>}
+                      </td>
+                      <td>
+                        {x.kgMasterDosificacion == null ? (
+                          <span className="text-foreground-muted">sin dosificación</span>
+                        ) : (
+                          <>
+                            {fmtPeso(x.kgMasterDosificacion, { gramos: true })}
+                            {x.sugerenciaMaster && <div className="text-xs text-foreground-muted">= {x.sugerenciaMaster}</div>}
+                            {x.proporcionPendiente && <div className="text-xs text-[var(--estado-bajo-fg)]">proporción de la mezcla pendiente</div>}
+                          </>
+                        )}
+                      </td>
+                      <td>
+                        {dif == null ? null : dif === 0 ? (
+                          <span className="badge-estado badge-ok">coincide</span>
+                        ) : (
+                          <Link href={`/admin/recetas?producto=${x.productoId}#p-${x.productoId}`} className="badge-estado badge-bajo">
+                            {dif > 0 ? "+" : "−"}
+                            {fmtPeso(Math.abs(dif), { gramos: true })} · revisar
+                          </Link>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <details className="rounded-lg border border-border bg-surface p-4">
         <summary className="cursor-pointer text-sm font-semibold text-foreground">Agregar valor base o excepción por color</summary>
@@ -88,8 +158,11 @@ export default async function AdminMasterPage({ searchParams }: { searchParams: 
           <Campo label="Materia prima base">
             <SelectMateria materias={materias} />
           </Campo>
-          <Campo label="Master (g por kg de MP)">
-            <input name="gPorKgMp" type="number" step="any" min="0" required placeholder="ej. 0.015" className="input" />
+          <Campo label="Gramos de master">
+            <input name="gMaster" type="number" step="any" min="0" required placeholder="ej. 15" className="input" />
+          </Campo>
+          <Campo label="…cada (kg de material base)">
+            <input name="kgReferencia" type="number" step="any" min="0" defaultValue={1} required className="input" />
           </Campo>
           <Campo label="Observaciones">
             <input name="observaciones" className="input" />
@@ -121,7 +194,23 @@ function FilaMaster({ f, materias }: { f: FilaDosificacion; materias: { id: numb
         <SelectMateria materias={materias} form={formId} valor={f.materiaPrimaBaseId} />
       </td>
       <td className={TD}>
-        <input form={formId} name="gPorKgMp" type="number" step="any" min="0" required defaultValue={f.gPorKgMp} className="input min-w-[7.5rem]" />
+        <SelectMateria materias={materias} form={formId} valor={f.materiaPrimaBase2Id} nombre="materiaPrimaBase2Id" />
+        {f.materiaPrimaBase2Id != null && (
+          <label className="mt-1 flex items-center gap-1 text-xs">
+            <input form={formId} name="proporcionPct" type="number" step="any" min="1" max="99" defaultValue={f.proporcionBase1 == null ? "" : Math.round(f.proporcionBase1 * 1000) / 10} placeholder="pendiente" className="input w-24 py-1" />
+            % del material base
+            {f.proporcionBase1 == null && <span className="badge-estado badge-bajo">pendiente</span>}
+          </label>
+        )}
+      </td>
+      <td className={TD}>
+        <div className="flex items-center gap-1 whitespace-nowrap">
+          <input form={formId} name="gMaster" type="number" step="any" min="0" required defaultValue={f.gPorReferencia} className="input w-20" aria-label="Gramos de master" />
+          g cada
+          <input form={formId} name="kgReferencia" type="number" step="any" min="0" required defaultValue={f.kgReferencia} className="input w-20" aria-label="kg de base" />
+          kg
+        </div>
+        <div className="text-xs text-foreground-muted">= {Math.round(f.gPorKgMp * 100) / 100} g por kg</div>
       </td>
       <td className={TD}>
         <input form={formId} name="observaciones" defaultValue={f.observaciones ?? ""} className="input min-w-[14rem]" />
@@ -154,9 +243,9 @@ function FilaMaster({ f, materias }: { f: FilaDosificacion; materias: { id: numb
   );
 }
 
-function SelectMateria({ materias, form, valor }: { materias: { id: number; nombre: string }[]; form?: string; valor?: number | null }) {
+function SelectMateria({ materias, form, valor, nombre = "materiaPrimaBaseId" }: { materias: { id: number; nombre: string }[]; form?: string; valor?: number | null; nombre?: string }) {
   return (
-    <select name="materiaPrimaBaseId" form={form} defaultValue={valor ?? ""} className="input min-w-[14rem]">
+    <select name={nombre} form={form} defaultValue={valor ?? ""} className="input min-w-[14rem]">
       <option value="">—</option>
       {materias.map((m) => (
         <option key={m.id} value={m.id}>

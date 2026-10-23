@@ -80,18 +80,27 @@ export async function guardarParametroAction(fd: FormData) {
   volver(fd, r, "Parámetro guardado.");
 }
 
+/** «g de master cada X kg» → g por kg (se guardan los dos). Proporción en %. */
+function leerDosificacion(fd: FormData): { gPorKgMp: number; kgReferencia: number; materiaPrimaBase2Id: number | null; proporcionBase1: number | null } | null {
+  const g = numero(fd, "gMaster") ?? numero(fd, "gPorKgMp");
+  const ref = numero(fd, "kgReferencia") ?? 1;
+  if (g == null || !(ref > 0)) return null;
+  const pct = numero(fd, "proporcionPct");
+  return { gPorKgMp: g / ref, kgReferencia: ref, materiaPrimaBase2Id: entero(fd, "materiaPrimaBase2Id"), proporcionBase1: pct == null ? null : pct / 100 };
+}
+
 export async function crearDosificacionAction(fd: FormData) {
   const usuario = await getUsuarioActual();
-  const kg = numero(fd, "gPorKgMp");
+  const d = leerDosificacion(fd);
   const familia = String(fd.get("familia"));
   const r =
-    kg == null
+    d == null
       ? { error: "Falta la dosificación." }
       : await crearDosificacion(usuario, {
           familia: familia as "REJILLA" | "CIEGO",
           colorId: entero(fd, "colorId"),
           materiaPrimaBaseId: entero(fd, "materiaPrimaBaseId"),
-          gPorKgMp: kg,
+          ...d,
           observaciones: texto(fd, "observaciones"),
           motivo: texto(fd, "motivo"),
         });
@@ -100,12 +109,12 @@ export async function crearDosificacionAction(fd: FormData) {
 
 export async function actualizarDosificacionAction(fd: FormData) {
   const usuario = await getUsuarioActual();
-  const kg = numero(fd, "gPorKgMp");
+  const d = leerDosificacion(fd);
   const r =
-    kg == null
+    d == null
       ? { error: "Falta la dosificación." }
       : await actualizarDosificacion(usuario, Number(fd.get("id")), {
-          gPorKgMp: kg,
+          ...d,
           materiaPrimaBaseId: entero(fd, "materiaPrimaBaseId"),
           observaciones: texto(fd, "observaciones"),
           motivo: texto(fd, "motivo"),
@@ -150,13 +159,17 @@ export async function actualizarColorAction(fd: FormData) {
 
 export async function crearUsuarioAction(fd: FormData) {
   const usuario = await getUsuarioActual();
+  const soloOperario = fd.get("soloOperario") === "1";
   const r = await crearUsuarioAdmin(usuario, {
     nombre: String(fd.get("nombre") ?? ""),
     email: texto(fd, "email") ?? undefined,
     rol: String(fd.get("rol")) as Rol,
-    secreto: String(fd.get("secreto") ?? ""),
+    rolesAdicionales: fd.getAll("rolesAdicionales").map(String) as Rol[],
+    password: texto(fd, "password") ?? undefined,
+    pin: texto(fd, "pin") ?? undefined,
+    secreto: soloOperario ? String(fd.get("secreto") ?? "") : undefined,
   });
-  volver(fd, r, "Usuario creado.");
+  volver(fd, r, texto(fd, "password") || texto(fd, "pin") || soloOperario ? "Usuario creado." : "Usuario creado, pendiente de activación: falta cargarle una contraseña o un PIN.");
 }
 
 export async function actualizarUsuarioAction(fd: FormData) {
@@ -165,6 +178,7 @@ export async function actualizarUsuarioAction(fd: FormData) {
     nombre: String(fd.get("nombre") ?? ""),
     email: texto(fd, "email"),
     rol: String(fd.get("rol")) as Rol,
+    rolesAdicionales: fd.get("conAdicionales") === "1" ? (fd.getAll("rolesAdicionales").map(String) as Rol[]) : undefined,
     activo: fd.get("activo") === "1",
   });
   volver(fd, r, "Usuario guardado.");
@@ -184,6 +198,6 @@ export async function guardarDatosTecnicosAction(fd: FormData) {
   const r =
     (m2 != null && Number.isNaN(m2)) || (kg != null && Number.isNaN(kg))
       ? { error: "Valor inválido." }
-      : await actualizarDatosTecnicos(usuario, Number(fd.get("id")), { m2PorUnidad: m2, kgPorUnidad: kg, coladaKgPorGolpe: numero(fd, "coladaKgPorGolpe"), aceptaSobrante: fd.get("aceptaSobrante") === "1", motivo: texto(fd, "motivo") });
+      : await actualizarDatosTecnicos(usuario, Number(fd.get("id")), { m2PorUnidad: m2, kgPorUnidad: kg, coladaKgPorGolpe: numero(fd, "coladaKgPorGolpe"), aceptaSobrante: fd.get("aceptaSobrante") === "1", aceptaMolienda: fd.get("aceptaMolienda") === "1", pesoConfirmado: fd.get("pesoConfirmado") === "1", motivo: texto(fd, "motivo") });
   volver(fd, r, "Datos técnicos guardados.");
 }

@@ -18,10 +18,12 @@ if (!SECRET) {
 }
 const encodedKey = new TextEncoder().encode(SECRET);
 
-export type SesionPayload = { usuarioId: number; rol: Rol };
+/** `rol` es el perfil ACTIVO (una persona puede tener más de uno); `via`
+ *  dice cómo entró: con PIN sólo puede usar perfiles de planta. */
+export type SesionPayload = { usuarioId: number; rol: Rol; via?: "clave" | "pin" };
 
 export async function firmarSesion(payload: SesionPayload): Promise<string> {
-  return new SignJWT({ usuarioId: payload.usuarioId, rol: payload.rol })
+  return new SignJWT({ usuarioId: payload.usuarioId, rol: payload.rol, via: payload.via ?? "clave" })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("30d")
@@ -34,7 +36,7 @@ export async function verificarSesion(token: string | undefined): Promise<Sesion
   try {
     const { payload } = await jwtVerify(token, encodedKey, { algorithms: ["HS256"] });
     if (typeof payload.usuarioId !== "number" || typeof payload.rol !== "string") return null;
-    return { usuarioId: payload.usuarioId, rol: payload.rol as Rol };
+    return { usuarioId: payload.usuarioId, rol: payload.rol as Rol, via: payload.via === "pin" ? "pin" : "clave" };
   } catch {
     return null;
   }

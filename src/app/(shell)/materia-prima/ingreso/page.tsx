@@ -5,11 +5,13 @@ import { getUsuarioActual } from "@/lib/session";
 import { puedeIngresarMateriaPrima } from "@/lib/auth/permisos";
 import { FormIngreso } from "../formularios";
 import { hoyISO } from "@/lib/format";
+import { comprasAbiertasDe } from "@/lib/data/compras";
 
-export default async function IngresoMpPage() {
+export default async function IngresoMpPage({ searchParams }: { searchParams: Promise<{ compra?: string }> }) {
   const usuario = await getUsuarioActual();
   if (!puedeIngresarMateriaPrima(usuario.rol)) redirect("/materia-prima");
-  const materias = await materiasPrimasActivas();
+  const sp = await searchParams;
+  const [materias, compras] = await Promise.all([materiasPrimasActivas(), comprasAbiertasDe()]);
   return (
     <div className="max-w-3xl space-y-5">
       <div>
@@ -18,7 +20,7 @@ export default async function IngresoMpPage() {
         </Link>
         <h1 className="mt-1 text-xl font-semibold text-brand-azul-oscuro">Ingreso de materia prima</h1>
       </div>
-      <FormIngreso materias={materias} hoy={hoyISO()} />
+      <FormIngreso materias={materias} hoy={hoyISO()} compras={compras} compraInicial={sp.compra ? Number(sp.compra) : null} />
     </div>
   );
 }

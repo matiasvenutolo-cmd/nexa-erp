@@ -1,9 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
-import { getUsuarioActual } from "@/lib/session";
+import { getUsuarioActual, viaSesion } from "@/lib/session";
+import { perfilesDe } from "@/lib/data/usuarios";
 import { HOME_POR_ROL, NAV_POR_ROL, ROL_LABEL, ROLES_CON_AVISOS } from "@/lib/nav";
 import { contarAvisosPendientes } from "@/lib/data/avisos";
-import { cerrarSesionAction } from "@/app/actions/sesion";
+import { cambiarPerfilAction, cerrarSesionAction } from "@/app/actions/sesion";
 import { SidebarNav, NavMovil } from "@/components/sidebar-nav";
 import { puedeElegirVistaPrecios, puedeInformarError } from "@/lib/auth/permisos";
 import { InformarError } from "@/components/informar-error";
@@ -26,6 +27,23 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   const eligeVista = puedeElegirVistaPrecios(usuario.rol);
   const completa = eligeVista && (await vistaCompleta());
   const soloUnaPantalla = nav.length <= 1;
+  // Quien tiene más de un perfil (ej. Retiros de MP que suple al Encargado)
+  // elige con cuál trabaja; el servidor valida que sea uno de los suyos.
+  const perfiles = perfilesDe(usuario, await viaSesion());
+  const cambiarPerfil = perfiles.length > 1 && (
+    <form action={cambiarPerfilAction} className="flex gap-1">
+      <select name="rol" defaultValue={usuario.rol} aria-label="Perfil con el que trabajás" className="input py-1 text-xs">
+        {perfiles.map((r) => (
+          <option key={r} value={r}>
+            {ROL_LABEL[r]}
+          </option>
+        ))}
+      </select>
+      <button type="submit" className="btn btn-outline btn-sm">
+        Usar
+      </button>
+    </form>
+  );
 
   const vista = eligeVista && (
     <form action={cambiarVistaAction}>
@@ -83,6 +101,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex shrink-0 flex-col gap-2 border-t border-border pt-3">
               {persona}
+              {cambiarPerfil}
               {vista}
               {puedeInformarError(usuario.rol) && <InformarError />}
               {salir}
@@ -99,10 +118,11 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
               {soloUnaPantalla ? (
                 <>
                   <span className="hidden text-sm font-semibold sm:inline">{usuario.nombre}</span>
+                  {cambiarPerfil}
                   {salir}
                 </>
               ) : (
-                <NavMovil nav={nav} contadores={contadores} pie={<div className="flex flex-col gap-2">{persona}{vista}{puedeInformarError(usuario.rol) && <InformarError />}{salir}</div>} />
+                <NavMovil nav={nav} contadores={contadores} pie={<div className="flex flex-col gap-2">{persona}{cambiarPerfil}{vista}{puedeInformarError(usuario.rol) && <InformarError />}{salir}</div>} />
               )}
             </div>
           </div>

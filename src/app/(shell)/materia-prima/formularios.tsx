@@ -23,8 +23,13 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
 
 type Mp = { id: number; nombre: string; tipo: string };
 
-export function FormIngreso({ materias, hoy }: { materias: Mp[]; hoy: string }) {
+type CompraAbierta = { id: number; materiaPrimaId: number; etiqueta: string };
+
+export function FormIngreso({ materias, hoy, compras = [], compraInicial }: { materias: Mp[]; hoy: string; compras?: CompraAbierta[]; compraInicial?: number | null }) {
   const [state, action, pendiente] = useActionState<EstadoForm, FormData>(ingresoMpAction, {});
+  const inicial = compras.find((c) => c.id === compraInicial) ?? null;
+  const [mpId, setMpId] = useState(inicial ? String(inicial.materiaPrimaId) : "");
+  const delMaterial = compras.filter((c) => String(c.materiaPrimaId) === mpId);
   const [codigo, setCodigo] = useState("");
   const [cantidad, setCantidad] = useState("");
   const limpio = codigo.replace(/\s+/g, "");
@@ -41,13 +46,23 @@ export function FormIngreso({ materias, hoy }: { materias: Mp[]; hoy: string }) 
       )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Campo label="Materia prima *">
-          <select name="materiaPrimaId" required defaultValue="" className="input">
+          <select name="materiaPrimaId" required value={mpId} onChange={(e) => setMpId(e.target.value)} className="input">
             <option value="" disabled>
               Elegí…
             </option>
             {materias.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.nombre}
+              </option>
+            ))}
+          </select>
+        </Campo>
+        <Campo label="Compra a la que corresponde (opcional)">
+          <select name="compraId" key={mpId} defaultValue={inicial && String(inicial.materiaPrimaId) === mpId ? inicial.id : ""} className="input" disabled={delMaterial.length === 0}>
+            <option value="">{delMaterial.length ? "Sin compra asociada" : "No hay compras abiertas de este material"}</option>
+            {delMaterial.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.etiqueta}
               </option>
             ))}
           </select>

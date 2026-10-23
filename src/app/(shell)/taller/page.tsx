@@ -3,7 +3,6 @@ import { getUsuarioActual } from "@/lib/session";
 import {
   eventosDe,
   inyectorasActivas,
-  turnoActual,
   vistaTaller,
   type MaterialEnMaquina,
   MOTIVOS_DIFERENCIA_RELEVO,
@@ -12,6 +11,8 @@ import {
   MOTIVOS_NO_CARGA,
 } from "@/lib/data/taller";
 import { TURNOS, etiquetaTurno, ultimosGolpes } from "@/lib/data/planificacion";
+import { opcionesTurno, type OpcionesTurno } from "@/lib/data/turnos";
+import { horarioDe } from "@/lib/turnos";
 import { codigosDeSobrante } from "@/lib/data/maquina";
 import { FormAccion } from "@/components/form-accion";
 import {
@@ -41,8 +42,17 @@ import type { Receta } from "@/lib/data/recetas";
 export default async function TallerPage({ searchParams }: { searchParams: Promise<{ iny?: string }> }) {
   const usuario = await getUsuarioActual();
   const sp = await searchParams;
-  const [activas, turno] = await Promise.all([inyectorasActivas(), turnoActual()]);
-  const iny = sp.iny && /^\d+$/.test(sp.iny) ? sp.iny : activas.length === 1 ? activas[0].inyectora : null;
+  const [activas, ot] = await Promise.all([inyectorasActivas(), opcionesTurno(usuario.id)]);
+  const turno = ot.sugerido;
+  const asignada = ot.asignado?.inyectora && activas.some((a) => a.inyectora === ot.asignado!.inyectora) ? ot.asignado.inyectora : null;
+  const iny = sp.iny && /^\d+$/.test(sp.iny) ? sp.iny : activas.length === 1 ? activas[0].inyectora : asignada;
+  const textoTurno = turno
+    ? `Turno ${etiquetaTurno(turno.turno)} (${horarioDe(turno.esquema, turno.turno)})`
+    : ot.posibles.length > 1
+      ? "Hay dos turnos activos: elegí el tuyo al empezar"
+      : ot.sinEsquema
+        ? "El Encargado todavía no cargó el esquema de turnos de hoy"
+        : "Fuera del horario de los turnos de hoy";
 
   if (!iny) {
     return (
@@ -50,8 +60,14 @@ export default async function TallerPage({ searchParams }: { searchParams: Promi
         <section className="panel">
           <h1 className="text-2xl">¿En qué máquina vas a trabajar?</h1>
           <p className="mt-1 text-sm text-foreground-muted">
-            {turno ? `Turno ${etiquetaTurno(turno.turno)}` : "Turno: los horarios todavía no están configurados"} · {usuario.nombre}
+            {textoTurno} · {usuario.nombre}
           </p>
+          {ot.asignado && (
+            <p className="aviso aviso-info mt-3 text-sm">
+              El Encargado te asignó al turno {etiquetaTurno(ot.asignado.turno)}
+              {ot.asignado.inyectora ? ` en la inyectora ${ot.asignado.inyectora}` : ""}.
+            </p>
+          )}
           {activas.length === 0 ? (
             <p className="aviso aviso-info mt-4">No hay producciones en curso ni tandas asignadas. Cuando el Encargado asigne una tanda a una máquina, aparece acá.</p>
           ) : (
@@ -86,12 +102,12 @@ export default async function TallerPage({ searchParams }: { searchParams: Promi
           ← Cambiar de máquina
         </Link>
         <span className="text-xs font-semibold text-foreground-muted">
-          {turno ? `Turno ${etiquetaTurno(turno.turno)}` : "Horarios de turno sin configurar"} · {usuario.nombre}
+          {textoTurno} · {usuario.nombre}
         </span>
       </div>
 
       {!p ? (
-        <SinProduccion v={v} iny={iny} golpes={golpes} turnoAuto={Boolean(turno)} usuarioNombre={usuario.nombre} />
+        <SinProduccion v={v} iny={iny} golpes={golpes} ot={ot} usuarioNombre={usuario.nombre} />
       ) : (
         <>
           <section className="panel">
@@ -121,7 +137,7 @@ export default async function TallerPage({ searchParams }: { searchParams: Promi
           </section>
 
           {!p.turnoAbierto ? (
-            <Retomar p={p} pie={v.pie} usuarioNombre={usuario.nombre} turnoAuto={Boolean(turno)} />
+            <Retomar p={p} pie={v.pie} usuarioNombre={usuario.nombre} ot={ot} />
           ) : (
             <>
               {!p.pausada && <RegistrarCarga p={p} pie={v.pie} />}
@@ -238,7 +254,7 @@ function Materiales({ titulo, lista, vacio }: { titulo: string; lista: Mat; vaci
 }
 
 /** Sin producción en curso: la tanda asignada por el Encargado, para iniciarla. */
-function SinProduccion({ v, iny, golpes, turnoAuto, usuarioNombre }: { v: Vista; iny: string; golpes: number | null; turnoAuto: boolean; usuarioNombre: string }) {
+function SinProduccion({ v, iny, golpes, ot, usuarioNombre }: { v: Vista; iny: string; golpes: number | null; ot: OpcionesTurno; usuarioNombre: string }) {
   const t = v.asignadas[0];
   return (
     <section className="panel space-y-4">
@@ -273,10 +289,10 @@ function SinProduccion({ v, iny, golpes, turnoAuto, usuarioNombre }: { v: Vista;
               {golpes != null && <span className="campo-ayuda">Último registro de esta máquina: {fmtNumero(golpes, 0)}.</span>}
             </label>
             <NombreOperario usuarioNombre={usuarioNombre} />
-            {!turnoAuto && (
+            {ot.preguntar && (
               <div className="campo">
-                <span>Turno (los horarios no están configurados)</span>
-                <ElegirTurno turnos={TURNOS} sugerido={t.turno} />
+                <span>{ot.posibles.length > 1 ? "¿En qué turno estás? (ahora hay dos activos)" : "¿En qué turno estás?"}</span>
+                <ElegirTurno turnos={TURNOS.filter((x) => ot.opciones.includes(x.valor))} sugerido={ot.opciones.includes(t.turno as never) ? t.turno : null} />
               </div>
             )}
           </FormAccion>
@@ -289,7 +305,7 @@ function SinProduccion({ v, iny, golpes, turnoAuto, usuarioNombre }: { v: Vista;
 }
 
 /** Turno entrante: ve lo que recibe y lo que falta, y acepta el relevo. */
-function Retomar({ p, pie, usuarioNombre, turnoAuto }: { p: Prod; pie: Mat; usuarioNombre: string; turnoAuto: boolean }) {
+function Retomar({ p, pie, usuarioNombre, ot }: { p: Prod; pie: Mat; usuarioNombre: string; ot: OpcionesTurno }) {
   const u = p.ultimoTurno;
   return (
     <section className="panel space-y-4">
@@ -323,10 +339,10 @@ function Retomar({ p, pie, usuarioNombre, turnoAuto }: { p: Prod; pie: Mat; usua
           <input name="golpesInicio" inputMode="numeric" defaultValue={u?.golpesFin ?? p.golpesInicioProduccion ?? ""} className="input text-lg" />
           <span className="campo-ayuda">Ya viene del relevo anterior; cambialo sólo si la máquina marca otro número.</span>
         </label>
-        {!turnoAuto && (
+        {ot.preguntar && (
           <div className="campo">
-            <span>Turno (los horarios no están configurados)</span>
-            <ElegirTurno turnos={TURNOS} />
+            <span>{ot.posibles.length > 1 ? "¿En qué turno estás? (ahora hay dos activos)" : "¿En qué turno estás?"}</span>
+            <ElegirTurno turnos={TURNOS.filter((x) => ot.opciones.includes(x.valor))} sugerido={ot.asignado?.turno ?? null} />
           </div>
         )}
       </FormAccion>

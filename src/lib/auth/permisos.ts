@@ -16,20 +16,31 @@ import type { usuario } from "@/lib/db/schema";
 
 type Rol = (typeof usuario.$inferSelect)["rol"];
 
-const ROLES_CON_PRECIOS: readonly Rol[] = ["GERENCIA", "ADMINISTRACION"];
+/**
+ * Mejoras 22/10 (Excel de usuarios): Gerencia (incluida la de consulta) y
+ * Administración ven precios. El Supervisor vuelve a «todo el sistema, sin
+ * precios»: se retira la vista completa que tenía desde octubre (el Excel del
+ * propio Supervisor lo define así). El parámetro `vistaCompleta` queda por
+ * compatibilidad y ya no habilita nada.
+ */
+const ROLES_CON_PRECIOS: readonly Rol[] = ["GERENCIA", "GERENCIA_CONSULTA", "ADMINISTRACION"];
+
+export function puedeVerPrecios(rol: Rol, _vistaCompleta = false): boolean {
+  void _vistaCompleta;
+  return ROLES_CON_PRECIOS.includes(rol);
+}
+
+export function puedeElegirVistaPrecios(_rol: Rol): boolean {
+  void _rol;
+  return false;
+}
 
 /**
- * CAMBIO DE REGLA (requerimiento de octubre 2026): el Supervisor tiene acceso
- * a las dos vistas — sin precios (por defecto) y completa (con precios) — y
- * elige cuál usar. Sólo el Supervisor; el resto de los roles no cambia.
+ * Gerencia de consulta (Gabriel Laleta): ve datos y reportes con precios pero
+ * no escribe nada hasta que se confirme que lo necesita. Las funciones «ver»
+ * la incluyen; las de alta, cambio o corrección no.
  */
-export function puedeVerPrecios(rol: Rol, vistaCompleta = false): boolean {
-  return ROLES_CON_PRECIOS.includes(rol) || (rol === "SUPERVISOR" && vistaCompleta);
-}
-
-export function puedeElegirVistaPrecios(rol: Rol): boolean {
-  return rol === "SUPERVISOR";
-}
+export const CONSULTA: Rol = "GERENCIA_CONSULTA";
 
 /**
  * Minuta del 15/10/2026 — "Permisos y cambios estructurales": sólo el
@@ -67,6 +78,11 @@ export const ROLES_GESTION: readonly Rol[] = ["GERENCIA", "SUPERVISOR", "ADMINIS
 
 export function puedeCrearPedido(rol: Rol): boolean {
   return ROLES_GESTION.includes(rol);
+}
+
+/** Ver Stock de productos y Clientes (sin poder editar, en el caso de la consulta). */
+export function puedeVerVentas(rol: Rol): boolean {
+  return ROLES_GESTION.includes(rol) || rol === CONSULTA;
 }
 
 /**
@@ -113,7 +129,7 @@ export function puedeCargarProduccion(rol: Rol): boolean {
 const ROLES_TALLER: readonly Rol[] = [...ROLES_PRODUCCION, "OPERARIO"];
 
 export function puedeVerProduccion(rol: Rol): boolean {
-  return ROLES_TALLER.includes(rol);
+  return ROLES_TALLER.includes(rol) || rol === CONSULTA;
 }
 
 export function puedeCerrarCiclo(rol: Rol): boolean {
@@ -149,7 +165,7 @@ export function puedeEditarRecetas(rol: Rol): boolean {
  * asunciones del mismo documento agrega "a consideración de gerencia". Se
  * habilita a los dos — contradicción anotada como pregunta abierta.
  */
-const ROLES_MIN_MAX: readonly Rol[] = ["ENCARGADO", "GERENCIA"];
+const ROLES_MIN_MAX: readonly Rol[] = ["ENCARGADO", "SUPERVISOR", "GERENCIA"];
 
 export function puedeEditarMinMax(rol: Rol): boolean {
   return ROLES_MIN_MAX.includes(rol);
@@ -167,9 +183,17 @@ export function puedeGestionarColores(rol: Rol): boolean {
   return puedeCrearProducto(rol);
 }
 
-/** Alta, rol y baja de usuarios: sólo gerencia. */
+/** Alta, rol y baja de usuarios: el Supervisor hace todas las altas, bajas y
+ *  cambios (mejoras 22/10); Gerencia conserva el permiso para urgencias. */
 export function puedeAdministrarUsuarios(rol: Rol): boolean {
-  return rol === "GERENCIA";
+  return rol === "GERENCIA" || rol === "SUPERVISOR";
+}
+
+/** Los perfiles de gerencia sólo los otorga Gerencia (evita que un usuario se
+ *  dé más permisos de los que tiene). */
+export function puedeOtorgarRol(actor: Rol, rol: Rol): boolean {
+  if (rol === "GERENCIA" || rol === CONSULTA) return actor === "GERENCIA";
+  return puedeAdministrarUsuarios(actor);
 }
 
 /**
@@ -257,7 +281,7 @@ export function puedeAjustarMateriaPrima(rol: Rol): boolean {
 }
 
 export function puedeVerMateriaPrima(rol: Rol): boolean {
-  return puedeIngresarMateriaPrima(rol) || puedeRetirarMateriaPrima(rol);
+  return puedeIngresarMateriaPrima(rol) || puedeRetirarMateriaPrima(rol) || rol === "COMPRAS" || rol === CONSULTA;
 }
 
 /** "Las vendedoras tienen que buscar el pedido y detallar qué pasó". */
@@ -276,12 +300,68 @@ export function puedeResolverReclamo(rol: Rol): boolean {
 const ROLES_VEN_RECLAMOS: readonly Rol[] = ["ADMINISTRACION", "SUPERVISOR", "GERENCIA", "ENCARGADO"];
 
 export function puedeVerReclamos(rol: Rol): boolean {
-  return ROLES_VEN_RECLAMOS.includes(rol);
+  return ROLES_VEN_RECLAMOS.includes(rol) || rol === CONSULTA;
 }
 
 /** Trazabilidad: quienes investigan reclamos o lotes. */
 const ROLES_TRAZABILIDAD: readonly Rol[] = ["GERENCIA", "SUPERVISOR", "ENCARGADO", "ADMINISTRACION", "MATERIA_PRIMA"];
 
 export function puedeVerTrazabilidad(rol: Rol): boolean {
-  return ROLES_TRAZABILIDAD.includes(rol);
+  return ROLES_TRAZABILIDAD.includes(rol) || rol === CONSULTA;
 }
+
+// ---------------------------------------------------------------------------
+// Mejoras 22/10: Compras, Matrices, Molino y turnos
+// ---------------------------------------------------------------------------
+
+/** Compras de MP: las registra Compras (Carolina); Supervisión coordina y
+ *  Gerencia puede intervenir. Materia Prima y Encargado coordinan la necesidad
+ *  (ven el módulo). */
+const ROLES_GESTIONAN_COMPRAS: readonly Rol[] = ["COMPRAS", "SUPERVISOR", "GERENCIA"];
+const ROLES_VEN_COMPRAS: readonly Rol[] = [...ROLES_GESTIONAN_COMPRAS, "MATERIA_PRIMA", "ENCARGADO", CONSULTA];
+
+export function puedeGestionarCompras(rol: Rol): boolean {
+  return ROLES_GESTIONAN_COMPRAS.includes(rol);
+}
+
+export function puedeVerCompras(rol: Rol): boolean {
+  return ROLES_VEN_COMPRAS.includes(rol);
+}
+
+/** Matrices: programa cambios, reparaciones y services; el Encargado también
+ *  (coordina la planificación). */
+const ROLES_GESTIONAN_MATRICES: readonly Rol[] = ["MATRICES", "ENCARGADO", "SUPERVISOR", "GERENCIA"];
+
+export function puedeGestionarMatrices(rol: Rol): boolean {
+  return ROLES_GESTIONAN_MATRICES.includes(rol);
+}
+
+export function puedeVerMatrices(rol: Rol): boolean {
+  return ROLES_GESTIONAN_MATRICES.includes(rol) || rol === CONSULTA;
+}
+
+/** Molino: recibe descartes y entrega moliendas; Materia Prima confirma la
+ *  recepción (recién ahí entra al stock). */
+const ROLES_MOLINO: readonly Rol[] = ["MOLINO", "SUPERVISOR", "GERENCIA"];
+const ROLES_RECIBEN_MOLIENDA: readonly Rol[] = ["MATERIA_PRIMA", "SUPERVISOR", "GERENCIA"];
+
+export function puedeOperarMolino(rol: Rol): boolean {
+  return ROLES_MOLINO.includes(rol);
+}
+
+export function puedeRecibirMolienda(rol: Rol): boolean {
+  return ROLES_RECIBEN_MOLIENDA.includes(rol);
+}
+
+export function puedeVerMolino(rol: Rol): boolean {
+  return ROLES_MOLINO.includes(rol) || ROLES_RECIBEN_MOLIENDA.includes(rol) || rol === "ENCARGADO" || rol === CONSULTA;
+}
+
+/** Esquema de turnos y asignación de operarios: quien planifica. */
+export function puedeAsignarTurnos(rol: Rol): boolean {
+  return puedePlanificar(rol);
+}
+
+/** Perfiles con los que se puede entrar con nombre + PIN (planta). Los perfiles
+ *  de gestión siempre piden contraseña. */
+export const ROLES_CON_PIN: readonly Rol[] = ["OPERARIO", "RETIROS_MP", "DESPACHO", "MOLINO", "MATRICES"];

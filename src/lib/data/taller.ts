@@ -39,11 +39,10 @@ import { cerrarCiclo } from "@/lib/data/produccion";
 import { listarPresentaciones, presentacionesDe, recetasDe, type Receta } from "@/lib/data/recetas";
 import { ErrorStock } from "@/lib/data/ubicaciones";
 import { etiquetaTurno, iniciarProduccionDeTanda, type Turno } from "@/lib/data/planificacion";
-import { obtenerParametros } from "@/lib/data/parametros";
-import { horariosDesdeParametros, turnoDe } from "@/lib/turnos";
+import { opcionesTurno } from "@/lib/data/turnos";
 import { disponibleDeLotes, registrarRetiroMaquina, registrarSobrante } from "@/lib/data/maquina";
 import { INYECTORAS } from "@/lib/inyectoras";
-import { aGramos, fmtPeso, fmtPresentacion, kgDe } from "@/lib/presentaciones";
+import { aGramos, enBolsas, fmtPeso, fmtPresentacion, kgDe } from "@/lib/presentaciones";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const EPS = 1e-6;
@@ -66,20 +65,8 @@ const sqlInyectora = (iny: string) => sql`regexp_replace(${cicloProduccion.inyec
 /** Material por material, con su equivalente en bolsas cuando hay presentación. */
 export type MaterialEnMaquina = { materiaPrimaId: number; nombre: string; esMaster: boolean; kg: number; bolsas: string | null };
 
-/** «12 bolsas de 25 kg + 0,3 kg»: la presentación más grande que entra. */
-export function enBolsas(kg: number, pres: { nombre: string; kg: number }[]): string | null {
-  const g = aGramos(kg);
-  const orden = [...pres].sort((a, b) => b.kg - a.kg).filter((x) => kg + EPS >= x.kg);
-  if (!orden.length) return null;
-  // Primero la presentación más grande que lo expresa exacto en medias bolsas
-  // (1,2 kg de master = 2 bolsitas de 600 g, no 1½ de 750 g + resto); si
-  // ninguna es exacta, la más grande que entra entera, con el resto aparte.
-  const p = orden.find((x) => (g * 2) % aGramos(x.kg) === 0) ?? orden[0];
-  const cant = Math.floor((g * 2) / aGramos(p.kg)) / 2;
-  const resto = g - aGramos(kgDe(cant, p.kg));
-  const fmtResto = resto >= 1000 ? `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(resto / 1000)} kg` : `${resto} g`;
-  return `${fmtPresentacion(cant, p.nombre)}${resto > 0 ? ` + ${fmtResto}` : ""}`;
-}
+/** «12 bolsas de 25 kg + 0,3 kg» (función pura en src/lib/presentaciones.ts). */
+export { enBolsas } from "@/lib/presentaciones";
 
 export type VistaTaller = Awaited<ReturnType<typeof vistaTaller>>;
 
@@ -274,17 +261,18 @@ export type TomarTurnoInput = {
   token?: string | null;
 };
 
-/** Turno que corresponde ahora según los horarios configurados (null si no están). */
-export async function turnoActual(ahora = new Date()) {
-  const p = await obtenerParametros();
-  return turnoDe(ahora, horariosDesdeParametros(p));
+/** Turno que corresponde ahora según el esquema del día (y la asignación del
+ *  operario si hay superposición). Null si hay que preguntarlo. */
+export async function turnoActual(ahora = new Date(), usuarioId: number | null = null) {
+  const o = await opcionesTurno(usuarioId, ahora);
+  return o.sugerido ? { turno: o.sugerido.turno, fecha: o.sugerido.fecha } : null;
 }
 
 export async function tomarTurno(actor: Actor, input: TomarTurnoInput): Promise<Resultado & { id?: number }> {
   if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
-  const turno = input.turno ?? (await turnoActual())?.turno ?? null;
+  const turno = input.turno ?? (await turnoActual(new Date(), actor.id))?.turno ?? null;
   if (!turno || !["MANANA", "TARDE", "NOCHE"].includes(turno)) {
-    return { error: "Los horarios de los turnos no están configurados (Administración → Parámetros): elegí el turno." };
+    return { error: "Ahora hay más de un turno posible (o el esquema del día no está cargado): elegí el turno." };
   }
   return db.transaction(async (tx) => {
     if (input.token) {
@@ -732,7 +720,7 @@ export async function iniciarTandaAsignada(
   input: { tandaId: number; golpesInicio: number | null; operarioNombre?: string | null; turno?: Turno | null },
 ): Promise<Resultado & { cicloId?: number }> {
   if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
-  const turno = input.turno ?? (await turnoActual())?.turno ?? null;
+  const turno = input.turno ?? (await turnoActual(new Date(), actor.id))?.turno ?? null;
   if (!turno) return { error: "Los horarios de los turnos no están configurados (Administración → Parámetros): elegí el turno." };
   const r = await iniciarProduccionDeTanda(actor, input.tandaId, { golpesInicio: input.golpesInicio });
   if (r.error || !r.cicloId) return { error: r.error ?? "No se pudo iniciar la producción." };

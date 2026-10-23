@@ -116,6 +116,48 @@ export async function identificarCodigoMp(codigo: string, productoNumero?: strin
   };
 }
 
+/** Variantes de un código interno de MP: el listado estandarizado del cliente
+ *  usa ceros y prefijo de proveedor («031», «B24», «B01», «A04») y el sistema
+ *  tiene «31», «24», «B1», «A4». */
+export function variantesCodigoMp(codigo: string): string[] {
+  const c = codigo.trim().toUpperCase().replace(/-+$/, "");
+  const m = /^([A-Z]?)0*(\d+)$/.exec(c);
+  if (!m) return [c];
+  const [, letra, n] = m;
+  return [...new Set([c, `${letra}${n}`, letra ? n : c])];
+}
+
+export type LecturaRetiro =
+  | { tipo: "lote"; dato: CodigoIdentificado }
+  | { tipo: "material"; materiaPrima: { id: number; nombre: string; codigo: string; tipo: string } };
+
+/**
+ * Lectura en el retiro a pie de máquina: el código de 27 dígitos de la bolsa
+ * (lote) o el código interno del material. Un código de producto terminado
+ * se rechaza: no es materia prima.
+ */
+export async function identificarCodigoRetiro(codigo: string, productoNumero?: string | null): Promise<Resultado & { lectura?: LecturaRetiro }> {
+  const c = codigo.trim().replace(/\s+/g, "").toUpperCase();
+  if (!c) return { error: "Código vacío." };
+  if (!/^[A-Z0-9-]+$/.test(c)) return { error: "El código sólo puede tener letras, números y guiones." };
+  if (/^\d{27}$/.test(c)) {
+    const r = await identificarCodigoMp(c, productoNumero);
+    if (r.error || !r.dato) return { error: r.error ?? "No se pudo leer el código." };
+    return { lectura: { tipo: "lote", dato: r.dato } };
+  }
+  if (/^\d{20,}$/.test(c)) return { error: "El código de la bolsa tiene 27 dígitos: la lectura vino incompleta, volvé a leerla." };
+  const variantes = variantesCodigoMp(c);
+  const mps = await db.select({ id: materiaPrima.id, nombre: materiaPrima.nombre, codigo: materiaPrima.codigoInterno, tipo: materiaPrima.tipo, activo: materiaPrima.activo }).from(materiaPrima).where(inArray(sql`upper(${materiaPrima.codigoInterno})`, variantes));
+  const mp = variantes.map((v) => mps.find((m) => m.codigo.toUpperCase() === v)).find(Boolean);
+  if (mp) {
+    if (!mp.activo) return { error: `${mp.nombre} está dado de baja.` };
+    return { lectura: { tipo: "material", materiaPrima: { id: mp.id, nombre: mp.nombre, codigo: mp.codigo, tipo: mp.tipo } } };
+  }
+  const [prod] = await db.select({ codigo: producto.codigo }).from(producto).where(sql`upper(${producto.codigo}) = ${c} or upper(${producto.codigoBarras}) = ${c}`);
+  if (prod) return { error: `${prod.codigo} es un producto terminado, no materia prima.` };
+  return { error: "El código no corresponde a ninguna materia prima ni lote registrado: elegí el material a mano." };
+}
+
 /** Disponible de cada lote en el depósito: ingresado − retirado (no anulado) + devuelto. */
 export async function disponibleDeLotes(ex: Ejecutor, loteIds: number[]): Promise<Map<number, number>> {
   if (loteIds.length === 0) return new Map();

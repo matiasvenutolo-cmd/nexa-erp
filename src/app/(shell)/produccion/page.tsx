@@ -5,32 +5,34 @@ import { gruposParaPlanificar, listarTandas, necesidadDeCompra, ultimosGolpes, e
 import { recetasDe } from "@/lib/data/recetas";
 import { relevosRecientes, vistaTaller } from "@/lib/data/taller";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeCargarProduccion, puedePlanificar } from "@/lib/auth/permisos";
+import { puedeCargarProduccion, puedePlanificar, puedeAsignarTurnos } from "@/lib/auth/permisos";
 import { fmtFecha, fmtFechaHora, fmtNumero } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
 import { etiquetaInyectora } from "@/lib/inyectoras";
 import { FormStock, TarjetaGrupo, TarjetaTanda } from "./plan-componentes";
-import { CalendarioPlan, type TarjetaCal } from "./calendario";
+import { CalendarioPlan, type TarjetaCal, type TrabajoCal } from "./calendario";
+import { listarIntervenciones, TIPO_INTERVENCION_LABEL } from "@/lib/data/matrices";
+import { esquemasEntre } from "@/lib/data/turnos";
 import { etiquetaPrioridad } from "@/lib/data/pedidos";
-import { hoyISO } from "@/lib/format";
+import { hoyISO, lunesDe, sumarDias } from "@/lib/format";
+import { TurnosSemana } from "./turnos";
 import { db } from "@/lib/db/client";
 import { color as colorT } from "@/lib/db/schema";
 import { inArray } from "drizzle-orm";
 
-function sumarDias(f: string, n: number) {
-  const d = new Date(`${f}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-function lunesDe(f: string) {
-  const d = new Date(`${f}T12:00:00Z`);
-  const dow = (d.getUTCDay() + 6) % 7;
-  return sumarDias(f, -dow);
-}
+
 
 async function Calendario({ tandas, planifica, desde }: { tandas: Awaited<ReturnType<typeof listarTandas>>; planifica: boolean; desde?: string }) {
   const inicio = lunesDe(desde && /^\d{4}-\d{2}-\d{2}$/.test(desde) ? desde : hoyISO());
   const dias = Array.from({ length: 7 }, (_, i) => sumarDias(inicio, i));
+  const [intervenciones, esquemas] = await Promise.all([listarIntervenciones({ desde: dias[0], hasta: dias[6], estados: ["PROGRAMADA", "EN_CURSO"] }), esquemasEntre(dias[0], dias[6])]);
+  const trabajos: TrabajoCal[] = intervenciones.map((w) => ({
+    id: w.id,
+    fecha: w.fechaProgramada,
+    turno: w.turno,
+    estado: w.estado,
+    texto: `${TIPO_INTERVENCION_LABEL[w.tipo]} ${w.matrizAnterior ? `${w.matrizAnterior} → ` : ""}${w.matriz}${w.inyectora ? ` · iny. ${w.inyectora}` : ""}`,
+  }));
   const colores = tandas.length ? await db.select({ id: colorT.id, hex: colorT.hex }).from(colorT).where(inArray(colorT.id, [...new Set(tandas.map((t) => t.colorId))])) : [];
   const tarjetas: TarjetaCal[] = tandas
     .filter((t) => !t.fecha || (t.fecha >= dias[0] && t.fecha <= dias[6]) || t.estado === "EN_CURSO")
@@ -70,7 +72,7 @@ async function Calendario({ tandas, planifica, desde }: { tandas: Awaited<Return
           </Link>
         </div>
       </div>
-      <CalendarioPlan dias={dias} tarjetas={tarjetas} editable={planifica} />
+      <CalendarioPlan dias={dias} tarjetas={tarjetas} editable={planifica} trabajos={trabajos} esquemas={Object.fromEntries(esquemas)} />
     </section>
   );
 }
@@ -78,6 +80,7 @@ async function Calendario({ tandas, planifica, desde }: { tandas: Awaited<Return
 const VISTAS = [
   { id: "plan", label: "Planificación" },
   { id: "calendario", label: "Calendario por turno" },
+  { id: "turnos", label: "Turnos y operarios" },
   { id: "curso", label: "En curso" },
   { id: "relevos", label: "Relevos y novedades" },
   { id: "compras", label: "Compras" },
@@ -144,6 +147,7 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
 
       {vista === "plan" && <Planificacion tandas={tandas} grupos={grupos} planifica={planifica} />}
       {vista === "calendario" && <Calendario tandas={tandas} planifica={planifica} desde={sp.desde} />}
+      {vista === "turnos" && <TurnosSemana desde={sp.desde} edita={puedeAsignarTurnos(usuario.rol)} />}
       {vista === "curso" && <EnCurso />}
       {vista === "relevos" && <Relevos />}
       {vista === "compras" && <Compras />}
@@ -356,6 +360,11 @@ async function Compras() {
         <h2 className="panel-titulo">Material para la planificación vs. disponible</h2>
         <p className="mb-3 text-sm text-foreground-muted">
           Calculado con la receta de cada tanda y el peso por pieza. Disponible = depósito + pie de máquina. Las tandas postergadas no cuentan.
+          La necesidad completa (pedidos sin planificar, stock bajo el mínimo y compras en curso) está en{" "}
+          <Link href="/compras" className="font-semibold text-accent underline">
+            Compras
+          </Link>
+          .
         </p>
       </div>
       <table className="tabla">

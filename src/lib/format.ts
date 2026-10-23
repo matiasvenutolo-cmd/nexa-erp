@@ -49,3 +49,17 @@ export function fmtFechaHora(d: Date | string): string {
 export function fmtHora(d: Date | string): string {
   return new Date(d).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "America/Argentina/Buenos_Aires" });
 }
+
+/** Suma días a una fecha ISO (AAAA-MM-DD). */
+export function sumarDias(f: string, n: number): string {
+  const d = new Date(`${f}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Lunes de la semana de una fecha ISO. */
+export function lunesDe(f: string): string {
+  const d = new Date(`${f}T12:00:00Z`);
+  const dow = (d.getUTCDay() + 6) % 7;
+  return sumarDias(f, -dow);
+}

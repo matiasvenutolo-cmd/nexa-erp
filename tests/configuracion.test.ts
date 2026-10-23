@@ -350,12 +350,12 @@ describe("8. Pedido con varios colores", () => {
 });
 
 describe("9-10. Permisos", () => {
-  it("Encargado y Gerencia pueden cambiar mínimos; nadie más", async () => {
-    for (const rol of ["ENCARGADO", "GERENCIA"] as const) {
+  it("Encargado, Supervisor y Gerencia pueden cambiar mínimos; nadie más", async () => {
+    for (const rol of ["ENCARGADO", "SUPERVISOR", "GERENCIA"] as const) {
       expect((await actualizarMinMaxProducto(s.usuarios[rol], s.productos.ciegoNegro.id, { minimo: 1500, maximo: 2000 })).error).toBeUndefined();
     }
     const antes = (await listarAuditoria({ entidad: "producto", entidadId: s.productos.ciegoNegro.id })).length;
-    for (const rol of ["SUPERVISOR", "ADMINISTRACION", "OPERARIO", "DESPACHO", "MATERIA_PRIMA", "MOLINO"] as const) {
+    for (const rol of ["ADMINISTRACION", "OPERARIO", "DESPACHO", "MATERIA_PRIMA", "MOLINO", "GERENCIA_CONSULTA"] as const) {
       const r = await actualizarMinMaxProducto(s.usuarios[rol], s.productos.ciegoNegro.id, { minimo: 1, maximo: 2 });
       expect(r.error, rol).toMatch(/permiso/);
     }
@@ -374,7 +374,7 @@ describe("9-10. Permisos", () => {
     expect((await obtenerParametros()).unidades_por_caja_pisos).toBe(25);
   });
 
-  it("administración de usuarios: sólo gerencia, y nadie se desactiva a sí mismo", async () => {
+  it("administración de usuarios: Supervisión o Gerencia, y nadie se desactiva a sí mismo", async () => {
     expect((await crearUsuarioAdmin(s.usuarios.ENCARGADO, { nombre: "Y", email: "y@test", rol: "OPERARIO", secreto: "1234" })).error).toMatch(/permiso/);
     expect((await crearUsuarioAdmin(s.usuarios.GERENCIA, { nombre: "Operario Turno Noche", rol: "OPERARIO", secreto: "4321" })).error).toBeUndefined();
     const g = s.usuarios.GERENCIA;
@@ -382,19 +382,21 @@ describe("9-10. Permisos", () => {
     expect(r.error).toMatch(/vos mismo/);
   });
 
-  it("Administración y Supervisión dan de alta usuarios de taller, y sólo de taller", async () => {
+  it("Administración da de alta sólo usuarios de taller; Supervisión, cualquiera salvo Gerencia", async () => {
     for (const rol of ["ADMINISTRACION", "SUPERVISOR"] as const) {
       const actor = s.usuarios[rol];
       const nombre = `Taller ${rol}`;
       expect((await crearUsuarioAdmin(actor, { nombre, rol: "OPERARIO", secreto: "0000" })).error, rol).toBeUndefined();
       const [nuevo] = await db().select().from(schema.usuario).where(eq(schema.usuario.nombre, nombre));
       expect(nuevo.pinHash).not.toBeNull();
-      // Puede darlo de baja, pero no subirlo a otro rol ni crear usuarios con contraseña.
+      // Puede darlo de baja, pero no pasarlo a Gerencia ni tocar a Gerencia.
       expect((await actualizarUsuarioAdmin(actor, nuevo.id, { nombre, email: null, rol: "OPERARIO", activo: false })).error).toBeUndefined();
-      expect((await actualizarUsuarioAdmin(actor, nuevo.id, { nombre, email: "t@test", rol: "GERENCIA", activo: true })).error).toMatch(/Gerencia/);
-      expect((await crearUsuarioAdmin(actor, { nombre: "Z", email: `z-${rol}@test`, rol: "SUPERVISOR", secreto: "12345678" })).error).toMatch(/Gerencia/);
+      expect((await actualizarUsuarioAdmin(actor, nuevo.id, { nombre, email: "t@test.com", rol: "GERENCIA", activo: true })).error).toMatch(/Gerencia/);
       expect((await cambiarSecretoAdmin(actor, s.usuarios.GERENCIA.id, "12345678", "contraseña")).error).toMatch(/Gerencia/);
     }
+    // Administración no crea usuarios con contraseña; Supervisión sí (mejoras 22/10).
+    expect((await crearUsuarioAdmin(s.usuarios.ADMINISTRACION, { nombre: "Z", email: "z-adm@test.com", rol: "SUPERVISOR", secreto: "12345678" })).error).toMatch(/Supervisión o Gerencia/);
+    expect((await crearUsuarioAdmin(s.usuarios.SUPERVISOR, { nombre: "Z", email: "z-sup@test.com", rol: "DESPACHO", secreto: "12345678" })).error).toBeUndefined();
   });
 
   it("prioridad manual: Ventas, Encargado, Supervisor o Gerencia, con motivo", async () => {
