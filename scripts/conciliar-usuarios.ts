@@ -16,6 +16,7 @@
  * Uso:
  *   npx tsx scripts/conciliar-usuarios.ts            # simulación
  *   npx tsx scripts/conciliar-usuarios.ts --aplicar  # aplica
+ *   npx tsx scripts/conciliar-usuarios.ts --solo-altas [--aplicar]  # sólo cuentas nuevas
  */
 if (!process.env.DATABASE_URL_UNPOOLED) {
   process.loadEnvFile(".env.local");
@@ -29,6 +30,8 @@ import * as schema from "../src/lib/db/schema";
 type Rol = (typeof schema.usuario.$inferSelect)["rol"];
 const MOTIVO = "Conciliación con el Excel de usuarios del cliente (22/10/2026)";
 const APLICAR = process.argv.includes("--aplicar");
+/** --solo-altas: crea las cuentas nuevas sin tocar a quienes ya entran (29/10/2026). */
+const SOLO_ALTAS = process.argv.includes("--solo-altas");
 
 /** Personas que tienen que existir (nombre como en el Excel, con mayúsculas). */
 const ALTAS: { nombre: string; email: string | null; rol: Rol; adicionales?: Rol[] }[] = [
@@ -57,8 +60,10 @@ const CAMBIOS: { emailActual: string; email?: string; rol?: Rol; adicionales?: R
   { emailActual: "dylan@nexa.com.ar", rol: "RETIROS_MP", adicionales: ["OPERARIO", "ENCARGADO"], nota: "Dylan = Dilan: perfiles combinados" },
 ];
 
-/** La cuenta compartida del taller se da de baja (sin borrar su historial). */
-const BAJAS = ["Taller"];
+/** La cuenta compartida «Taller» se mantiene: se usa para enseñar el sistema
+ *  y para entrar a la planta hasta que cada operario tenga su PIN. Sólo se da
+ *  de baja cuando el cliente lo pida explícitamente (29/10/2026). */
+const BAJAS: string[] = [];
 
 async function main() {
   const client = postgres(process.env.DATABASE_URL_UNPOOLED!, { max: 1 });
@@ -75,7 +80,7 @@ async function main() {
     const ya = (a.email && porEmail(a.email)) || porNombre(a.nombre);
     plan.push(ya ? `= ya existe: ${a.nombre} (id ${ya.id}, ${ya.rol})` : `+ alta: ${a.nombre} · ${a.rol} · ${a.email ?? "sin email"} · pendiente de activación`);
   }
-  for (const c of CAMBIOS) {
+  for (const c of SOLO_ALTAS ? [] : CAMBIOS) {
     const u = porEmail(c.emailActual) ?? (c.email ? porEmail(c.email) : undefined);
     if (!u) plan.push(`! no encontrado: ${c.emailActual}`);
     else plan.push(`~ ${u.nombre}: ${c.nota}${c.email && u.email !== c.email ? ` (${u.email} → ${c.email})` : ""}`);
@@ -109,7 +114,7 @@ async function main() {
       const [n] = await tx.insert(usuario).values({ nombre: a.nombre, email: a.email, rol: a.rol, rolesAdicionales: a.adicionales ?? [] }).returning();
       await audit(n.id, "alta", null, `${n.nombre} (${n.rol}) · pendiente de activación`);
     }
-    for (const c of CAMBIOS) {
+    for (const c of SOLO_ALTAS ? [] : CAMBIOS) {
       const [u] = await tx.select().from(usuario).where(sql`lower(${usuario.email}) in (${c.emailActual.toLowerCase()}, ${(c.email ?? c.emailActual).toLowerCase()})`);
       if (!u) continue;
       const set: Partial<typeof usuario.$inferInsert> = {};
