@@ -9,6 +9,7 @@
  * es su ficha (solicitante, proveedor, master, observaciones).
  */
 import { asc, desc, eq, sql } from "drizzle-orm";
+import { compararCodigoMp } from "@/lib/codigos-mp";
 import { db } from "@/lib/db/client";
 import { cliente, color, materiaPrima, producto, proveedorMaster } from "@/lib/db/schema";
 import { puedeGestionarColores } from "@/lib/auth/permisos";
@@ -197,8 +198,8 @@ export async function coloresParaPedido() {
 /** Masters cargados como materia prima, para vincular un color a su master. */
 export async function mastersDisponibles() {
   return db
-    .select({ id: materiaPrima.id, nombre: materiaPrima.nombre })
+    .select({ id: materiaPrima.id, codigo: materiaPrima.codigoInterno, nombre: materiaPrima.nombre })
     .from(materiaPrima)
     .where(eq(materiaPrima.tipo, "MASTER"))
-    .orderBy(asc(materiaPrima.nombre));
+    .then((filas) => filas.sort((a, b) => compararCodigoMp(a.codigo, b.codigo)).map(({ id, nombre }) => ({ id, nombre })));
 }

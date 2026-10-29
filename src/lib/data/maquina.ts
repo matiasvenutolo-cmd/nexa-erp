@@ -20,6 +20,7 @@
  *   cierra. No se ajustan cantidades solas ni se borra historial.
  */
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { compararCodigoMp } from "@/lib/codigos-mp";
 import { db } from "@/lib/db/client";
 import {
   certificadoCalidad,
@@ -554,7 +555,7 @@ export async function codigosDeSobrante() {
     // Sólo códigos de sobrante: la molienda (reciclado de coladas y descartes)
     // entra por el Molino, no se mezcla con el sobrante (mejoras 22/10).
     .where(and(eq(materiaPrima.tipo, "SOBRANTE"), eq(materiaPrima.activo, true)))
-    .orderBy(asc(materiaPrima.codigoInterno));
+    .then((filas) => filas.sort((a, b) => compararCodigoMp(a.codigo, b.codigo)));
 }
 
 /**

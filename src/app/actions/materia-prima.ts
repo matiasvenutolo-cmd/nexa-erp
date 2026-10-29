@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getUsuarioActual } from "@/lib/session";
 import { ingresarMateriaPrima } from "@/lib/data/materia-prima";
-import { ajustarStockMp, alertaCantidad, altaMateriaPrima, editarMateriaPrima, fraccionarMaster, ingresarBolsonMolienda, type TipoMp } from "@/lib/data/stock-mp";
+import { ajustarStockMp, alertaCantidad, descartarMp, altaMateriaPrima, editarMateriaPrima, fraccionarMaster, ingresarBolsonMolienda, type TipoMp } from "@/lib/data/stock-mp";
 import { fmtPeso, parseCantidadAR } from "@/lib/presentaciones";
 
 export type EstadoForm = { error?: string; ok?: string; confirmar?: string };
@@ -64,6 +64,22 @@ export async function ajusteMpAction(_p: EstadoForm, fd: FormData): Promise<Esta
   if (r.error) return { error: r.error };
   revalidar();
   return { ok: `Ajuste registrado (${signo > 0 ? "+" : "−"}${fmtPeso(valor)}).` };
+}
+
+export async function descarteMpAction(_p: EstadoForm, fd: FormData): Promise<EstadoForm> {
+  const u = await getUsuarioActual();
+  const valor = kg(fd, "kg");
+  if (valor == null || Number.isNaN(valor) || valor <= 0) return { error: "Indicá cuántos kg se descartan." };
+  const r = await descartarMp(u, {
+    materiaPrimaId: Number(fd.get("materiaPrimaId")),
+    ubicacion: fd.get("ubicacion") === "pie" ? "pie" : "deposito",
+    kg: valor,
+    motivo: String(fd.get("motivo") ?? ""),
+    detalle: txt(fd, "detalle"),
+  });
+  if (r.error) return { error: r.error };
+  revalidar();
+  return { ok: `Descarte registrado: −${fmtPeso(valor)}. Ya se descontó del stock.` };
 }
 
 export async function bolsonAction(_p: EstadoForm, fd: FormData): Promise<EstadoForm> {

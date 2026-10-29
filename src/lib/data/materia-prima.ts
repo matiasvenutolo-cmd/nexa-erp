@@ -17,6 +17,7 @@
  */
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
+import { compararCodigoMp, ordenTipoMp } from "@/lib/codigos-mp";
 import {
   compraMp,
   certificadoCalidad,
@@ -227,11 +228,12 @@ export async function listarRetiros(filtro?: { cicloId?: number; limite?: number
 }
 
 export async function materiasPrimasActivas() {
-  return db
-    .select({ id: materiaPrima.id, nombre: materiaPrima.nombre, tipo: materiaPrima.tipo })
+  const filas = await db
+    .select({ id: materiaPrima.id, nombre: materiaPrima.nombre, tipo: materiaPrima.tipo, codigo: materiaPrima.codigoInterno })
     .from(materiaPrima)
-    .where(eq(materiaPrima.activo, true))
-    .orderBy(asc(materiaPrima.tipo), asc(materiaPrima.id));
+    .where(eq(materiaPrima.activo, true));
+  // Ordenadas por tipo y código (orden natural: 3, 4, 19, 31… y luego A3, B1…).
+  return filas.sort((a, b) => ordenTipoMp(a.tipo) - ordenTipoMp(b.tipo) || compararCodigoMp(a.codigo, b.codigo)).map(({ id, nombre, tipo }) => ({ id, nombre, tipo }));
 }
 
 export async function ciclosParaRetiro() {

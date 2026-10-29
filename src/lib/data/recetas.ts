@@ -15,6 +15,7 @@
  * esta receta.
  */
 import { asc, eq, inArray } from "drizzle-orm";
+import { compararCodigoMp, ordenTipoMp } from "@/lib/codigos-mp";
 import { db } from "@/lib/db/client";
 import { materiaPrima, presentacionMp, producto, recetaCarga, recetaCargaItem, color } from "@/lib/db/schema";
 import { puedeEditarRecetas } from "@/lib/auth/permisos";
@@ -289,11 +290,11 @@ export async function productosConReceta() {
 
 /** Materiales que pueden ir en una receta (vírgenes, master, molienda/sobrante). */
 export async function materialesParaReceta() {
-  return db
+  const filas = await db
     .select({ id: materiaPrima.id, codigo: materiaPrima.codigoInterno, nombre: materiaPrima.nombre, tipo: materiaPrima.tipo })
     .from(materiaPrima)
-    .where(eq(materiaPrima.activo, true))
-    .orderBy(asc(materiaPrima.tipo), asc(materiaPrima.codigoInterno));
+    .where(eq(materiaPrima.activo, true));
+  return filas.sort((a, b) => ordenTipoMp(a.tipo) - ordenTipoMp(b.tipo) || compararCodigoMp(a.codigo, b.codigo));
 }
 
 /** minúsculas, sin acentos, espacios simples (mismo criterio que color.clave). */

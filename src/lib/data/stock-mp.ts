@@ -9,6 +9,7 @@
  */
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
+import { compararCodigoMp, ordenTipoMp } from "@/lib/codigos-mp";
 import { deposito, fraccionamientoMp, loteMp, materiaPrima, movimiento, presentacionMp, saldo, usuario } from "@/lib/db/schema";
 import { ubicacionesMp } from "@/lib/data/depositos";
 import { puedeAjustarMateriaPrima, puedeAltaMateriaPrima } from "@/lib/auth/permisos";
@@ -46,6 +47,7 @@ export async function stockMpPorUbicacion(): Promise<FilaStockMp[]> {
       .where(and(sql`${saldo.materiaPrimaId} is not null`, inArray(saldo.depositoId, [ub.deposito, ub.pie, ub.proceso]))),
     obtenerParametros(),
   ]);
+  mps.sort((a, b) => ordenTipoMp(a.tipo) - ordenTipoMp(b.tipo) || compararCodigoMp(a.codigoInterno, b.codigoInterno));
   return mps.map((m) => {
     const de = (d: number) => Number(saldos.find((s) => s.mp === m.id && s.dep === d)?.cantidad ?? 0);
     const dep = de(ub.deposito);
@@ -146,7 +148,7 @@ export async function movimientosMp(filtro: { desde?: string; hasta?: string; ma
       materiaPrima: f.materiaPrima,
       tipoMp: f.tipoMp,
       kg,
-      origen: etiquetaOrigen(f.origen),
+      origen: f.origen === "MANUAL" && f.motivo?.startsWith("Descarte:") ? "Descarte" : etiquetaOrigen(f.origen),
       motivo: f.motivo,
       usuario: f.usuario,
       lote: f.lote,
@@ -225,6 +227,50 @@ export async function ajustarStockMp(
       });
       await registrarCambios(tx, actor.id, [
         { entidad: "materia_prima", entidadId: input.materiaPrimaId, campo: `ajuste ${input.ubicacion === "pie" ? "pie de máquina" : "depósito"}`, anterior: null, nuevo: `${input.deltaKg > 0 ? "+" : ""}${input.deltaKg} kg (mov. ${id})`, motivo },
+      ]);
+      return {};
+    })
+    .catch((e) => {
+      if (e instanceof ErrorStock) return { error: e.message };
+      throw e;
+    });
+}
+
+export const MOTIVOS_DESCARTE_MP = ["Se cayó o se rompió la bolsa", "Material sucio o contaminado", "Material mojado o en mal estado", "Otro"] as const;
+
+/**
+ * Descarte (pedido del cliente 29/10/2026): material que se pierde y no vuelve
+ * a usarse — ej. se cayó media bolsa de master. Es una salida del stock (no un
+ * ajuste de balanza): descuenta los kg y queda en el historial con quién, cuándo
+ * y por qué. El motivo del movimiento empieza con «Descarte» para distinguirlo.
+ */
+export async function descartarMp(
+  actor: Actor,
+  input: { materiaPrimaId: number; ubicacion: "deposito" | "pie"; kg: number; motivo: string; detalle?: string | null },
+): Promise<Resultado> {
+  if (!puedeAjustarMateriaPrima(actor.rol)) return { error: "No tenés permiso para registrar descartes de materia prima." };
+  if (!Number.isFinite(input.kg) || input.kg <= 0) return { error: "Indicá cuántos kg se descartan." };
+  if (!input.motivo?.trim()) return { error: "Elegí el motivo del descarte." };
+  if (input.motivo.trim() === "Otro" && !input.detalle?.trim()) return { error: "Contá brevemente qué pasó." };
+  const ub = await ubicacionesMp();
+  const [mp] = await db.select({ nombre: materiaPrima.nombre }).from(materiaPrima).where(eq(materiaPrima.id, input.materiaPrimaId));
+  if (!mp) return { error: "Material no encontrado." };
+  const motivo = ["Descarte: " + input.motivo.trim(), input.detalle?.trim()].filter(Boolean).join(" — ");
+  return db
+    .transaction(async (tx) => {
+      const id = await moverEnUbicacion(tx, {
+        depositoId: ub[input.ubicacion],
+        tipo: "SALIDA",
+        mpId: input.materiaPrimaId,
+        delta: -input.kg,
+        origen: "MANUAL",
+        motivo,
+        usuarioId: actor.id,
+        nombreMp: mp.nombre,
+        nombreUbicacion: input.ubicacion === "pie" ? "A pie de máquina" : "En el depósito",
+      });
+      await registrarCambios(tx, actor.id, [
+        { entidad: "materia_prima", entidadId: input.materiaPrimaId, campo: `descarte ${input.ubicacion === "pie" ? "pie de máquina" : "depósito"}`, anterior: null, nuevo: `−${input.kg} kg (mov. ${id})`, motivo },
       ]);
       return {};
     })

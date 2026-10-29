@@ -2,7 +2,7 @@ import Link from "next/link";
 import { listarMoliendas } from "@/lib/data/molino";
 import { redirect } from "next/navigation";
 import { pieDeMaquina } from "@/lib/data/maquina";
-import { fraccionamientosRecientes, movimientosMp, stockMpPorUbicacion, MOTIVOS_AJUSTE_MP } from "@/lib/data/stock-mp";
+import { fraccionamientosRecientes, movimientosMp, stockMpPorUbicacion, MOTIVOS_AJUSTE_MP, MOTIVOS_DESCARTE_MP } from "@/lib/data/stock-mp";
 import { listarPresentaciones, presentacionesDe } from "@/lib/data/recetas";
 import { enBolsas, relevosRecientes } from "@/lib/data/taller";
 import { getUsuarioActual } from "@/lib/session";
@@ -15,7 +15,7 @@ import {
   puedeVerMateriaPrima, puedeRecibirMolienda } from "@/lib/auth/permisos";
 import { Semaforo } from "@/components/semaforo";
 import { FormAccion } from "@/components/form-accion";
-import { ajusteMpAction, altaMpAction, bolsonAction, fraccionarAction } from "@/app/actions/materia-prima";
+import { ajusteMpAction, altaMpAction, bolsonAction, descarteMpAction, fraccionarAction } from "@/app/actions/materia-prima";
 import { fmtDia, fmtFechaHora, fmtHora, fmtNumero, hoyISO } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
 import { etiquetaInyectora } from "@/lib/inyectoras";
@@ -473,6 +473,40 @@ async function Ajustes({ stock, ajusta, alta, corrige }: { stock: Stock; ajusta:
               </select>
             </label>
             <input name="detalle" placeholder="Detalle (ej. bolsa de 25 kg terminó con 24,65 kg)" className="input" />
+          </FormAccion>
+        </section>
+      )}
+      {ajusta && (
+        <section className="panel">
+          <h2 className="panel-titulo">Descarte de material</h2>
+          <p className="mb-3 text-xs text-foreground-muted">Material que se pierde y no se vuelve a usar (ej. se cayó media bolsa de master). Se descuenta del stock y queda registrado quién, cuándo y por qué.</p>
+          <FormAccion accion={descarteMpAction} boton="Registrar descarte" className="space-y-3">
+            <SelectMp stock={stock} />
+            <div className="grid grid-cols-2 gap-2">
+              <label className="campo">
+                <span>De dónde</span>
+                <select name="ubicacion" className="input" defaultValue="deposito">
+                  <option value="deposito">Stock general</option>
+                  <option value="pie">Stock a pie de máquina</option>
+                </select>
+              </label>
+              <label className="campo">
+                <span>Kg descartados</span>
+                <input name="kg" inputMode="decimal" required placeholder="Ej.: media bolsa de 25 kg = 12,5" className="input" />
+              </label>
+            </div>
+            <label className="campo">
+              <span>Motivo</span>
+              <select name="motivo" required defaultValue="" className="input">
+                <option value="" disabled>
+                  Elegí…
+                </option>
+                {MOTIVOS_DESCARTE_MP.map((m) => (
+                  <option key={m}>{m}</option>
+                ))}
+              </select>
+            </label>
+            <input name="detalle" placeholder="Detalle (ej. se rompió la bolsa al bajarla del estante)" className="input" />
           </FormAccion>
         </section>
       )}

@@ -7,6 +7,7 @@
  */
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { compararCodigoMp } from "@/lib/codigos-mp";
 import { db } from "@/lib/db/client";
 import { cicloProduccion, descarteMolino, materiaPrima, moliendaEntrega, usuario } from "@/lib/db/schema";
 import { puedeOperarMolino, puedeRecibirMolienda } from "@/lib/auth/permisos";
@@ -122,7 +123,8 @@ export async function confirmarMolienda(actor: Actor, id: number, input: { acept
 
 /** Códigos de molienda (no sobrante) para elegir al entregar. */
 export async function codigosMolienda() {
-  return db.select({ id: materiaPrima.id, nombre: materiaPrima.nombre }).from(materiaPrima).where(and(eq(materiaPrima.tipo, "MOLIENDA"), eq(materiaPrima.activo, true))).orderBy(asc(materiaPrima.nombre));
+  const filas = await db.select({ id: materiaPrima.id, codigo: materiaPrima.codigoInterno, nombre: materiaPrima.nombre }).from(materiaPrima).where(and(eq(materiaPrima.tipo, "MOLIENDA"), eq(materiaPrima.activo, true)));
+  return filas.sort((a, b) => compararCodigoMp(a.codigo, b.codigo)).map(({ id, nombre }) => ({ id, nombre }));
 }
 
 /** Producciones recientes para vincular un descarte (opcional). */
