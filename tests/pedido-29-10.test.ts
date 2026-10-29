@@ -17,6 +17,10 @@ import { abrirBase, cerrarBase, sembrar, type Semilla } from "./helpers/db";
 import { compararCodigoMp, ordenTipoMp } from "@/lib/codigos-mp";
 import { descartarMp, movimientosMp, stockMpPorUbicacion } from "@/lib/data/stock-mp";
 import { ingresarMateriaPrima } from "@/lib/data/materia-prima";
+import { getUsuarioPorEmail } from "@/lib/data/usuarios";
+import * as schema from "@/lib/db/schema";
+import { holder } from "./helpers/db";
+import { eq } from "drizzle-orm";
 
 let s: Semilla;
 
@@ -57,5 +61,20 @@ describe("descarte de materia prima", () => {
     expect(mov).toMatchObject({ kg: -12.5, origen: "Descarte", ubicacion: "Stock general" });
     expect(mov.motivo).toBe("Descarte: Se cayó o se rompió la bolsa — media bolsa");
     expect((await descartarMp(s.usuarios.MATERIA_PRIMA, { materiaPrimaId: id, ubicacion: "pie", kg: 1, motivo: "Material sucio o contaminado" })).error).toMatch(/no alcanza/);
+  });
+});
+
+describe("email alternativo", () => {
+  beforeAll(async () => {
+    s = await sembrar(await abrirBase());
+  });
+  afterAll(cerrarBase);
+
+  it("la persona entra con su email principal o con el alternativo", async () => {
+    const u = s.usuarios.SUPERVISOR;
+    await holder.db!.update(schema.usuario).set({ email: "eduardo@nexa.com.ar", emailAlternativo: "egonzalez@cpsudamericana.com" }).where(eq(schema.usuario.id, u.id));
+    expect((await getUsuarioPorEmail("eduardo@nexa.com.ar"))?.id).toBe(u.id);
+    expect((await getUsuarioPorEmail(" EGonzalez@cpsudamericana.com "))?.id).toBe(u.id);
+    expect(await getUsuarioPorEmail("otro@cpsudamericana.com")).toBeUndefined();
   });
 });

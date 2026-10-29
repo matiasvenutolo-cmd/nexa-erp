@@ -32,6 +32,8 @@ const MOTIVO = "Conciliación con el Excel de usuarios del cliente (22/10/2026)"
 const APLICAR = process.argv.includes("--aplicar");
 /** --solo-altas: crea las cuentas nuevas sin tocar a quienes ya entran (29/10/2026). */
 const SOLO_ALTAS = process.argv.includes("--solo-altas");
+/** --solo-perfiles: aplica los cambios de perfiles sin tocar emails. */
+const SOLO_PERFILES = process.argv.includes("--solo-perfiles");
 
 /** Personas que tienen que existir (nombre como en el Excel, con mayúsculas). */
 const ALTAS: { nombre: string; email: string | null; rol: Rol; adicionales?: Rol[] }[] = [
@@ -80,7 +82,7 @@ async function main() {
     const ya = (a.email && porEmail(a.email)) || porNombre(a.nombre);
     plan.push(ya ? `= ya existe: ${a.nombre} (id ${ya.id}, ${ya.rol})` : `+ alta: ${a.nombre} · ${a.rol} · ${a.email ?? "sin email"} · pendiente de activación`);
   }
-  for (const c of SOLO_ALTAS ? [] : CAMBIOS) {
+  for (const c of SOLO_ALTAS ? [] : SOLO_PERFILES ? CAMBIOS.filter((x) => !x.email) : CAMBIOS) {
     const u = porEmail(c.emailActual) ?? (c.email ? porEmail(c.email) : undefined);
     if (!u) plan.push(`! no encontrado: ${c.emailActual}`);
     else plan.push(`~ ${u.nombre}: ${c.nota}${c.email && u.email !== c.email ? ` (${u.email} → ${c.email})` : ""}`);
@@ -114,7 +116,7 @@ async function main() {
       const [n] = await tx.insert(usuario).values({ nombre: a.nombre, email: a.email, rol: a.rol, rolesAdicionales: a.adicionales ?? [] }).returning();
       await audit(n.id, "alta", null, `${n.nombre} (${n.rol}) · pendiente de activación`);
     }
-    for (const c of SOLO_ALTAS ? [] : CAMBIOS) {
+    for (const c of SOLO_ALTAS ? [] : SOLO_PERFILES ? CAMBIOS.filter((x) => !x.email) : CAMBIOS) {
       const [u] = await tx.select().from(usuario).where(sql`lower(${usuario.email}) in (${c.emailActual.toLowerCase()}, ${(c.email ?? c.emailActual).toLowerCase()})`);
       if (!u) continue;
       const set: Partial<typeof usuario.$inferInsert> = {};

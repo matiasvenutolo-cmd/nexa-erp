@@ -12,11 +12,13 @@ export async function getUsuario(id: number): Promise<Usuario | undefined> {
   return row;
 }
 
+/** Busca por el email principal o el alternativo (los dos sirven para entrar). */
 export async function getUsuarioPorEmail(email: string): Promise<Usuario | undefined> {
+  const e = email.trim().toLowerCase();
   const [row] = await db
     .select()
     .from(usuario)
-    .where(eq(usuario.email, email.trim().toLowerCase()));
+    .where(or(eq(usuario.email, e), eq(usuario.emailAlternativo, e)));
   return row;
 }
 
@@ -110,7 +112,7 @@ export function normalizarEmail(email: string | null | undefined): { email: stri
 
 export type Acceso = "contraseña" | "PIN" | "contraseña y PIN" | "pendiente";
 
-export type FilaUsuarioAdmin = Pick<Usuario, "id" | "nombre" | "email" | "rol" | "rolesAdicionales" | "activo" | "creadoEn"> & {
+export type FilaUsuarioAdmin = Pick<Usuario, "id" | "nombre" | "email" | "emailAlternativo" | "rol" | "rolesAdicionales" | "activo" | "creadoEn"> & {
   accede: Acceso;
   tienePin: boolean;
   tieneClave: boolean;
@@ -138,6 +140,7 @@ export async function listarUsuariosAdmin(soloOperarios = false): Promise<FilaUs
     id: u.id,
     nombre: u.nombre,
     email: u.email,
+    emailAlternativo: u.emailAlternativo,
     rol: u.rol,
     rolesAdicionales: u.rolesAdicionales,
     activo: u.activo,

@@ -176,6 +176,7 @@ function FilaUsuario({ u, esUsted, soloOperarios, otorgables }: { u: FilaUsuario
           )}
         </details>
         {u.email && <div className="text-xs text-foreground-muted">{u.email}</div>}
+        {u.emailAlternativo && <div className="text-xs text-foreground-muted">También entra con {u.emailAlternativo}</div>}
       </td>
       <td className={TD}>
         {ROL_LABEL[u.rol]}

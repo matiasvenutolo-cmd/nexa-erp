@@ -212,6 +212,9 @@ export const usuario = pgTable(
     id: serial("id").primaryKey(),
     nombre: text("nombre").notNull(),
     email: text("email").unique(),
+    /** Segundo email con el que también puede entrar (ej. el de la empresa
+     *  además del que ya usaba; pedido del cliente 29/10/2026). */
+    emailAlternativo: text("email_alternativo").unique(),
     passwordHash: text("password_hash"),
     pinHash: text("pin_hash"),
     rol: rolEnum("rol").notNull(),
