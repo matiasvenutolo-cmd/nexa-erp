@@ -7,7 +7,7 @@
  * Cada paso queda en `reclamo_evento`. El aviso al supervisor y el informe a
  * gerencia usan el mismo mecanismo de avisos del sistema.
  */
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
 import { caja, cliente, despacho, pedido, piqueo, reclamo, reclamoEvento, usuario } from "@/lib/db/schema";
@@ -55,7 +55,8 @@ export async function crearReclamo(
     let partidaId: number | null = null;
     let despachoId: number | null = null;
     if (input.cajaCodigo?.trim()) {
-      const [c] = await tx.select().from(caja).where(eq(caja.codigoBarra, input.cajaCodigo.trim().toUpperCase()));
+      const cod = input.cajaCodigo.trim().toUpperCase();
+      const [c] = await tx.select().from(caja).where(or(eq(caja.codigoBarra, cod), eq(caja.codigoEtiqueta, cod))).orderBy(asc(caja.id)).limit(1);
       if (!c) return { error: `No existe la caja ${input.cajaCodigo.trim()}.` };
       // La caja tiene que haber salido en un despacho de ESTE pedido: si no, el
       // reclamo apuntaría a una partida que el cliente nunca recibió.
@@ -223,7 +224,7 @@ export async function obtenerReclamo(id: number) {
       clienteNombre: cliente.nombre,
       creadoPorNombre: creador.nombre,
       supervisorNombre: supervisor.nombre,
-      cajaCodigo: caja.codigoBarra,
+      cajaCodigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`,
     })
     .from(reclamo)
     .innerJoin(pedido, eq(reclamo.pedidoId, pedido.id))

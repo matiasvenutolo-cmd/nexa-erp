@@ -221,9 +221,9 @@ describe("Pedido · producción · cajas", () => {
     expect(r.error).toBeUndefined();
     cajas = await db().select().from(schema.caja).where(eq(schema.caja.cicloId, cicloId));
     expect(cajas.map((c) => [c.codigoBarra, c.cantidad])).toEqual([
-      ["P00001-C0001", 25],
-      ["P00001-C0002", 25],
-      ["P00001-C0003", 10],
+      ["P6000001-C0001", 25],
+      ["P6000001-C0002", 25],
+      ["P6000001-C0003", 10],
     ]);
     expect(await stock(s.productos.rejNegro.id)).toBe(60);
   });
@@ -358,7 +358,9 @@ describe("R4 · Trazabilidad en los dos sentidos", () => {
     expect(t.usos).toEqual([{ cicloId, kg: 40, partidaId: expect.any(Number) }]);
     expect(t.cajas).toHaveLength(3);
     expect(new Set(t.destinos.map((d) => d.clienteNombre))).toEqual(new Set(["Carrefour"]));
-    expect(t.destinos.map((d) => d.cajaCodigo)).toEqual(["P00001-C0001", "P00001-C0002", "P00001-C0003"]);
+    // Se muestra el código de la etiqueta (formato del cliente): las dos cajas
+    // de 25 de la misma partida lo comparten.
+    expect(t.destinos.map((d) => d.cajaCodigo)).toEqual(["001B-PR-NE-6000001-00025", "001B-PR-NE-6000001-00025", "001B-PR-NE-6000001-00010"]);
   });
 
   it("cliente → pedido → caja → partida → lote → certificado", async () => {
@@ -372,7 +374,7 @@ describe("R4 · Trazabilidad en los dos sentidos", () => {
   });
 
   it("caja → pedido y certificado → lotes", async () => {
-    const c = (await trazarCaja("p00001-c0003"))!;
+    const c = (await trazarCaja("p6000001-c0003"))!;
     expect(c.destinos[0]).toMatchObject({ pedidoId, unidades: 10, remitoInterno: "R-000001" });
     expect(c.origen.numero).toBe(1);
     const cert = (await trazarCertificado(1))!;
@@ -389,11 +391,11 @@ describe("Reclamos", () => {
       pedidoId,
       descripcion: "Llegaron baldosas con rebaba",
       motivoDevolucion: "MERCADERIA_FALLADA",
-      cajaCodigo: "P00001-C0002",
+      cajaCodigo: "P6000001-C0002",
     });
     reclamoId = r.id!;
     const rec = (await obtenerReclamo(reclamoId))!;
-    expect(rec).toMatchObject({ estado: "ABIERTO", cajaCodigo: "P00001-C0002", partidaId: expect.any(Number), despachoId: expect.any(Number) });
+    expect(rec).toMatchObject({ estado: "ABIERTO", cajaCodigo: "001B-PR-NE-6000001-00025", partidaId: expect.any(Number), despachoId: expect.any(Number) });
     expect((await listarAvisos("SUPERVISOR"))[0]).toMatchObject({ tipo: "RECLAMO_NUEVO", reclamoId });
   });
 

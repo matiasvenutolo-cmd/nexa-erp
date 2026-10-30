@@ -92,6 +92,13 @@
       "when": 1793308996034,
       "tag": "0012_email_alternativo",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793380717524,
+      "tag": "0013_codigo_barra_nexa",
+      "breakpoints": true
     }
   ]
 }

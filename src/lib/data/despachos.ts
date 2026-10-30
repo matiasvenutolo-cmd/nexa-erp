@@ -258,7 +258,7 @@ export async function listarDespachos(pedidoId: number): Promise<DespachoDetalle
       cantidad: piqueo.cantidad,
       conAlerta: piqueo.conAlerta,
       motivoAlerta: piqueo.motivoAlerta,
-      cajaCodigo: caja.codigoBarra,
+      cajaCodigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`,
       partidaNumero: partida.numero,
       productoCodigo: producto.codigo,
       usuarioNombre: usuario.nombre,
@@ -290,7 +290,7 @@ export async function cajasDisponibles(productoIds: number[]) {
   const filas = await db
     .select({
       id: caja.id,
-      codigo: caja.codigoBarra,
+      codigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`,
       productoId: caja.productoId,
       cantidad: caja.cantidad,
       partidaNumero: partida.numero,
@@ -337,6 +337,32 @@ export async function iniciarDespacho(actor: Actor, pedidoId: number): Promise<R
   });
 }
 
+/**
+ * Elige la caja de una etiqueta compartida. Armado: la primera que todavía
+ * tiene unidades sin comprometer. Control final: la primera armada en este
+ * despacho que falta controlar. Si ninguna cumple, devuelve la primera para
+ * que la lectura quede registrada con la alerta que corresponda.
+ */
+async function cajaPorEtiqueta(tx: Tx, codigo: string, tipo: "ARMADO" | "CONTROL_FINAL", despachoId: number) {
+  const candidatas = await tx.select().from(caja).where(eq(caja.codigoEtiqueta, codigo)).orderBy(asc(caja.numeroCaja), asc(caja.id));
+  if (candidatas.length <= 1) return candidatas[0];
+  if (tipo === "ARMADO") {
+    const usado = await usadoDeCajas(tx, candidatas.map((x) => x.id));
+    return candidatas.find((x) => x.estado !== "BAJA" && x.cantidad - (usado.get(x.id) ?? 0) > 0) ?? candidatas[0];
+  }
+  const porCaja = await tx
+    .select({
+      cajaId: piqueo.cajaId,
+      armado: sql<number>`coalesce(sum(${piqueo.cantidad}) filter (where ${piqueo.tipo} = 'ARMADO'), 0)`.mapWith(Number),
+      controlado: sql<number>`coalesce(sum(${piqueo.cantidad}) filter (where ${piqueo.tipo} = 'CONTROL_FINAL'), 0)`.mapWith(Number),
+    })
+    .from(piqueo)
+    .where(and(eq(piqueo.despachoId, despachoId), eq(piqueo.conAlerta, false), inArray(piqueo.cajaId, candidatas.map((x) => x.id))))
+    .groupBy(piqueo.cajaId);
+  const pendiente = porCaja.find((x) => x.armado - x.controlado > 0) ?? porCaja.find((x) => x.armado > 0);
+  return candidatas.find((x) => x.id === pendiente?.cajaId) ?? candidatas[0];
+}
+
 export type ResultadoPiqueo = Resultado & { alerta?: string; ok?: string };
 
 /**
@@ -363,8 +389,11 @@ export async function piquear(
     const tipo = d.estado === "ARMANDO" ? "ARMADO" : d.estado === "CONTROLADO" ? "CONTROL_FINAL" : null;
     if (!tipo) return { error: "Este despacho ya no admite lecturas." };
 
-    // ¿Caja o producto?
-    const [c] = await tx.select().from(caja).where(eq(caja.codigoBarra, codigo));
+    // ¿Caja o producto? La etiqueta del cliente identifica el grupo de cajas
+    // (producto + partida + cantidad), no una caja: se toma la próxima que
+    // corresponda. El identificador interno sigue apuntando a una caja exacta.
+    const [exacta] = await tx.select().from(caja).where(eq(caja.codigoBarra, codigo));
+    const c = exacta ?? (await cajaPorEtiqueta(tx, codigo, tipo, despachoId));
     let productoId: number | null = c?.productoId ?? null;
     if (!c) {
       const [p] = await tx
@@ -816,7 +845,7 @@ export async function existenciasProducto(productoId: number) {
   const params = await obtenerParametros();
   const capacidad = unidadesPorCaja(prod, params);
   const cajas = await db
-    .select({ id: caja.id, codigo: caja.codigoBarra, cantidad: caja.cantidad, estado: caja.estado, fecha: caja.fecha, partidaNumero: partida.numero })
+    .select({ id: caja.id, codigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`, cantidad: caja.cantidad, estado: caja.estado, fecha: caja.fecha, partidaNumero: partida.numero })
     .from(caja)
     .innerJoin(partida, eq(caja.partidaId, partida.id))
     .where(and(eq(caja.productoId, productoId), inArray(caja.estado, ["EN_STOCK", "ARMADA"])))

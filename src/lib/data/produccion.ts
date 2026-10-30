@@ -36,6 +36,7 @@ import { materialComprometido, ordenPrioridad, type FilaComprometido } from "@/l
 import { unidadesPorCaja } from "@/lib/data/catalogo";
 import { PARAMETROS } from "@/lib/data/parametros";
 import { hoyISO } from "@/lib/format";
+import { codigoEtiquetaCaja } from "@/lib/codigo-nexa";
 import { resolverInyectora } from "@/lib/inyectoras";
 import { resolverDosificacion } from "@/lib/data/dosificacion";
 
@@ -84,7 +85,10 @@ export async function resumenParaCiclo(productoId: number) {
   const depositoId = await getDepositoNexaId();
   const [abiertas, [{ maxNumero }], dosif, pedidos, [s]] = await Promise.all([
     partidasAbiertasDe(productoId),
-    db.select({ maxNumero: sql<number>`coalesce(max(${partida.numero}), 0)`.mapWith(Number) }).from(partida),
+    db
+      .select({ maxNumero: sql<number>`coalesce(max(${partida.numero}), 0)`.mapWith(Number) })
+      .from(partida)
+      .where(eq(partida.anio, Number(hoyISO().slice(0, 4)))),
     p.familia ? resolverDosificacion(p.familia, p.colorId) : Promise.resolve(null),
     pedidosQueNecesitan(productoId),
     db.select({ cantidad: saldo.cantidad }).from(saldo).where(and(eq(saldo.depositoId, depositoId), eq(saldo.productoId, productoId))),
@@ -184,12 +188,18 @@ export async function crearCiclo(input: NuevoCicloInput): Promise<{ id: number }
         .where(and(eq(cicloProduccion.partidaId, partidaId), isNull(cicloProduccion.fechaFin)));
       if (abierto) return { error: `La partida N° ${p.numero} tiene la producción #${abierto.id} sin cerrar: cerrala antes de continuar.` };
     } else {
+      // Correlativo dentro del año de la producción: con el año nuevo vuelve a
+      // empezar (regla del cliente 30/10/2026). El bloqueo serializa dos
+      // altas simultáneas para que no tomen el mismo número.
+      const anio = Number(input.fecha.slice(0, 4));
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('partida'), ${anio})`);
       const [{ maxNumero }] = await tx
         .select({ maxNumero: sql<number>`coalesce(max(${partida.numero}), 0)`.mapWith(Number) })
-        .from(partida);
+        .from(partida)
+        .where(eq(partida.anio, anio));
       const [nueva] = await tx
         .insert(partida)
-        .values({ numero: maxNumero + 1, productoId: input.productoId, fechaApertura: input.fecha })
+        .values({ anio, numero: maxNumero + 1, productoId: input.productoId, fechaApertura: input.fecha })
         .returning();
       partidaId = nueva.id;
     }
@@ -413,8 +423,10 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** "P00012-C0003": partida 12, caja 3. Identificador interno de la caja para
  *  piquearla; el diseño de la etiqueta impresa queda fuera de esta etapa. */
-export function codigoCaja(partidaNumero: number, numeroCaja: number): string {
-  return `P${String(partidaNumero).padStart(5, "0")}-C${String(numeroCaja).padStart(4, "0")}`;
+/** Identificador interno único de la caja (la etiqueta lleva el código del
+ *  cliente, que no distingue una caja de otra de la misma partida). */
+export function codigoCaja(anio: number, partidaNumero: number, numeroCaja: number): string {
+  return `P${anio % 10}${String(partidaNumero).padStart(6, "0")}-C${String(numeroCaja).padStart(4, "0")}`;
 }
 
 /**
@@ -426,10 +438,10 @@ export function codigoCaja(partidaNumero: number, numeroCaja: number): string {
  */
 export async function generarCajas(tx: Tx, input: { cicloId: number; partidaId: number; productoId: number; piezas: number }) {
   const [prod] = await tx
-    .select({ esAccesorio: producto.esAccesorio, unidadesPorCaja: producto.unidadesPorCaja })
+    .select({ esAccesorio: producto.esAccesorio, unidadesPorCaja: producto.unidadesPorCaja, codigo: producto.codigo, codigoBarras: producto.codigoBarras })
     .from(producto)
     .where(eq(producto.id, input.productoId));
-  const [part] = await tx.select({ numero: partida.numero }).from(partida).where(eq(partida.id, input.partidaId));
+  const [part] = await tx.select({ anio: partida.anio, numero: partida.numero }).from(partida).where(eq(partida.id, input.partidaId));
   const [param] = await tx.select({ valor: parametro.valor }).from(parametro).where(eq(parametro.clave, PARAMETROS.UNIDADES_POR_CAJA_PISOS));
   if (!param) throw new Error(`Falta el parámetro "${PARAMETROS.UNIDADES_POR_CAJA_PISOS}".`);
   const porCaja = unidadesPorCaja(prod, { unidades_por_caja_pisos: Number(param.valor) });
@@ -453,7 +465,10 @@ export async function generarCajas(tx: Tx, input: { cicloId: number; partidaId: 
       cicloId: input.cicloId,
       numeroCaja: ultimo + i + 1,
       cantidad,
-      codigoBarra: codigoCaja(part.numero, ultimo + i + 1),
+      codigoBarra: codigoCaja(part.anio, part.numero, ultimo + i + 1),
+      // Etiqueta: código de barras del producto de la lista del cliente
+      // (001B-RU-NE); si no lo tiene cargado, el código interno.
+      codigoEtiqueta: codigoEtiquetaCaja(prod.codigoBarras?.trim() || prod.codigo, part.anio, part.numero, cantidad),
       fecha: hoy,
     })),
   );
@@ -656,7 +671,7 @@ export async function colaProduccion(): Promise<FilaCola[]> {
 /** Cajas que generó un ciclo al cerrarse, con su estado actual. */
 export async function cajasDeCiclo(cicloId: number) {
   return db
-    .select({ id: caja.id, codigo: caja.codigoBarra, cantidad: caja.cantidad, estado: caja.estado })
+    .select({ id: caja.id, codigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`, cantidad: caja.cantidad, estado: caja.estado })
     .from(caja)
     .where(eq(caja.cicloId, cicloId))
     .orderBy(asc(caja.numeroCaja));

@@ -111,7 +111,7 @@ async function main() {
     return;
   }
 
-  const [sistema] = await db.select().from(schema.usuario).where(eq(schema.usuario.nombre, "Importación (sistema)")).orderBy(asc(schema.usuario.id)).limit(1);
+  const [sistema] = await db.select({ id: schema.usuario.id }).from(schema.usuario).where(eq(schema.usuario.nombre, "Importación (sistema)")).orderBy(asc(schema.usuario.id)).limit(1);
   if (!sistema) throw new Error('Falta el usuario técnico "Importación (sistema)".');
   await db.transaction(async (tx) => {
     // Orden: de las hojas a la raíz (las claves foráneas no borran en cascada).

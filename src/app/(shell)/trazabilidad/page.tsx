@@ -127,7 +127,7 @@ async function Resultado({ tipo, valor }: { tipo: Tipo; valor: string }) {
   }
 
   if (tipo === "partida") {
-    const t = Number.isFinite(Number(valor)) ? await trazarPartida(Number(valor)) : null;
+    const t = await trazarPartida(String(valor));
     if (!t || !t.origen) return sinResultado;
     return (
       <>

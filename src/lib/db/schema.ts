@@ -724,16 +724,23 @@ export const retiroMp = pgTable("retiro_mp", {
  *
  * Agrupa todo lo inyectado con la misma combinación de material y color.
  */
+/**
+ * Numeración (regla del cliente, 30/10/2026): el número de partida es
+ * correlativo dentro del año y vuelve a empezar al cambiar el año. En el
+ * código de barras va como 7 dígitos: el último dígito del año + 6 de partida
+ * (2026, partida 165 → 6000165). Ver src/lib/codigo-nexa.ts.
+ */
 export const partida = pgTable("partida", {
   id: serial("id").primaryKey(),
-  numero: integer("numero").notNull().unique(), // correlativo generado
+  anio: integer("anio").notNull(),
+  numero: integer("numero").notNull(), // correlativo generado, dentro del año
   productoId: integer("producto_id").references(() => producto.id),
   descripcionProducto: text("descripcion_producto"), // para el histórico importado
   fechaApertura: date("fecha_apertura").notNull(),
   fechaCierre: date("fecha_cierre"),
   observaciones: text("observaciones"),
   creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [uniqueIndex("partida_anio_numero_uq").on(t.anio, t.numero)]);
 
 /**
  * Inicio y fin separados — pedido explícito de Ignacio en la reunión: "yo esto
@@ -938,13 +945,19 @@ export const caja = pgTable(
     cicloId: integer("ciclo_id").references(() => cicloProduccion.id),
     numeroCaja: integer("numero_caja").notNull(),
     cantidad: integer("cantidad").notNull(),
+    /** Identificador interno único de la caja (trazabilidad). */
     codigoBarra: text("codigo_barra").notNull().unique(),
+    /** Código impreso en la etiqueta, formato del cliente:
+     *  001B-RU-NE-6000165-00025 (producto-partida-cantidad). No es único: las
+     *  cajas de una misma partida con la misma cantidad lo comparten. */
+    codigoEtiqueta: text("codigo_etiqueta"),
     estado: estadoCajaEnum("estado").notNull().default("EN_STOCK"),
     fecha: date("fecha").notNull(),
     creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("caja_partida_idx").on(t.partidaId),
+    index("caja_etiqueta_idx").on(t.codigoEtiqueta),
     index("caja_estado_idx").on(t.productoId, t.estado),
   ],
 );

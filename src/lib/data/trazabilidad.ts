@@ -9,8 +9,9 @@
  *   partida → caja → piqueo de control final → despacho entregado → pedido →
  *   cliente.
  */
-import { and, asc, eq, ilike, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
+import { leerPartidaNexa } from "@/lib/codigo-nexa";
 import {
   caja,
   certificadoCalidad,
@@ -140,7 +141,7 @@ async function salidas(condicion: ReturnType<typeof and>): Promise<Destino[]> {
   const filas = await db
     .select({
       cajaId: caja.id,
-      cajaCodigo: caja.codigoBarra,
+      cajaCodigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`,
       partidaId: partida.id,
       partidaNumero: partida.numero,
       productoCodigo: producto.codigo,
@@ -169,7 +170,7 @@ async function salidas(condicion: ReturnType<typeof and>): Promise<Destino[]> {
 async function cajasDePartidas(partidaIds: number[]) {
   if (partidaIds.length === 0) return [];
   return db
-    .select({ id: caja.id, codigo: caja.codigoBarra, partidaId: caja.partidaId, cantidad: caja.cantidad, estado: caja.estado, fecha: caja.fecha })
+    .select({ id: caja.id, codigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`, partidaId: caja.partidaId, cantidad: caja.cantidad, estado: caja.estado, fecha: caja.fecha })
     .from(caja)
     .where(inArray(caja.partidaId, partidaIds))
     .orderBy(asc(caja.numeroCaja));
@@ -202,8 +203,13 @@ export async function pedidosDeCliente(texto: string) {
     .limit(50);
 }
 
-export async function trazarPartida(numero: number) {
-  const [p] = await db.select({ id: partida.id }).from(partida).where(eq(partida.numero, numero));
+/** Acepta «165» (partida del año en curso) o los 7 dígitos del código de
+ *  barras («6000165»). */
+export async function trazarPartida(texto: string) {
+  const anioActual = Number(new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }).slice(0, 4));
+  const leida = leerPartidaNexa(texto, anioActual);
+  if (!leida) return null;
+  const [p] = await db.select({ id: partida.id }).from(partida).where(and(eq(partida.anio, leida.anio), eq(partida.numero, leida.numero)));
   if (!p) return null;
   const [origen] = await origenDePartidas([p.id]);
   const cajas = await cajasDePartidas([p.id]);
@@ -212,7 +218,8 @@ export async function trazarPartida(numero: number) {
 }
 
 export async function trazarCaja(codigo: string) {
-  const [c] = await db.select().from(caja).where(eq(caja.codigoBarra, codigo.trim().toUpperCase()));
+  const cod = codigo.trim().toUpperCase();
+  const [c] = await db.select().from(caja).where(or(eq(caja.codigoBarra, cod), eq(caja.codigoEtiqueta, cod))).orderBy(asc(caja.id)).limit(1);
   if (!c) return null;
   const [origen] = await origenDePartidas([c.partidaId]);
   const destinos = await salidas(and(eq(caja.id, c.id)));
