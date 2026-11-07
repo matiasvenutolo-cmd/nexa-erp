@@ -102,8 +102,10 @@ export async function crearPedidoAction(_prev: FormState, fd: FormData): Promise
     l.productoId = resultado.id;
   }
 
-  // El N° de orden lo asigna el sistema (correlativo).
-  const numeroOrden = null;
+  // El N° de orden lo carga Ventas: es el que da el sistema de pedidos en la
+  // nube, para que coincidan (listado de mejoras durante el uso, nov. 2026).
+  const numeroOrden = String(fd.get("numeroOrden") ?? "").trim();
+  if (!numeroOrden) return { error: "Cargá el N° de orden del pedido." };
   const prioridad = Number(fd.get("prioridad") ?? 0) || 0;
   // Igual que arriba: quien no ve precios en la UI tampoco puede fijarlos
   // mandando el campo a mano.
@@ -166,6 +168,7 @@ export async function editarPedidoAction(_prev: FormState, fd: FormData): Promis
 
   const r = await editarPedido(pedidoId, {
     fechaEntregaPactada: String(fd.get("fechaEntregaPactada") ?? "").trim() || null,
+    numeroOrden: String(fd.get("numeroOrden") ?? "").trim() || undefined,
     contacto: String(fd.get("contacto") ?? "").trim() || null,
     domicilioEntrega: String(fd.get("domicilio") ?? "").trim() || null,
     modoEntrega: String(fd.get("modoEntrega") ?? "").trim() || null,

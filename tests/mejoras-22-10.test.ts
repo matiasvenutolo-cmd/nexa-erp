@@ -108,10 +108,11 @@ describe("Perfiles y permisos (Excel de usuarios)", () => {
   it("una persona con varios perfiles: con contraseña los usa todos, con PIN sólo los de planta", () => {
     const dylan = { rol: "RETIROS_MP" as const, rolesAdicionales: ["OPERARIO", "ENCARGADO"] as ("OPERARIO" | "ENCARGADO")[] };
     expect(perfilesDe(dylan, "clave")).toEqual(["RETIROS_MP", "OPERARIO", "ENCARGADO"]);
-    expect(perfilesDe(dylan, "pin")).toEqual(["OPERARIO", "RETIROS_MP"]);
+    // El Encargado también entra con PIN (listado de mejoras durante el uso, nov. 2026).
+    expect(perfilesDe(dylan, "pin")).toEqual(["OPERARIO", "RETIROS_MP", "ENCARGADO"]);
     expect(perfilesDe({ rol: "SUPERVISOR", rolesAdicionales: [] }, "pin")).toEqual([]);
     // Con la sesión en otro perfil, el principal no se pierde de la lista.
-    expect(perfilesDe({ ...dylan, rol: "OPERARIO", rolPrincipal: "RETIROS_MP" }, "pin")).toEqual(["OPERARIO", "RETIROS_MP"]);
+    expect(perfilesDe({ ...dylan, rol: "OPERARIO", rolPrincipal: "RETIROS_MP" }, "pin")).toEqual(["OPERARIO", "RETIROS_MP", "ENCARGADO"]);
     expect(perfilesDe({ ...dylan, rol: "ENCARGADO", rolPrincipal: "RETIROS_MP" }, "clave")).toEqual(["RETIROS_MP", "OPERARIO", "ENCARGADO"]);
   });
 });

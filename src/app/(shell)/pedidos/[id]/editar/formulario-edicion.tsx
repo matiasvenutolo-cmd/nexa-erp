@@ -34,6 +34,12 @@ export function FormularioEdicion({
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
+        <Campo label="N° de orden">
+          <input name="numeroOrden" required defaultValue={pedido.numeroOrden ?? ""} className="input" />
+        </Campo>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
         <Campo label="Contacto (teléfono)">
           <input name="contacto" defaultValue={pedido.contacto ?? ""} className="input" />
         </Campo>

@@ -32,6 +32,16 @@ export function FormIngreso({ materias, hoy, compras = [], compraInicial }: { ma
   const delMaterial = compras.filter((c) => String(c.materiaPrimaId) === mpId);
   const [codigo, setCodigo] = useState("");
   const [cantidad, setCantidad] = useState("");
+  // Registrado el ingreso, el código y la cantidad quedan vacíos para leer la
+  // bolsa siguiente (listado de mejoras durante el uso, nov. 2026).
+  const [estadoVisto, setEstadoVisto] = useState(state);
+  if (state !== estadoVisto) {
+    setEstadoVisto(state);
+    if (state.ok) {
+      setCodigo("");
+      setCantidad("");
+    }
+  }
   const limpio = codigo.replace(/\s+/g, "");
   const kg = parseCantidadAR(cantidad);
   return (
@@ -46,7 +56,17 @@ export function FormIngreso({ materias, hoy, compras = [], compraInicial }: { ma
       )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Campo label="Materia prima *">
-          <select name="materiaPrimaId" required value={mpId} onChange={(e) => setMpId(e.target.value)} className="input">
+          <select
+            name="materiaPrimaId"
+            required
+            value={mpId}
+            onChange={(e) => {
+              setMpId(e.target.value);
+              // Un código leído para otro material no sirve para este.
+              setCodigo("");
+            }}
+            className="input"
+          >
             <option value="" disabled>
               Elegí…
             </option>

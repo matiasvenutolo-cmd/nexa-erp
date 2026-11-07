@@ -521,6 +521,8 @@ export async function asignarProductoALinea(
 
 export type EdicionPedidoInput = {
   fechaEntregaPactada: string | null;
+  /** undefined = no se cambia (no se puede dejar un pedido sin N° de orden). */
+  numeroOrden?: string;
   contacto: string | null;
   domicilioEntrega: string | null;
   modoEntrega: string | null;
@@ -540,6 +542,10 @@ export async function editarPedido(pedidoId: number, input: EdicionPedidoInput):
   const actual = await db.query.pedido.findFirst({ where: eq(pedido.id, pedidoId) });
   if (!actual) return { error: "Pedido no encontrado." };
   if (actual.estado === "CANCELADO") return { error: "Un pedido cancelado no se puede editar." };
+  if (input.numeroOrden && input.numeroOrden !== actual.numeroOrden) {
+    const [ya] = await db.select({ id: pedido.id }).from(pedido).where(eq(pedido.numeroOrden, input.numeroOrden));
+    if (ya) return { error: `Ya existe el pedido #${ya.id} con el N° de orden ${input.numeroOrden}.` };
+  }
 
   await db.update(pedido).set(input).where(eq(pedido.id, pedidoId));
   return {};

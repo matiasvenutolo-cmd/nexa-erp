@@ -227,8 +227,8 @@ export function FormularioPedido({
 
         <Bloque titulo="Datos del pedido">
           <div className="grid gap-3 sm:grid-cols-3">
-            <Campo label="N° de orden">
-              <input className="input" readOnly value="Se asigna al guardar (correlativo)" />
+            <Campo label="N° de orden" requerido>
+              <input name="numeroOrden" required className="input" placeholder="El del sistema de pedidos" />
             </Campo>
             <Campo label="Fecha del pedido" requerido>
               <input

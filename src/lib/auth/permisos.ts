@@ -363,5 +363,6 @@ export function puedeAsignarTurnos(rol: Rol): boolean {
 }
 
 /** Perfiles con los que se puede entrar con nombre + PIN (planta). Los perfiles
- *  de gestión siempre piden contraseña. */
-export const ROLES_CON_PIN: readonly Rol[] = ["OPERARIO", "RETIROS_MP", "DESPACHO", "MOLINO", "MATRICES"];
+ *  de gestión siempre piden contraseña. El Encargado entra de las dos formas:
+ *  PIN en la planta y contraseña en la oficina (pedido del cliente, nov. 2026). */
+export const ROLES_CON_PIN: readonly Rol[] = ["OPERARIO", "RETIROS_MP", "DESPACHO", "MOLINO", "MATRICES", "ENCARGADO"];
