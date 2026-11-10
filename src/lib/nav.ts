@@ -12,7 +12,6 @@
 import type { usuario } from "@/lib/db/schema";
 import {
   ROLES_GESTION,
-  puedeCargarProduccion,
   puedeOperarTaller,
   puedeVerCompras,
   puedeVerMateriaPrima,
@@ -109,14 +108,12 @@ export const HOME_POR_ROL: Record<Rol, string> = Object.fromEntries(
  * Rutas accesibles por rol, para el control de acceso real de src/proxy.ts.
  * Se deriva de NAV_POR_ROL por prefijo, con excepciones explícitas:
  *  - "/pedidos/nuevo" sólo para quien puede crear pedidos;
- *  - "/produccion/nuevo" sólo para quien inicia producciones;
  *  - "/taller" también para quien coordina la planta (ve lo mismo que el operario);
  *  - "/admin/*": la sección la vuelve a chequear el layout del panel.
  */
 export function rutaPermitida(rol: Rol, pathname: string): boolean {
   const bajo = (base: string) => pathname === base || pathname.startsWith(`${base}/`);
   if (bajo("/pedidos/nuevo")) return ROLES_GESTION.includes(rol);
-  if (bajo("/produccion/nuevo")) return puedeCargarProduccion(rol);
   if (bajo("/taller")) return puedeOperarTaller(rol);
   if (bajo("/admin")) return NAV_POR_ROL[rol].some((i) => i.href.startsWith("/admin"));
   return NAV_POR_ROL[rol].some((item) => bajo(item.href));

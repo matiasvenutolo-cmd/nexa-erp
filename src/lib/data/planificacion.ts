@@ -26,6 +26,7 @@ import {
   pedido,
   pedidoLinea,
   producto,
+  retiroMaquina,
   saldo,
   tanda,
   tandaPedido,
@@ -700,7 +701,7 @@ export async function ultimosGolpes(inyectora: string): Promise<number | null> {
 export async function iniciarProduccionDeTanda(
   actor: Actor,
   tandaId: number,
-  input: { golpesInicio: number | null; fecha?: string },
+  input: { golpesInicio: number | null; fecha?: string; motivo?: string | null },
 ): Promise<Resultado & { cicloId?: number }> {
   // Listado de mejoras: el Encargado asigna la tanda; la inicia el operario
   // (o quien planifica). El operario sólo inicia tandas asignadas a una máquina.
@@ -716,8 +717,10 @@ export async function iniciarProduccionDeTanda(
   if (input.golpesInicio == null) return { error: "Anotá los golpes que marca la máquina al iniciar." };
   // Máquina con material de otra producción a pie de máquina: primero se
   // devuelve o se registra (no se mezcla con la tanda nueva).
+  // El material llevado por adelantado para otra tanda de la cola (sin
+  // producción todavía) no bloquea: es de la que sigue.
   const otros = (await obtenerRetirosMaquina({ estado: "ABIERTO", inyectora: t.inyectora })).filter(
-    (rt) => rt.totales.pie > 0 && rt.productoPrevistoId != null && rt.productoPrevistoId !== t.productoId,
+    (rt) => rt.totales.pie > 0 && rt.cicloId != null && rt.productoPrevistoId != null && rt.productoPrevistoId !== t.productoId,
   );
   if (otros.length) {
     return { error: `En la inyectora ${t.inyectora} queda material de otra producción a pie de máquina (${otros.map((o) => o.numero).join(", ")}): devolvelo o conciliá el retiro antes de iniciar.` };
@@ -764,7 +767,12 @@ export async function iniciarProduccionDeTanda(
     await tx.update(cicloProduccion).set({ tandaId }).where(eq(cicloProduccion.id, creado.id));
     await tx.update(tanda).set({ estado: "EN_CURSO", cicloId: creado.id, actualizadoEn: new Date() }).where(eq(tanda.id, tandaId));
     await registrarCambios(tx, actor.id, [{ entidad: "tanda", entidadId: tandaId, campo: "estado", anterior: t.estado, nuevo: "EN_CURSO", motivo: `Inicio de producción #${creado.id}` }]);
-    await tx.insert(eventoProduccion).values({ cicloId: creado.id, tipo: "INICIO", motivo: `Tanda ${tandaId} · golpes ${input.golpesInicio}`, usuarioId: actor.id });
+    await tx.insert(eventoProduccion).values({ cicloId: creado.id, tipo: "INICIO", motivo: [`Tanda ${tandaId} · golpes ${input.golpesInicio}`, input.motivo].filter(Boolean).join(" · "), usuarioId: actor.id });
+    // El material que se llevó a pie de máquina antes de arrancar pasa a esta producción.
+    await tx
+      .update(retiroMaquina)
+      .set({ cicloId: creado.id })
+      .where(and(eq(retiroMaquina.estado, "ABIERTO"), isNull(retiroMaquina.cicloId), eq(retiroMaquina.inyectora, t.inyectora!), eq(retiroMaquina.productoPrevistoId, t.productoId)));
   });
   return { cicloId: creado.id };
 }

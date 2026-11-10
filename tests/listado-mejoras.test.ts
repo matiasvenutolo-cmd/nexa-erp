@@ -26,7 +26,7 @@ import { historialCliente, listarClientes } from "@/lib/data/clientes";
 import { turnoDe } from "@/lib/turnos";
 import { actualizarTanda, crearTanda, listarTandas } from "@/lib/data/planificacion";
 import { guardarReceta, listarPresentaciones } from "@/lib/data/recetas";
-import { cancelarProduccion, cargarReceta, cerrarProduccionTaller, cerrarTurno, enBolsas, eventosDe, iniciarTandaAsignada, pausarProduccion, vistaTaller } from "@/lib/data/taller";
+import { cancelarProduccion, cargarReceta, cerrarProduccionTaller, cerrarTurno, enBolsas, eventosDe, iniciarTandaAsignada, pausarProduccion, pedidosDeMaterialPendientes, pedirMaterial, vistaTaller } from "@/lib/data/taller";
 import { registrarRetiroMaquina } from "@/lib/data/maquina";
 import { actualizarDatosTecnicos } from "@/lib/data/catalogo";
 import { listarAuditoria } from "@/lib/data/auditoria";
@@ -197,7 +197,7 @@ describe("Turno según la hora", () => {
   });
 });
 
-describe("Operario: inicia la tanda, carga en un paso, pausa, cancela y finaliza", () => {
+describe("Operario: arranca la tanda, carga desde pie de máquina, pausa y finaliza", () => {
   let tandaId: number;
   let cicloId: number;
   let bolsa25: number;
@@ -236,43 +236,42 @@ describe("Operario: inicia la tanda, carga en un paso, pausa, cancela y finaliza
     expect(c.operarioId).toBe(s.usuarios.OPERARIO.id);
   });
 
-  it("carga en un paso: sin material a pie de máquina, destildando, se retira del stock general y se carga sin duplicar", async () => {
+  it("sin material a pie de máquina no se carga: el operario no saca del depósito y pide material", async () => {
     expect((await cargarReceta(s.usuarios.OPERARIO, { cicloId, tipo: "REGIMEN" })).error).toMatch(/A pie de máquina hay 0 kg/);
     const dep = await saldo(s.materiaPrima.copo2240.id, s.deposito.id);
-    const r = await cargarReceta(s.usuarios.OPERARIO, { cicloId, tipo: "REGIMEN", usarPie: false, token: "carga-gral" });
-    expect(r).toMatchObject({ kg: 50.6 });
-    expect(await saldo(s.materiaPrima.copo2240.id, s.deposito.id)).toBe(dep - 50);
-    expect(await saldo(s.materiaPrima.copo2240.id, ubic.pie)).toBe(0);
-    expect(await saldo(s.materiaPrima.copo2240.id, ubic.proceso)).toBe(50);
-    const [ret] = await db().select().from(schema.retiroMaquina).where(eq(schema.retiroMaquina.cicloId, cicloId));
-    expect(ret).toMatchObject({ operarioId: s.usuarios.OPERARIO.id, entregaId: s.usuarios.OPERARIO.id });
-    expect((await cargarReceta(s.usuarios.OPERARIO, { cicloId, tipo: "REGIMEN", usarPie: false, token: "carga-gral" })).repetido).toBe(true);
-    expect(await saldo(s.materiaPrima.copo2240.id, ubic.proceso)).toBe(50);
+    // El retiro del depósito es del Encargado o de Retiros de MP, nunca del operario.
+    expect((await registrarRetiroMaquina(s.usuarios.OPERARIO, { cicloId, lineas: [{ materiaPrimaId: s.materiaPrima.copo2240.id, loteMpId: null, cantidadKg: 50 }] })).error).toMatch(/permiso/);
+    expect(await saldo(s.materiaPrima.copo2240.id, s.deposito.id)).toBe(dep);
+    expect((await pedirMaterial(s.usuarios.OPERARIO, { cicloId })).error).toBeUndefined();
+    expect((await pedirMaterial(s.usuarios.OPERARIO, { cicloId })).yaPedido).toBe(true);
+    const [pedido] = await pedidosDeMaterialPendientes();
+    expect(pedido.n).toMatchObject({ cicloId, inyectora: "8", motivo: "Pedido de material" });
   });
 
-  it("desde pie de máquina (por defecto); el código leído tiene que ser del material", async () => {
+  it("con el retiro a pie de máquina, el pedido queda atendido y la carga sale de ahí", async () => {
+    await new Promise((r) => setTimeout(r, 5));
     await registrarRetiroMaquina(s.usuarios.RETIROS_MP, { cicloId, lineas: [{ materiaPrimaId: s.materiaPrima.copo2240.id, loteMpId: null, cantidadKg: 50 }, { materiaPrimaId: masterId, loteMpId: null, cantidadKg: 0.6 }] });
-    const otroCodigo = await cargarReceta(s.usuarios.OPERARIO, { cicloId, tipo: "REGIMEN", codigos: [{ materiaPrimaId: masterId, codigo: "000" + "0".repeat(24) }] });
-    expect(otroCodigo.error).toMatch(/no corresponde a ningún lote/);
+    expect(await pedidosDeMaterialPendientes()).toHaveLength(0);
     expect((await cargarReceta(s.usuarios.OPERARIO, { cicloId, tipo: "REGIMEN" })).error).toBeUndefined();
     expect(await saldo(s.materiaPrima.copo2240.id, ubic.pie)).toBe(0);
-    expect(await saldo(s.materiaPrima.copo2240.id, ubic.proceso)).toBe(100);
+    expect(await saldo(s.materiaPrima.copo2240.id, ubic.proceso)).toBe(50);
   });
 
-  it("pausa con motivo bloquea la carga; reanudar; no se cancela con material en tolva", async () => {
+  it("pausa con motivo bloquea la carga; reanudar; cancelar es del Encargado y no con material en tolva", async () => {
     expect((await pausarProduccion(s.usuarios.OPERARIO, { cicloId, motivo: null })).error).toMatch(/motivo/);
     expect((await pausarProduccion(s.usuarios.OPERARIO, { cicloId, motivo: "Máquina detenida o rota" })).error).toBeUndefined();
-    expect((await cargarReceta(s.usuarios.OPERARIO, { cicloId, tipo: "REGIMEN", usarPie: false })).error).toMatch(/pausada/);
+    expect((await cargarReceta(s.usuarios.OPERARIO, { cicloId, tipo: "REGIMEN" })).error).toMatch(/pausada/);
     expect((await pausarProduccion(s.usuarios.OPERARIO, { cicloId, motivo: null, reanudar: true })).error).toBeUndefined();
-    expect((await cancelarProduccion(s.usuarios.OPERARIO, { cicloId, motivo: "error" })).error).toMatch(/material cargado en la tolva/);
+    expect((await cancelarProduccion(s.usuarios.OPERARIO, { cicloId, motivo: "error" })).error).toMatch(/Encargado/);
+    expect((await cancelarProduccion(s.usuarios.ENCARGADO, { cicloId, motivo: "error" })).error).toMatch(/material cargado en la tolva/);
     const ev = (await eventosDe(cicloId)).map((e) => e.e.tipo);
     expect(ev).toEqual(["INICIO", "PAUSA", "REANUDACION"]);
   });
 
   it("relevo: el cierre de turno guarda el material que queda; finalizar registra el sobrante y consume la tolva", async () => {
-    expect((await cerrarTurno(s.usuarios.OPERARIO, { cicloId, golpesFin: 560, descarteKg: 0 })).error).toBeUndefined();
+    expect((await cerrarTurno(s.usuarios.OPERARIO, { cicloId, golpesFin: 560, descartePiezas: 0 })).error).toBeUndefined();
     const [t] = await db().select().from(schema.turnoProduccion).where(eq(schema.turnoProduccion.cicloId, cicloId));
-    expect(t.materialAlCierre).toMatch(/En tolva: .*COPOLIMERO/);
+    expect(t.materialAlCierre).toMatch(/En tolva: Copolímero/);
     const r = await cerrarProduccionTaller(s.usuarios.OPERARIO, { cicloId, golpesFin: 560, sobrante: { materiaPrimaDestinoId: sobranteId, kg: 2 } });
     expect(r.error).toBeUndefined();
     expect(await saldo(sobranteId, s.deposito.id)).toBe(2);
@@ -286,8 +285,8 @@ describe("Operario: inicia la tanda, carga en un paso, pausa, cancela y finaliza
     const t = await crearTanda(s.usuarios.ENCARGADO, { productoId: s.productos.rejRojo.id, lineas: [], cantidadStock: 30 });
     const r = await iniciarTandaAsignada(s.usuarios.OPERARIO, { tandaId: t.id!, golpesInicio: 560, turno: "NOCHE" });
     expect(r.error).toBeUndefined();
-    expect((await cancelarProduccion(s.usuarios.OPERARIO, { cicloId: r.cicloId!, motivo: null })).error).toMatch(/motivo/);
-    expect((await cancelarProduccion(s.usuarios.OPERARIO, { cicloId: r.cicloId!, motivo: "Cambio de matriz no previsto" })).error).toBeUndefined();
+    expect((await cancelarProduccion(s.usuarios.ENCARGADO, { cicloId: r.cicloId!, motivo: null })).error).toMatch(/motivo/);
+    expect((await cancelarProduccion(s.usuarios.ENCARGADO, { cicloId: r.cicloId!, motivo: "Cambio de matriz no previsto" })).error).toBeUndefined();
     const [c] = await db().select().from(schema.cicloProduccion).where(eq(schema.cicloProduccion.id, r.cicloId!));
     expect(c).toMatchObject({ cancelada: true, piezasEntregadas: 0 });
     const [td] = await db().select().from(schema.tanda).where(eq(schema.tanda.id, t.id!));
@@ -302,7 +301,8 @@ describe("Operario: inicia la tanda, carga en un paso, pausa, cancela y finaliza
     if ("error" in c) throw new Error(c.error);
     await registrarRetiroMaquina(s.usuarios.RETIROS_MP, { cicloId: c.id, lineas: [{ materiaPrimaId: masterId, loteMpId: null, cantidadKg: 1 }] });
     await cerrarCiclo(c.id, { golpesFin: 0, piezasDescartadas: 0, piezasEntregadas: 0, coladaKg: null, rebarbaKg: null, scrapKg: null, cambioCicloCausa: null, observaciones: null, cerrarPartida: false, usuarioId: s.usuarios.ENCARGADO.id });
-    const r = await iniciarTandaAsignada(s.usuarios.OPERARIO, { tandaId: t.id!, golpesInicio: 0, turno: "MANANA" });
+    // La primera de la cola es otra tanda: se arranca con motivo, y aun así lo frena el material.
+    const r = await iniciarTandaAsignada(s.usuarios.OPERARIO, { tandaId: t.id!, golpesInicio: 0, turno: "MANANA", motivo: "Prueba" });
     expect(r.error).toMatch(/material de otra producción/);
   });
 });

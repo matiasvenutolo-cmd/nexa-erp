@@ -7,6 +7,9 @@ import { INYECTORAS } from "@/lib/inyectoras";
 import { fmtNumero } from "@/lib/format";
 
 export type CicloRetiro = {
+  /** Una producción en curso, o una tanda en cola a la que se le lleva el
+   *  material antes de arrancar (Cambios en Producción, nov. 2026). */
+  tipo: "ciclo" | "tanda";
   id: number;
   etiqueta: string;
   productoNumero: string | null;
@@ -30,19 +33,20 @@ export function FormRetiroMaquina({
   lotes,
   responsables,
   entregan,
-  cicloInicial,
+  inicial,
 }: {
   ciclos: CicloRetiro[];
   materias: Mp[];
   lotes: Lote[];
   responsables: Persona[];
   entregan: Persona[];
-  cicloInicial: number | null;
+  inicial: string | null;
 }) {
   const [state, action, pendiente] = useActionState<EstadoMaquina, FormData>(registrarRetiroAction, {});
   const [tok] = useState(token);
-  const [cicloId, setCicloId] = useState(cicloInicial && ciclos.some((c) => c.id === cicloInicial) ? String(cicloInicial) : "");
-  const ciclo = ciclos.find((c) => String(c.id) === cicloId) ?? null;
+  const clave = (c: CicloRetiro) => `${c.tipo}-${c.id}`;
+  const [destino, setDestino] = useState(inicial && ciclos.some((c) => clave(c) === inicial) ? inicial : "");
+  const ciclo = ciclos.find((c) => clave(c) === destino) ?? null;
   const [piezas, setPiezas] = useState("");
   const [lineas, setLineas] = useState<Linea[]>([nueva()]);
 
@@ -123,18 +127,28 @@ export function FormRetiroMaquina({
 
       <section className="grid gap-3 sm:grid-cols-2">
         <Campo label="Producción">
-          <select name="cicloId" value={cicloId} onChange={(e) => setCicloId(e.target.value)} className="input">
+          <select value={destino} onChange={(e) => setDestino(e.target.value)} className="input">
             <option value="">Sin producción (otro uso)</option>
-            {ciclos.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.etiqueta}
-              </option>
-            ))}
+            {(["ciclo", "tanda"] as const).map((tipo) =>
+              ciclos.some((c) => c.tipo === tipo) ? (
+                <optgroup key={tipo} label={tipo === "ciclo" ? "Producciones en curso" : "Tandas en cola (todavía sin arrancar)"}>
+                  {ciclos
+                    .filter((c) => c.tipo === tipo)
+                    .map((c) => (
+                      <option key={clave(c)} value={clave(c)}>
+                        {c.etiqueta}
+                      </option>
+                    ))}
+                </optgroup>
+              ) : null,
+            )}
           </select>
+          <input type="hidden" name="cicloId" value={ciclo?.tipo === "ciclo" ? ciclo.id : ""} />
+          <input type="hidden" name="tandaId" value={ciclo?.tipo === "tanda" ? ciclo.id : ""} />
         </Campo>
         {ciclo ? (
           <Campo label="Inyectora">
-            <input className="input bg-surface-muted" readOnly value="La de la producción" />
+            <input className="input bg-surface-muted" readOnly value={ciclo.tipo === "tanda" ? "La de la tanda" : "La de la producción"} />
           </Campo>
         ) : (
           <Campo label="Inyectora *">
@@ -172,7 +186,7 @@ export function FormRetiroMaquina({
         </Campo>
       </section>
       {ciclos.length === 0 && (
-        <p className="text-xs text-foreground-muted">No hay producciones en curso. Para vincular el material, primero se inicia la producción desde la planificación.</p>
+        <p className="text-xs text-foreground-muted">No hay producciones en curso ni tandas en cola con máquina asignada. Se puede llevar el material antes de que el operario arranque: elegí la tanda en cola.</p>
       )}
 
       <section className="space-y-2 rounded-md border border-border p-3">

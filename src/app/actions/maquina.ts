@@ -54,6 +54,7 @@ export async function registrarRetiroAction(_prev: EstadoMaquina, fd: FormData):
   const cicloId = num(fd, "cicloId");
   const r = await registrarRetiroMaquina(usuario, {
     cicloId,
+    tandaId: num(fd, "tandaId"),
     inyectora: txt(fd, "inyectora"),
     operarioId: num(fd, "operarioId"),
     entregaId: num(fd, "entregaId"),

@@ -1,13 +1,11 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getUsuarioActual } from "@/lib/session";
 import {
   actualizarTanda,
   cancelarTanda,
   crearTanda,
-  iniciarProduccionDeTanda,
   moverTanda,
   postergarTanda,
   quitarPedidosDeTanda,
@@ -104,14 +102,6 @@ export async function cancelarTandaAction(_p: EstadoAccion, fd: FormData): Promi
   return { ok: "Tanda cancelada: sus pedidos vuelven a «Por planificar»." };
 }
 
-export async function iniciarTandaAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
-  const u = await getUsuarioActual();
-  const r = await iniciarProduccionDeTanda(u, Number(fd.get("id")), { golpesInicio: num(fd, "golpesInicio") });
-  if (r.error) return { error: r.error };
-  revalidar();
-  redirect(`/produccion/${r.cicloId}?ok=${encodeURIComponent("Producción iniciada. El operario ya la ve en su pantalla.")}`);
-}
-
 // ---------------------------------------------------------------------------
 // Recetas
 // ---------------------------------------------------------------------------
@@ -157,10 +147,11 @@ export async function crearPresentacionAction(_p: EstadoAccion, fd: FormData): P
 }
 
 /** Arrastrar y soltar en el calendario: guarda el día y el turno de la tanda. */
-export async function moverTandaCalendarioAction(id: number, fecha: string | null, turno: Turno | null): Promise<{ error?: string }> {
+/** Mover en el calendario: día, turno y, si se suelta en otra columna, la máquina. */
+export async function moverTandaCalendarioAction(id: number, fecha: string | null, turno: Turno | null, inyectora?: string): Promise<{ error?: string }> {
   const u = await getUsuarioActual();
   if (fecha != null && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return { error: "Fecha inválida." };
-  const r = await actualizarTanda(u, id, { fecha, turno });
+  const r = await actualizarTanda(u, id, inyectora !== undefined ? { fecha, turno, inyectora } : { fecha, turno });
   if (r.error) return r;
   revalidar();
   return {};

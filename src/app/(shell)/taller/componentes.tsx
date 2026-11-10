@@ -1,163 +1,87 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Minus, Plus, ScanLine } from "lucide-react";
-import { leerCodigoTallerAction } from "@/app/actions/taller";
+import { useEffect, useState } from "react";
+import { Minus, Plus } from "lucide-react";
 import { fmtCantidadBolsas, fmtPeso, fmtPresentacion, kgDe } from "@/lib/presentaciones";
 
 export type ItemCarga = { materiaPrimaId: number; presentacionId: number; nombre: string; presentacion: string; kgPres: number; cantidad: number; esMaster: boolean; enPie: number };
 
+/** Cookie con la máquina del operario: el celular la recuerda al volver a entrar. */
+export const COOKIE_MAQUINA = "nexa_maquina";
+
+export function RecordarMaquina({ iny }: { iny: string }) {
+  useEffect(() => {
+    document.cookie = `${COOKIE_MAQUINA}=${iny}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+  }, [iny]);
+  return null;
+}
+
 /**
- * Registrar carga en tolva de material a pie de máquina: la receta de la
- * producción viene precargada (en bolsas), cada material se tilda al cargarlo
- * y se ajusta con + / − (medias bolsas). Si algo cambia respecto de la receta,
- * pide el motivo. Por defecto el material sale del pie de máquina; destildando
- * «Uso de material a pie de máquina» se toma del stock general en el mismo paso.
- * La lectura del código de la bolsa es opcional.
+ * «Cargué distinto»: la receta precargada en bolsas, con + / − (medias
+ * bolsas) y sin pasar de lo que hay a pie de máquina. Pide el motivo. El
+ * material sale siempre del pie de máquina (Cambios en Producción, nov. 2026).
  */
-export function CargaTolva({ items, motivos, productoNumero }: { items: ItemCarga[]; motivos: readonly string[]; productoNumero: string | null }) {
-  const [tildado, setTildado] = useState(() => items.map(() => true));
-  const [cant, setCant] = useState(() => items.map((i) => i.cantidad));
-  const [usarPie, setUsarPie] = useState(true);
-  const [codigos, setCodigos] = useState<Record<number, string>>({});
-  const efectiva = items.map((i, k) => (tildado[k] ? cant[k] : 0));
-  const distinto = items.some((i, k) => efectiva[k] !== i.cantidad);
-  const faltaPie = usarPie && items.some((i, k) => efectiva[k] > 0 && kgDe(efectiva[k], i.kgPres) > i.enPie + 1e-6);
-  const cambiar = (k: number, d: number) => setCant((c) => c.map((v, j) => (j === k ? Math.max(0, Math.round((v + d) * 2) / 2) : v)));
+export function CargaDistinta({ items, motivos }: { items: ItemCarga[]; motivos: readonly string[] }) {
+  // Lo máximo que se puede cargar de cada renglón: lo que hay a pie de máquina, en medias bolsas.
+  const maximo = items.map((i) => (i.kgPres > 0 ? Math.floor((i.enPie / i.kgPres) * 2 + 1e-6) / 2 : 0));
+  const [cant, setCant] = useState(() => items.map((i, k) => Math.min(i.cantidad, maximo[k])));
+  const cambiar = (k: number, d: number) => setCant((c) => c.map((v, j) => (j === k ? Math.min(maximo[k], Math.max(0, Math.round((v + d) * 2) / 2)) : v)));
   return (
     <div className="space-y-3">
-      <input type="hidden" name="ajustes" value={distinto ? JSON.stringify(items.map((i, k) => ({ materiaPrimaId: i.materiaPrimaId, presentacionId: i.presentacionId, cantidad: efectiva[k] }))) : ""} />
-      <input type="hidden" name="usarPie" value={usarPie ? "1" : "0"} />
-      <input type="hidden" name="codigos" value={JSON.stringify(Object.entries(codigos).filter(([, c]) => c).map(([id, codigo]) => ({ materiaPrimaId: Number(id), codigo })))} />
-
-      <label className="flex items-start gap-3 rounded-xl border border-border bg-surface-muted p-3">
-        <input type="checkbox" checked={usarPie} onChange={(e) => setUsarPie(e.target.checked)} className="mt-0.5 h-5 w-5" />
-        <span>
-          <span className="block font-semibold">Uso de material a pie de máquina</span>
-          <span className="block text-xs text-foreground-muted">
-            {usarPie
-              ? "El material sale de lo que está junto a la máquina."
-              : "Destildado: el material se retira del stock general (queda registrado a tu nombre) y se carga en la tolva en el mismo paso."}
-          </span>
-        </span>
-      </label>
-
+      <input type="hidden" name="ajustes" value={JSON.stringify(items.map((i, k) => ({ materiaPrimaId: i.materiaPrimaId, presentacionId: i.presentacionId, cantidad: cant[k] })))} />
       <ul className="space-y-2">
         {items.map((i, k) => (
-          <li key={`${i.materiaPrimaId}-${i.presentacionId}`} className={`rounded-xl border p-2.5 ${tildado[k] ? "border-[var(--estado-ok-fg)] bg-white" : "border-border bg-surface-muted"}`}>
-            <label className="flex items-center gap-3">
-              <input type="checkbox" checked={tildado[k]} onChange={(e) => setTildado((t) => t.map((v, j) => (j === k ? e.target.checked : v)))} className="h-6 w-6" aria-label={`Cargué ${i.nombre}`} />
-              <span className="min-w-0 flex-1">
+          <li key={`${i.materiaPrimaId}-${i.presentacionId}`} className="rounded-xl border border-border bg-white p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0">
                 <span className="block font-semibold">{i.nombre}</span>
-                <span className="block text-sm">
-                  {fmtPeso(kgDe(efectiva[k], i.kgPres), { gramos: i.esMaster })} ({fmtPresentacion(efectiva[k], i.presentacion)})
+                <span className="block text-xs text-foreground-muted">
+                  Receta: {fmtPresentacion(i.cantidad, i.presentacion)} · a pie de máquina: {fmtPeso(i.enPie, { gramos: i.esMaster })}
                 </span>
-                {usarPie && <span className={`block text-xs ${i.enPie + 1e-6 < kgDe(efectiva[k], i.kgPres) ? "font-semibold text-[var(--estado-critico-fg)]" : "text-foreground-muted"}`}>A pie de máquina: {fmtPeso(i.enPie, { gramos: i.esMaster })}</span>}
               </span>
-            </label>
-            {tildado[k] && (
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <button type="button" className="btn btn-outline btn-paso" onClick={() => cambiar(k, -0.5)} aria-label="Media bolsa menos">
-                    <Minus size={18} />
-                  </button>
-                  <span className="w-14 text-center font-[family-name:var(--font-display)] text-xl font-bold">{fmtCantidadBolsas(cant[k])}</span>
-                  <button type="button" className="btn btn-outline btn-paso" onClick={() => cambiar(k, 0.5)} aria-label="Media bolsa más">
-                    <Plus size={18} />
-                  </button>
-                </div>
-                <LectorCodigo productoNumero={productoNumero} materialId={i.materiaPrimaId} onCodigo={(c) => setCodigos((x) => ({ ...x, [i.materiaPrimaId]: c }))} />
-              </div>
-            )}
+              <span className="flex items-center gap-2">
+                <button type="button" className="btn btn-outline btn-paso" onClick={() => cambiar(k, -0.5)} aria-label="Media bolsa menos">
+                  <Minus size={18} />
+                </button>
+                <span className="w-12 text-center font-[family-name:var(--font-display)] text-xl font-bold">{fmtCantidadBolsas(cant[k])}</span>
+                <button type="button" className="btn btn-outline btn-paso" onClick={() => cambiar(k, 0.5)} disabled={cant[k] >= maximo[k]} aria-label="Media bolsa más">
+                  <Plus size={18} />
+                </button>
+              </span>
+            </div>
+            <div className="mt-1 text-right text-xs text-foreground-muted">{fmtPeso(kgDe(cant[k], i.kgPres), { gramos: i.esMaster })}</div>
           </li>
         ))}
       </ul>
-      {faltaPie && <p className="aviso aviso-alerta text-sm">No alcanza lo que hay a pie de máquina: destildá «Uso de material a pie de máquina» para tomarlo del stock general, o cargá lo que hay indicando el motivo.</p>}
-      {distinto && (
-        <label className="campo">
-          <span>Cargaste distinto de la receta: ¿por qué?</span>
-          <select name="motivo" required defaultValue="" className="input">
-            <option value="" disabled>
-              Elegí el motivo…
-            </option>
-            {motivos.map((m) => (
-              <option key={m}>{m}</option>
-            ))}
-          </select>
-        </label>
-      )}
+      <label className="campo">
+        <span>¿Por qué cargaste distinto?</span>
+        <select name="motivo" required defaultValue="" className="input">
+          <option value="" disabled>
+            Elegí el motivo…
+          </option>
+          {motivos.map((m) => (
+            <option key={m}>{m}</option>
+          ))}
+        </select>
+      </label>
     </div>
   );
 }
 
-/** Lectura opcional del código de la bolsa: confirma que sea de ese material. */
-export function LectorCodigo({ productoNumero, materialId, onCodigo }: { productoNumero: string | null; materialId: number; onCodigo: (codigo: string) => void }) {
-  const [abierto, setAbierto] = useState(false);
-  const [codigo, setCodigo] = useState("");
-  const [res, setRes] = useState<{ ok: boolean; texto: string } | null>(null);
-  const [pendiente, start] = useTransition();
-  const leer = () =>
-    start(async () => {
-      const r = await leerCodigoTallerAction(codigo, productoNumero);
-      if (r.error || !r.dato?.lote) {
-        setRes({ ok: false, texto: r.error ?? "El código no corresponde a un lote ingresado." });
-        onCodigo("");
-        return;
-      }
-      const ok = r.dato.lote.materiaPrimaId === materialId;
-      setRes({ ok, texto: ok ? `Lote ${r.dato.lote.numeroLote}${r.dato.certificado ? ` · cert. N° ${r.dato.certificado.numero}` : ""}` : `Es ${r.dato.lote.materiaPrimaNombre}, no este material` });
-      onCodigo(ok ? r.dato.codigo : "");
-    });
-  if (!abierto) {
-    return (
-      <button type="button" onClick={() => setAbierto(true)} className="btn btn-ghost btn-sm">
-        <ScanLine size={16} /> Leer bolsa (opcional)
-      </button>
-    );
-  }
-  return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="flex gap-1">
-        <input
-          value={codigo}
-          onChange={(e) => setCodigo(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              leer();
-            }
-          }}
-          inputMode="numeric"
-          placeholder="Código de la bolsa"
-          className="input w-44 py-1 text-xs"
-          aria-label="Código de barras de la bolsa"
-          autoFocus
-        />
-        <button type="button" className="btn btn-azul btn-sm" disabled={pendiente || codigo.replace(/\s/g, "").length < 27} onClick={leer}>
-          Leer
-        </button>
-      </div>
-      {res && <span className={`text-xs font-semibold ${res.ok ? "text-[var(--estado-ok-fg)]" : "text-[var(--estado-critico-fg)]"}`}>{res.texto}</span>}
-    </div>
-  );
-}
-
-/** Recepción del relevo: coincide o hay diferencia (con motivo de la lista). */
-export function RecepcionRelevo({ motivos }: { motivos: readonly string[] }) {
-  const [valor, setValor] = useState<"ok" | "diferencia" | "">("");
+/**
+ * Recepción del relevo: lo normal es «Recibí la máquina». Lo que se puede
+ * contar son las bolsas a pie de máquina; si faltan, se marca con el motivo y
+ * le llega al Encargado. La tolva no se verifica a ojo: no se pregunta.
+ */
+export function FaltaMaterialRelevo({ motivos }: { motivos: readonly string[] }) {
+  const [falta, setFalta] = useState(false);
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-2">
-        <label className={`btn btn-lg ${valor === "ok" ? "btn-azul" : "btn-outline"}`}>
-          <input type="radio" name="recepcion" value="ok" className="sr-only" checked={valor === "ok"} onChange={() => setValor("ok")} required />
-          Coincide
-        </label>
-        <label className={`btn btn-lg ${valor === "diferencia" ? "btn-primary" : "btn-outline"}`}>
-          <input type="radio" name="recepcion" value="diferencia" className="sr-only" checked={valor === "diferencia"} onChange={() => setValor("diferencia")} />
-          Hay diferencia
-        </label>
-      </div>
-      {valor === "diferencia" && (
+      <input type="hidden" name="recepcion" value={falta ? "diferencia" : "ok"} />
+      <button type="button" onClick={() => setFalta((x) => !x)} className={`btn btn-sm ${falta ? "btn-azul" : "btn-outline"}`}>
+        Falta material a pie de máquina
+      </button>
+      {falta && (
         <div className="space-y-2">
           <select name="recepcionMotivo" required defaultValue="" className="input">
             <option value="" disabled>
@@ -190,23 +114,72 @@ export function ElegirTurno({ turnos, sugerido }: { turnos: { valor: string; eti
 }
 
 /**
- * Cierre con dos botones claros: «Cerrar mi turno y dejar relevo» y
- * «Finalizar producción». Al elegir uno se despliegan sólo sus campos.
+ * Opciones secundarias de un estado: botones que despliegan su formulario de
+ * a uno. `fuerte` pinta el botón (ej. «Terminar producción»).
  */
-export function DosBotonesCierre({ relevo, finalizar }: { relevo: React.ReactNode; finalizar: React.ReactNode }) {
-  const [abierto, setAbierto] = useState<"relevo" | "fin" | null>(null);
+export function Opciones({ opciones }: { opciones: { id: string; label: string; fuerte?: boolean; contenido: React.ReactNode }[] }) {
+  const [abierto, setAbierto] = useState<string | null>(null);
+  const actual = opciones.find((o) => o.id === abierto);
   return (
     <div className="space-y-3">
-      <div className="grid gap-2 sm:grid-cols-2">
-        <button type="button" onClick={() => setAbierto(abierto === "relevo" ? null : "relevo")} className={`btn btn-lg ${abierto === "relevo" ? "btn-azul" : "btn-outline"}`}>
-          Cerrar mi turno y dejar relevo
-        </button>
-        <button type="button" onClick={() => setAbierto(abierto === "fin" ? null : "fin")} className={`btn btn-lg ${abierto === "fin" ? "btn-primary" : "btn-outline"}`}>
-          Finalizar producción
-        </button>
+      <div className={`grid gap-2 ${opciones.length > 1 ? "grid-cols-2" : ""}`}>
+        {opciones.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => setAbierto(abierto === o.id ? null : o.id)}
+            className={`btn ${o.fuerte ? "btn-primary col-span-2" : abierto === o.id ? "btn-azul" : "btn-outline"}`}
+          >
+            {o.label}
+          </button>
+        ))}
       </div>
-      {abierto === "relevo" && relevo}
-      {abierto === "fin" && finalizar}
+      {actual && <div className="rounded-xl border border-border p-3">{actual.contenido}</div>}
+    </div>
+  );
+}
+
+/**
+ * Golpes y descarte al cerrar el turno o terminar, con el resultado a la
+ * vista antes de confirmar: «Producidas 400 · Descarte 6 · A stock 394».
+ */
+export function CamposCierre({
+  golpesDesde,
+  piezasPorGolpe,
+  descartePrevio = 0,
+  piezasPrevias = 0,
+  textoStock,
+}: {
+  /** Golpes desde los que se cuentan las piezas (inicio del turno o de la producción). */
+  golpesDesde: number | null;
+  piezasPorGolpe: number;
+  /** Al terminar: descarte de los turnos ya cerrados. */
+  descartePrevio?: number;
+  piezasPrevias?: number;
+  /** «A stock» al terminar; «del turno» al cerrar el turno. */
+  textoStock: string;
+}) {
+  const [golpes, setGolpes] = useState("");
+  const [descarte, setDescarte] = useState("");
+  const g = golpes.trim() === "" ? null : Number(golpes);
+  const d = descarte.trim() === "" ? 0 : Number(descarte);
+  const producidas = g != null && Number.isFinite(g) && golpesDesde != null ? Math.max(0, (g - golpesDesde) * piezasPorGolpe) + piezasPrevias : null;
+  const descTotal = Number.isFinite(d) ? d + descartePrevio : null;
+  return (
+    <div className="space-y-3">
+      <label className="campo">
+        <span>Golpes que marca la máquina</span>
+        <input name="golpesFin" inputMode="numeric" required className="input text-lg" value={golpes} onChange={(e) => setGolpes(e.target.value)} />
+      </label>
+      <label className="campo">
+        <span>Piezas descartadas{descartePrevio || piezasPrevias ? " en tu turno" : ""}</span>
+        <input name="descartePiezas" inputMode="numeric" placeholder="0" className="input text-lg" value={descarte} onChange={(e) => setDescarte(e.target.value)} />
+      </label>
+      {producidas != null && descTotal != null && (
+        <p className="rounded-xl bg-surface-muted p-3 text-center font-semibold">
+          Producidas {producidas.toLocaleString("es-AR")} · Descarte {descTotal.toLocaleString("es-AR")} · {textoStock} {Math.max(0, producidas - descTotal).toLocaleString("es-AR")}
+        </p>
+      )}
     </div>
   );
 }

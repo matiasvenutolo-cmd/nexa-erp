@@ -17,6 +17,7 @@ export type TarjetaCal = {
   prioridad: string | null;
   alerta: string | null;
   inyectora: string | null;
+  esAccesorio: boolean;
   enCurso: boolean;
 };
 
@@ -28,38 +29,58 @@ const TURNOS = [
 
 const fmtDia = (f: string) => new Date(`${f}T12:00:00Z`).toLocaleDateString("es-AR", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: "UTC" });
 
-/**
- * Planificación por día y turno: cada tanda es una tarjeta que se arrastra con
- * el mouse a otra casilla (día × turno). El cambio se guarda en el servidor y
- * se ve igual al recargar. En el celular, cada tarjeta tiene «Mover a…».
- */
 /** Trabajo de Matrices programado (cambio de matriz, reparación, service). */
-export type TrabajoCal = { id: number; fecha: string; turno: TarjetaCal["turno"]; texto: string; estado: string };
+export type TrabajoCal = { id: number; fecha: string; turno: TarjetaCal["turno"]; inyectora: string | null; texto: string; estado: string };
+
+/** Las máquinas de NEXA: baldosas siempre en la 8, accesorios en la 6. */
+const MAQUINAS_BASE = ["8", "6"];
+/** Columna de una tanda: su inyectora; sin asignar, la que le corresponde por tipo. */
+const maquinaDe = (t: Pick<TarjetaCal, "inyectora" | "esAccesorio">) => t.inyectora ?? (t.esAccesorio ? "6" : "8");
+
+/**
+ * Planificación por día, turno y máquina (Cambios en Producción, nov. 2026):
+ * cada día tiene una columna por inyectora, porque las máquinas trabajan en
+ * paralelo. Cada tanda es una tarjeta que se arrastra con el mouse a otra
+ * casilla (día × turno × máquina). El cambio se guarda en el servidor y se ve
+ * igual al recargar. En el celular, cada tarjeta tiene «Mover a…».
+ */
 
 export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquemas = {} }: { dias: string[]; tarjetas: TarjetaCal[]; editable: boolean; trabajos?: TrabajoCal[]; esquemas?: Record<string, string> }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [, start] = useTransition();
-  const [lista, mover] = useOptimistic(tarjetas, (actual, m: { id: number; fecha: string | null; turno: TarjetaCal["turno"] }) =>
-    actual.map((t) => (t.id === m.id ? { ...t, fecha: m.fecha, turno: m.turno } : t)),
+  const [lista, mover] = useOptimistic(tarjetas, (actual, m: { id: number; fecha: string | null; turno: TarjetaCal["turno"]; inyectora: string | null }) =>
+    actual.map((t) => (t.id === m.id ? { ...t, fecha: m.fecha, turno: m.turno, inyectora: m.inyectora } : t)),
   );
   const [sobre, setSobre] = useState<string | null>(null);
+  const maquinas = [
+    ...MAQUINAS_BASE,
+    ...[...new Set([...tarjetas.map(maquinaDe), ...trabajos.map((w) => w.inyectora).filter((x): x is string => Boolean(x))])].filter((m) => !MAQUINAS_BASE.includes(m)).sort((a, b) => Number(a) - Number(b)),
+  ];
 
-  const soltar = (id: number, fecha: string | null, turno: TarjetaCal["turno"]) => {
+  /** `maquina` null = la bandeja sin día: la tanda conserva su máquina. */
+  const soltar = (id: number, fecha: string | null, turno: TarjetaCal["turno"], maquina: string | null = null) => {
     const t = lista.find((x) => x.id === id);
-    if (!t || t.enCurso || (t.fecha === fecha && t.turno === turno)) return;
+    if (!t || t.enCurso) return;
+    const inyectora = maquina ?? t.inyectora;
+    if (t.fecha === fecha && t.turno === turno && maquinaDe({ ...t, inyectora }) === maquinaDe(t)) return;
+    // Cada producto en su máquina: baldosas en la 8; accesorios fuera de la 8.
+    if (maquina && maquina !== maquinaDe(t)) {
+      if (!t.esAccesorio) return setError("Las baldosas se producen sólo en la inyectora 8.");
+      if (maquina === "8") return setError("Los accesorios no van en la inyectora 8: es la de baldosas.");
+    }
     setError(null);
     start(async () => {
-      mover({ id, fecha, turno });
-      const r = await moverTandaCalendarioAction(id, fecha, turno);
+      mover({ id, fecha, turno, inyectora });
+      const r = await moverTandaCalendarioAction(id, fecha, turno, maquina ?? undefined);
       if (r.error) setError(r.error);
       router.refresh();
     });
   };
 
-  const casilla = (fecha: string | null, turno: TarjetaCal["turno"]) => {
-    const clave = `${fecha ?? "-"}|${turno ?? "-"}`;
-    const enCasilla = lista.filter((t) => (fecha == null ? t.fecha == null || t.turno == null : t.fecha === fecha && t.turno === turno));
+  const casilla = (fecha: string | null, turno: TarjetaCal["turno"], maquina: string | null) => {
+    const clave = `${fecha ?? "-"}|${turno ?? "-"}|${maquina ?? "-"}`;
+    const enCasilla = lista.filter((t) => (fecha == null ? t.fecha == null || t.turno == null : t.fecha === fecha && t.turno === turno && maquinaDe(t) === maquina));
     return (
       <div
         key={clave}
@@ -73,14 +94,14 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
           e.preventDefault();
           setSobre(null);
           const id = Number(e.dataTransfer.getData("text/plain"));
-          if (id) soltar(id, fecha, fecha == null ? null : turno);
+          if (id) soltar(id, fecha, fecha == null ? null : turno, maquina);
         }}
         className={`min-h-24 space-y-1.5 rounded-lg border p-1.5 transition-colors ${sobre === clave ? "border-accent bg-[rgba(238,125,48,0.08)]" : "border-dashed border-border bg-surface-muted/60"}`}
-        aria-label={fecha ? `${fmtDia(fecha)} · turno ${TURNOS.find((x) => x.valor === turno)?.etiqueta}` : "Sin día asignado"}
+        aria-label={fecha ? `${fmtDia(fecha)} · turno ${TURNOS.find((x) => x.valor === turno)?.etiqueta} · inyectora ${maquina}` : "Sin día asignado"}
       >
         {fecha != null &&
           trabajos
-            .filter((w) => w.fecha === fecha && w.turno === turno)
+            .filter((w) => w.fecha === fecha && w.turno === turno && (w.inyectora ?? maquinas[0]) === maquina)
             .map((w) => (
               <div key={`w${w.id}`} className="rounded-md border border-[var(--estado-bajo-fg)] bg-[var(--estado-bajo-bg)] px-1.5 py-1 text-[11px] font-semibold text-[var(--estado-bajo-fg)]" title="Programado por Matrices">
                 🔧 {w.texto}
@@ -97,10 +118,13 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
     <div className="space-y-3">
       {error && <p className="aviso aviso-error">{error}</p>}
       <div className="overflow-x-auto">
-        <div className="grid min-w-[980px] gap-2" style={{ gridTemplateColumns: `5.5rem repeat(${dias.length}, minmax(0, 1fr))` }}>
+        <div
+          className="grid gap-x-1 gap-y-2"
+          style={{ gridTemplateColumns: `5.5rem repeat(${dias.length * maquinas.length}, minmax(8.5rem, 1fr))`, minWidth: `${5.5 + dias.length * maquinas.length * 8.8}rem` }}
+        >
           <div />
           {dias.map((d) => (
-            <div key={d} className="text-center text-xs font-bold uppercase tracking-wide text-foreground-muted">
+            <div key={d} className="text-center text-xs font-bold uppercase tracking-wide text-foreground-muted" style={{ gridColumn: `span ${maquinas.length}` }}>
               {fmtDia(d)}
               {esquemas[d] && <div className="text-[10px] font-semibold normal-case text-brand-azul">esquema {esquemas[d].toLowerCase()}</div>}
               {trabajos
@@ -112,17 +136,26 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
                 ))}
             </div>
           ))}
+          <div />
+          {dias.map((d) =>
+            maquinas.map((m, i) => (
+              <div key={`${d}-${m}`} className={`text-center text-[11px] font-semibold text-brand-azul ${i === 0 ? "" : "border-l border-border"}`}>
+                Iny. {m}
+                <span className="block text-[10px] font-normal text-foreground-muted">{m === "8" ? "baldosas" : m === "6" ? "accesorios" : ""}</span>
+              </div>
+            )),
+          )}
           {TURNOS.map((tu) => (
             <div key={tu.valor} className="contents">
               <div className="flex items-center text-sm font-semibold text-brand-azul">{tu.etiqueta}</div>
-              {dias.map((d) => casilla(d, tu.valor))}
+              {dias.map((d) => maquinas.map((m) => casilla(d, tu.valor, m)))}
             </div>
           ))}
         </div>
       </div>
       <div>
         <div className="mb-1 text-xs font-bold uppercase tracking-wide text-foreground-muted">Sin día o turno asignado (arrastrá desde o hacia acá)</div>
-        {casilla(null, null)}
+        {casilla(null, null, null)}
       </div>
     </div>
   );
@@ -158,7 +191,7 @@ function Tarjeta({ t, dias, editable, onMover }: { t: TarjetaCal; dias: string[]
         {t.estado === "POSTERGADA" && <span className="badge-estado badge-bajo px-1.5 py-0 text-[10px]">Postergada</span>}
         {t.prioridad && <span className="badge-estado badge-naranja px-1.5 py-0 text-[10px]">{t.prioridad}</span>}
         {t.alerta && <span className="badge-estado badge-critico px-1.5 py-0 text-[10px]">{t.alerta}</span>}
-        {t.inyectora && <span className="badge-estado badge-info px-1.5 py-0 text-[10px]">Iny. {t.inyectora}</span>}
+        {!t.inyectora && <span className="badge-estado badge-bajo px-1.5 py-0 text-[10px]">Sin máquina</span>}
       </div>
       {movible && (
         <button type="button" className="mt-1 text-[11px] font-semibold text-accent" onClick={() => setAbierto((x) => !x)}>

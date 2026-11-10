@@ -22,3 +22,29 @@ export function ordenTipoMp(tipo: string): number {
   const i = TIPOS.indexOf(tipo);
   return i < 0 ? TIPOS.length : i;
 }
+
+const ACENTOS: Record<string, string> = { copolimero: "Copolímero", homopolimero: "Homopolímero" };
+const titulo = (p: string) => ACENTOS[p.toLowerCase()] ?? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+
+/**
+ * Nombre corto para la planta (Cambios en Producción, nov. 2026): sin código,
+ * sin números de proveedor ni aclaraciones. «31-COPOLIMERO 2240 P» →
+ * «Copolímero»; «B10-Master Gris Oscuro nor 108900 (gris claro catalogo)» →
+ * «Master Gris Oscuro Nor». En la oficina se sigue viendo el nombre completo.
+ */
+export function nombreCortoMp(nombre: string): string {
+  const sinCodigo = nombre.replace(/^\s*[A-Za-z]*\d+\s*-?\s*/, "").replace(/\(.*?\)/g, " ");
+  const palabras: string[] = [];
+  for (const p of sinCodigo.split(/\s+/).filter(Boolean)) {
+    if (/\d|:/.test(p)) {
+      // «negro991333»: lo que va antes del número es parte del nombre.
+      const antes = p.split(/\d/)[0].replace(/[:\W]+$/, "");
+      if (antes && !/^cod$/i.test(antes)) palabras.push(antes);
+      break;
+    }
+    if (/^cod$/i.test(p)) break;
+    palabras.push(p);
+  }
+  const corto = palabras.map(titulo).join(" ").trim();
+  return corto || nombre.trim();
+}

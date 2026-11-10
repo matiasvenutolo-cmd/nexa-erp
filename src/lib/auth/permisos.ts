@@ -137,6 +137,12 @@ export function puedeCerrarCiclo(rol: Rol): boolean {
 }
 
 /** Pantalla del operario (celular): tomar turno, cargar la receta, relevo. */
+/** Cancelar una producción en curso: sólo quien planifica (Cambios en
+ *  Producción, nov. 2026). El operario ya no cancela desde su pantalla. */
+export function puedeCancelarProduccion(rol: Rol): boolean {
+  return ROLES_PRODUCCION.includes(rol);
+}
+
 export function puedeOperarTaller(rol: Rol): boolean {
   return ROLES_TALLER.includes(rol);
 }

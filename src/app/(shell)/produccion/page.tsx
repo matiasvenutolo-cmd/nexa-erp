@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { Smartphone } from "lucide-react";
 import { listarCiclos, productosParaCiclo } from "@/lib/data/produccion";
-import { gruposParaPlanificar, listarTandas, necesidadDeCompra, ultimosGolpes, etiquetaTurno } from "@/lib/data/planificacion";
+import { gruposParaPlanificar, listarTandas, necesidadDeCompra, etiquetaTurno } from "@/lib/data/planificacion";
 import { recetasDe } from "@/lib/data/recetas";
-import { relevosRecientes, vistaTaller } from "@/lib/data/taller";
+import { MOTIVO_PEDIDO_MATERIAL, pedidosDeMaterialPendientes, relevosRecientes, vistaTaller } from "@/lib/data/taller";
+import { PedidosDeMaterial } from "@/components/pedidos-material";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeCargarProduccion, puedePlanificar, puedeAsignarTurnos } from "@/lib/auth/permisos";
+import { puedeCancelarProduccion, puedePlanificar, puedeAsignarTurnos } from "@/lib/auth/permisos";
+import { FormAccion } from "@/components/form-accion";
+import { cancelarProduccionAction } from "@/app/actions/taller";
 import { fmtFecha, fmtFechaHora, fmtNumero } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
 import { etiquetaInyectora } from "@/lib/inyectoras";
@@ -30,6 +33,7 @@ async function Calendario({ tandas, planifica, desde }: { tandas: Awaited<Return
     id: w.id,
     fecha: w.fechaProgramada,
     turno: w.turno,
+    inyectora: w.inyectora ?? null,
     estado: w.estado,
     texto: `${TIPO_INTERVENCION_LABEL[w.tipo]} ${w.matrizAnterior ? `${w.matrizAnterior} → ` : ""}${w.matriz}${w.inyectora ? ` · iny. ${w.inyectora}` : ""}`,
   }));
@@ -51,6 +55,7 @@ async function Calendario({ tandas, planifica, desde }: { tandas: Awaited<Return
         prioridad: prio < 0 ? etiquetaPrioridad(prio) : null,
         alerta: t.alerta && t.alerta.nivel !== "semana" ? t.alerta.texto : null,
         inyectora: t.inyectora,
+        esAccesorio: t.esAccesorio,
         enCurso: t.estado === "EN_CURSO",
       };
     });
@@ -101,7 +106,7 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
   const usuario = await getUsuarioActual();
   const planifica = puedePlanificar(usuario.rol);
 
-  const [tandas, grupos] = await Promise.all([listarTandas(), gruposParaPlanificar()]);
+  const [tandas, grupos, pedidosMaterial] = await Promise.all([listarTandas(), gruposParaPlanificar(), pedidosDeMaterialPendientes()]);
   const enCurso = tandas.filter((t) => t.estado === "EN_CURSO").length;
   const alertas = grupos.filter((g) => g.alerta && g.alerta.nivel !== "semana").length + tandas.filter((t) => t.alerta && t.alerta.nivel !== "semana").length;
   const porPlanificar = grupos.reduce((t, g) => t + g.aPlanificar, 0);
@@ -133,6 +138,8 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
         </div>
       </div>
 
+      <PedidosDeMaterial pedidos={pedidosMaterial} />
+
       <nav className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
         {VISTAS.map((v) => (
           <Link
@@ -148,10 +155,10 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
       {vista === "plan" && <Planificacion tandas={tandas} grupos={grupos} planifica={planifica} />}
       {vista === "calendario" && <Calendario tandas={tandas} planifica={planifica} desde={sp.desde} />}
       {vista === "turnos" && <TurnosSemana desde={sp.desde} edita={puedeAsignarTurnos(usuario.rol)} />}
-      {vista === "curso" && <EnCurso />}
+      {vista === "curso" && <EnCurso cancela={puedeCancelarProduccion(usuario.rol)} />}
       {vista === "relevos" && <Relevos />}
       {vista === "compras" && <Compras tandas={tandas} />}
-      {vista === "historial" && <Historial puedeIniciar={puedeCargarProduccion(usuario.rol)} />}
+      {vista === "historial" && <Historial />}
     </div>
   );
 }
@@ -165,8 +172,6 @@ async function Planificacion({
   grupos: Awaited<ReturnType<typeof gruposParaPlanificar>>;
   planifica: boolean;
 }) {
-  const inyectoras = [...new Set(tandas.map((t) => t.inyectora).filter((x): x is string => Boolean(x)))];
-  const golpes = new Map(await Promise.all(inyectoras.map(async (i) => [i, await ultimosGolpes(i)] as const)));
   const recetas = await recetasDe(grupos.map((g) => g.productoId));
   const conPlan = grupos.filter((g) => g.aPlanificar > 0);
   const productos = planifica ? await productosParaCiclo() : [];
@@ -180,7 +185,7 @@ async function Planificacion({
           </p>
         ) : (
           tandas.map((t, i) => (
-            <TarjetaTanda key={t.id} t={t} posicion={i + 1} total={tandas.length} golpesSugeridos={t.inyectora ? (golpes.get(t.inyectora) ?? null) : null} puedePlanificar={planifica} />
+            <TarjetaTanda key={t.id} t={t} posicion={i + 1} total={tandas.length} puedePlanificar={planifica} />
           ))
         )}
       </section>
@@ -202,10 +207,10 @@ async function Planificacion({
   );
 }
 
-async function EnCurso() {
+async function EnCurso({ cancela }: { cancela: boolean }) {
   const abiertos = (await listarCiclos(50)).filter((c) => !c.fechaFin);
   const vistas = await Promise.all(abiertos.map((c) => vistaTaller(c.inyectora)));
-  if (abiertos.length === 0) return <p className="panel text-sm text-foreground-muted">No hay producciones en curso. Se inician desde la planificación.</p>;
+  if (abiertos.length === 0) return <p className="panel text-sm text-foreground-muted">No hay producciones en curso. Las arranca el operario desde su pantalla, con la primera tanda de la cola de su máquina.</p>;
   return (
     <div className="grid gap-4 md:grid-cols-2">
       {vistas.map((v) =>
@@ -250,7 +255,26 @@ async function EnCurso() {
               <Link href={`/taller?iny=${v.inyectora}`} className="btn btn-outline btn-sm">
                 <Smartphone size={15} /> Ver como el operario
               </Link>
+              <Link href={`/materia-prima/retiro?ciclo=${v.produccion.cicloId}`} className="btn btn-outline btn-sm">
+                Reponer material
+              </Link>
             </div>
+            {cancela && (
+              <details className="text-sm">
+                <summary className="cursor-pointer font-semibold text-foreground-muted">Cancelar la producción</summary>
+                <p className="mt-1 text-xs text-foreground-muted">Sólo si todavía no se produjo nada. La tanda vuelve a la cola.</p>
+                <FormAccion
+                  accion={cancelarProduccionAction}
+                  ocultos={{ cicloId: v.produccion.cicloId }}
+                  boton="Cancelar la producción"
+                  claseBoton="btn btn-outline btn-sm"
+                  confirmar="¿Cancelar la producción? La tanda vuelve a la cola."
+                  className="mt-2 flex flex-wrap items-end gap-2"
+                >
+                  <input name="motivo" required placeholder="Motivo" className="input w-64" />
+                </FormAccion>
+              </details>
+            )}
           </article>
         ) : null,
       )}
@@ -317,7 +341,7 @@ async function Relevos() {
             <ul className="space-y-2 text-sm">
               {novedades.map(({ n, usuarioNombre }) => (
                 <li key={n.id} className="border-b border-border pb-2 last:border-0">
-                  <span className="badge-estado badge-bajo mr-2">{TIPO_NOVEDAD[n.tipo]}</span>
+                  <span className="badge-estado badge-bajo mr-2">{etiquetaNovedad(n)}</span>
                   <b>{n.motivo}</b> · Iny. {n.inyectora}
                   {n.detalle && <div className="text-xs text-foreground-muted">{n.detalle}</div>}
                   <div className="text-xs text-foreground-muted">
@@ -351,6 +375,11 @@ async function Relevos() {
 }
 
 const TIPO_NOVEDAD = { NO_CARGA: "No se cargó", CARGA_DISTINTA: "Carga distinta", DIFERENCIA_RELEVO: "Diferencia en el relevo", INTERRUPCION: "Interrupción" } as const;
+/** Pedidos de material y arranques fuera de orden usan tipos existentes: se
+ *  nombran por su motivo. */
+const etiquetaNovedad = (n: { tipo: keyof typeof TIPO_NOVEDAD; motivo: string }) =>
+  n.motivo === MOTIVO_PEDIDO_MATERIAL ? "Pedido de material" : n.motivo.startsWith("Arranque ") ? "Arranque" : TIPO_NOVEDAD[n.tipo];
+
 
 async function Compras({ tandas }: { tandas: Awaited<ReturnType<typeof listarTandas>> }) {
   const nec = await necesidadDeCompra(tandas);
@@ -400,17 +429,12 @@ async function Compras({ tandas }: { tandas: Awaited<ReturnType<typeof listarTan
   );
 }
 
-async function Historial({ puedeIniciar }: { puedeIniciar: boolean }) {
+async function Historial() {
   const ciclos = await listarCiclos(60);
   return (
     <section className="panel overflow-x-auto p-0">
-      <div className="flex items-center justify-between px-5 pt-4">
+      <div className="px-5 pt-4">
         <h2 className="panel-titulo">Producciones</h2>
-        {puedeIniciar && (
-          <Link href="/produccion/nuevo" className="btn btn-outline btn-sm">
-            Inicio de producción sin planificar
-          </Link>
-        )}
       </div>
       <table className="tabla">
         <thead>

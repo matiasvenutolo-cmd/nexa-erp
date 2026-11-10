@@ -9,10 +9,10 @@ import {
   cerrarTurno,
   iniciarTandaAsignada,
   pausarProduccion,
+  pedirMaterial,
   registrarNovedad,
   tomarTurno,
 } from "@/lib/data/taller";
-import { identificarCodigoMp } from "@/lib/data/maquina";
 import type { Turno } from "@/lib/data/planificacion";
 import type { EstadoAccion } from "@/components/form-accion";
 import { fmtPeso, parseCantidadAR } from "@/lib/presentaciones";
@@ -47,7 +47,7 @@ export async function tomarTurnoAction(_p: EstadoAccion, fd: FormData): Promise<
   });
   if (r.error) return { error: r.error };
   revalidar();
-  return { ok: "Relevo aceptado: ya podés registrar la carga en tolva." };
+  return { ok: "Recibiste la máquina." };
 }
 
 export async function iniciarTandaAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
@@ -58,10 +58,11 @@ export async function iniciarTandaAction(_p: EstadoAccion, fd: FormData): Promis
     golpesInicio: num(fd, "golpesInicio"),
     operarioNombre: txt(fd, "operarioNombre"),
     turno: t ? (t as Turno) : null,
+    motivo: txt(fd, "motivo"),
   });
   if (r.error) return { error: r.error };
   revalidar();
-  return { ok: "Producción iniciada. Ahora registrá la carga en tolva." };
+  return { ok: "Producción arrancada." };
 }
 
 export async function pausarAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
@@ -92,29 +93,25 @@ export async function cargarRecetaAction(_p: EstadoAccion, fd: FormData): Promis
       return { error: "No se pudieron leer las cantidades." };
     }
   }
-  let codigos = null;
-  const rc = txt(fd, "codigos");
-  if (rc) {
-    try {
-      codigos = JSON.parse(rc);
-    } catch {
-      return { error: "No se pudieron leer los códigos." };
-    }
-  }
-  const usarPie = fd.get("usarPie") !== "0";
   const r = await cargarReceta(u, {
     cicloId: Number(fd.get("cicloId")),
     tipo: fd.get("tipo") === "ARRANQUE" ? "ARRANQUE" : "REGIMEN",
     ajustes,
     motivoExcepcion: txt(fd, "motivo"),
     token: txt(fd, "token"),
-    usarPie,
-    codigos,
   });
   if (r.error) return { error: r.error };
   revalidar();
   if (r.repetido) return { ok: "Esa carga ya estaba registrada (no se duplicó)." };
-  return { ok: `Carga registrada: ${fmtPeso(r.kg ?? 0)} pasaron ${usarPie ? "del pie de máquina" : "del stock general (retiro a tu nombre)"} a la tolva.` };
+  return { ok: `Carga registrada: ${fmtPeso(r.kg ?? 0)} pasaron del pie de máquina a la tolva.` };
+}
+
+export async function pedirMaterialAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
+  const u = await getUsuarioActual();
+  const r = await pedirMaterial(u, { cicloId: Number(fd.get("cicloId")) });
+  if (r.error) return { error: r.error };
+  revalidar();
+  return { ok: r.yaPedido ? "Ya está pedido: el Encargado lo tiene a la vista." : "Listo: el Encargado y Retiros de MP ya ven el pedido." };
 }
 
 export async function novedadAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
@@ -137,8 +134,7 @@ export async function cerrarTurnoAction(_p: EstadoAccion, fd: FormData): Promise
   const r = await cerrarTurno(u, {
     cicloId: Number(fd.get("cicloId")),
     golpesFin: golpes,
-    descarteKg: num(fd, "descarteKg"),
-    motivoInterrupcion: txt(fd, "motivoInterrupcion"),
+    descartePiezas: num(fd, "descartePiezas"),
     observaciones: txt(fd, "observaciones"),
   });
   if (r.error) return { error: r.error };
@@ -151,7 +147,7 @@ export async function cerrarProduccionTallerAction(_p: EstadoAccion, fd: FormDat
   const r = await cerrarProduccionTaller(u, {
     cicloId: Number(fd.get("cicloId")),
     golpesFin: num(fd, "golpesFin"),
-    descarteKg: num(fd, "descarteKg"),
+    descartePiezas: num(fd, "descartePiezas"),
     rebarbaKg: num(fd, "rebarbaKg"),
     scrapKg: num(fd, "scrapKg"),
     cerrarPartida: fd.get("cerrarPartida") === "on",
@@ -161,10 +157,4 @@ export async function cerrarProduccionTallerAction(_p: EstadoAccion, fd: FormDat
   revalidar();
   revalidatePath("/catalogo");
   return { ok: `Producción cerrada: ${r.piezasAStock} piezas entraron a stock.` };
-}
-
-/** Lectura del código de la bolsa: confirma material, lote y certificado. */
-export async function leerCodigoTallerAction(codigo: string, productoNumero: string | null) {
-  await getUsuarioActual();
-  return identificarCodigoMp(codigo, productoNumero);
 }

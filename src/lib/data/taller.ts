@@ -29,9 +29,8 @@ import {
   turnoProduccion,
   usuario,
   eventoProduccion,
-  loteMp,
 } from "@/lib/db/schema";
-import { puedeOperarTaller } from "@/lib/auth/permisos";
+import { puedeCancelarProduccion, puedeOperarTaller } from "@/lib/auth/permisos";
 import type { Actor, Resultado } from "@/lib/data/auditoria";
 import { ubicacionesMp } from "@/lib/data/depositos";
 import { ErrorCarga, cargarEnTolvaTx, obtenerRetirosMaquina } from "@/lib/data/maquina";
@@ -40,7 +39,9 @@ import { listarPresentaciones, presentacionesDe, recetasDe, type Receta } from "
 import { ErrorStock } from "@/lib/data/ubicaciones";
 import { etiquetaTurno, iniciarProduccionDeTanda, type Turno } from "@/lib/data/planificacion";
 import { opcionesTurno } from "@/lib/data/turnos";
-import { disponibleDeLotes, registrarRetiroMaquina, registrarSobrante } from "@/lib/data/maquina";
+import { registrarSobrante } from "@/lib/data/maquina";
+import { nombreCortoMp } from "@/lib/codigos-mp";
+import { hoyISO } from "@/lib/format";
 import { INYECTORAS } from "@/lib/inyectoras";
 import { aGramos, enBolsas, fmtPeso, fmtPresentacion, kgDe } from "@/lib/presentaciones";
 
@@ -70,47 +71,48 @@ export { enBolsas } from "@/lib/presentaciones";
 
 export type VistaTaller = Awaited<ReturnType<typeof vistaTaller>>;
 
-/** Todo lo que necesita ver el operario de una inyectora. */
-export async function vistaTaller(inyectora: string) {
-  const iny = num(inyectora);
-  const [prod] = await db
-    .select({
-      ciclo: cicloProduccion,
-      productoCodigo: producto.codigo,
-      productoDescripcion: producto.descripcion,
-      productoNumero: producto.numero,
-      kgPorUnidad: producto.kgPorUnidad,
-      colorNombre: color.nombre,
-      partidaNumero: partida.numero,
-    })
-    .from(cicloProduccion)
-    .leftJoin(producto, eq(cicloProduccion.productoId, producto.id))
-    .leftJoin(color, eq(producto.colorId, color.id))
-    .leftJoin(partida, eq(cicloProduccion.partidaId, partida.id))
-    .where(and(isNull(cicloProduccion.fechaFin), sqlInyectora(iny)))
-    .orderBy(desc(cicloProduccion.id))
-    .limit(1);
+type RetiroAbierto = Awaited<ReturnType<typeof obtenerRetirosMaquina>>[number];
 
-  const presentaciones = await listarPresentaciones();
-  const retiros = await obtenerRetirosMaquina({ estado: "ABIERTO", inyectora: iny });
+/**
+ * Retiros abiertos que le corresponden a una producción: los suyos, los de su
+ * misma partida (continuidad entre jornadas) y los que se llevaron para ese
+ * producto antes de arrancar. El material de otra producción o de otra tanda
+ * en cola no se toca (Cambios en Producción, nov. 2026).
+ */
+export function retirosDeProduccion(retiros: RetiroAbierto[], c: { id: number; productoId: number | null; partidaId: number | null }) {
+  return retiros.filter(
+    (r) =>
+      r.cicloId === c.id ||
+      (r.cicloId == null && (r.productoPrevistoId == null || r.productoPrevistoId === c.productoId)) ||
+      (r.cicloId != null && c.partidaId != null && r.partidaId === c.partidaId),
+  );
+}
+
+/** Material a pie de máquina por material, con su equivalente en bolsas. */
+function armarPie(retiros: RetiroAbierto[], presentaciones: Awaited<ReturnType<typeof listarPresentaciones>>): MaterialEnMaquina[] {
   const pieMap = new Map<number, MaterialEnMaquina>();
   const mpTipos = new Map<number, string>();
   for (const r of retiros) {
     for (const l of r.lineas) {
       if (l.anulado || l.saldo.pie <= EPS) continue;
       mpTipos.set(l.materiaPrimaId, l.materiaPrimaTipo);
-      const a = pieMap.get(l.materiaPrimaId) ?? { materiaPrimaId: l.materiaPrimaId, nombre: l.materiaPrimaNombre, esMaster: l.materiaPrimaTipo === "MASTER", kg: 0, bolsas: null };
+      const a = pieMap.get(l.materiaPrimaId) ?? { materiaPrimaId: l.materiaPrimaId, nombre: nombreCortoMp(l.materiaPrimaNombre), esMaster: l.materiaPrimaTipo === "MASTER", kg: 0, bolsas: null };
       a.kg = (aGramos(a.kg) + aGramos(l.saldo.pie)) / 1000;
       pieMap.set(l.materiaPrimaId, a);
     }
   }
-  const pie = [...pieMap.values()].map((m) => ({
+  return [...pieMap.values()].map((m) => ({
     ...m,
     bolsas: enBolsas(m.kg, presentacionesDe(presentaciones, { id: m.materiaPrimaId, tipo: mpTipos.get(m.materiaPrimaId) ?? "" })),
   }));
+}
 
-  // Tandas que el Encargado asignó a esta máquina (las inicia el operario).
-  const asignadas = await db
+/**
+ * Cola de una máquina: tandas en cola con máquina asignada, por día, turno y
+ * orden. El operario arranca la primera; otra, sólo indicando el motivo.
+ */
+export async function colaDeMaquina(inyectora: string) {
+  return db
     .select({
       id: tanda.id,
       productoId: tanda.productoId,
@@ -127,13 +129,56 @@ export async function vistaTaller(inyectora: string) {
     .from(tanda)
     .innerJoin(producto, eq(tanda.productoId, producto.id))
     .leftJoin(color, eq(producto.colorId, color.id))
-    .where(and(eq(tanda.estado, "PLANIFICADA"), eq(tanda.inyectora, iny)))
-    .orderBy(sql`${tanda.fecha} asc nulls last`, asc(tanda.orden))
-    .limit(5);
+    .where(and(eq(tanda.estado, "PLANIFICADA"), eq(tanda.inyectora, num(inyectora))))
+    .orderBy(
+      sql`${tanda.fecha} asc nulls last`,
+      sql`case ${tanda.turno} when 'MANANA' then 0 when 'TARDE' then 1 when 'NOCHE' then 2 else 3 end`,
+      asc(tanda.orden),
+      asc(tanda.id),
+    )
+    .limit(10);
+}
+
+/** Todo lo que necesita ver el operario de una inyectora. */
+export async function vistaTaller(inyectora: string) {
+  const iny = num(inyectora);
+  const [prod] = await db
+    .select({
+      ciclo: cicloProduccion,
+      productoCodigo: producto.codigo,
+      productoDescripcion: producto.descripcion,
+      productoNumero: producto.numero,
+      kgPorUnidad: producto.kgPorUnidad,
+      coladaKgPorGolpe: producto.coladaKgPorGolpe,
+      colorNombre: color.nombre,
+      partidaNumero: partida.numero,
+    })
+    .from(cicloProduccion)
+    .leftJoin(producto, eq(cicloProduccion.productoId, producto.id))
+    .leftJoin(color, eq(producto.colorId, color.id))
+    .leftJoin(partida, eq(cicloProduccion.partidaId, partida.id))
+    .where(and(isNull(cicloProduccion.fechaFin), sqlInyectora(iny)))
+    .orderBy(desc(cicloProduccion.id))
+    .limit(1);
+
+  const presentaciones = await listarPresentaciones();
+  const retiros = await obtenerRetirosMaquina({ estado: "ABIERTO", inyectora: iny });
+  // Con producción en curso, sólo el material de esa producción; sin ella,
+  // todo lo que hay junto a la máquina.
+  const pie = armarPie(prod ? retirosDeProduccion(retiros, prod.ciclo) : retiros, presentaciones);
+
+  // Cola de la máquina: la arranca el operario. Para cada tanda, el material
+  // que ya se le llevó a pie de máquina.
+  const asignadas = await colaDeMaquina(iny);
   const proxima = asignadas[0] ?? null;
   const recetasAsignadas = await recetasDe(asignadas.map((a) => a.productoId));
-
-  const asignadasConReceta = asignadas.map((a) => ({ ...a, receta: recetasAsignadas.get(a.productoId)?.REGIMEN ?? null }));
+  const hoy = hoyISO();
+  const asignadasConReceta = asignadas.map((a) => ({
+    ...a,
+    receta: recetasAsignadas.get(a.productoId)?.REGIMEN ?? null,
+    sePuedeArrancar: !a.fecha || a.fecha <= hoy,
+    enPie: armarPie(retiros.filter((r) => r.cicloId == null && r.productoPrevistoId === a.productoId), presentaciones),
+  }));
   if (!prod) return { inyectora: iny, produccion: null, pie, proxima, asignadas: asignadasConReceta } as const;
 
   const c = prod.ciclo;
@@ -171,7 +216,7 @@ export async function vistaTaller(inyectora: string) {
 
   const tolvaMap = new Map<number, MaterialEnMaquina>();
   for (const x of cargasTolva) {
-    const a = tolvaMap.get(x.mpId) ?? { materiaPrimaId: x.mpId, nombre: x.nombre, esMaster: x.tipo === "MASTER", kg: 0, bolsas: null };
+    const a = tolvaMap.get(x.mpId) ?? { materiaPrimaId: x.mpId, nombre: nombreCortoMp(x.nombre), esMaster: x.tipo === "MASTER", kg: 0, bolsas: null };
     a.kg = (aGramos(a.kg) + aGramos(Number(x.cantidad))) / 1000;
     tolvaMap.set(x.mpId, a);
   }
@@ -180,6 +225,19 @@ export async function vistaTaller(inyectora: string) {
     if (a) a.kg = Math.max(0, (aGramos(a.kg) - aGramos(Math.abs(sb.total))) / 1000);
   }
   const cargasDelTurno = abierto ? cargasTolva.filter((x) => x.turnoId === abierto.t.id) : [];
+  const ppg = c.piezasPorGolpe ?? 1;
+  const kgPorUnidad = prod.kgPorUnidad != null ? Number(prod.kgPorUnidad) : null;
+  const falta = objetivo != null ? Math.max(0, objetivo - producido) : null;
+  const golpesFaltantes = falta != null ? Math.ceil(falta / ppg) : null;
+  // Contador al que tiene que llegar: golpes del inicio del turno (o del
+  // último relevo) + los que faltan. No hay avance en vivo: los golpes se
+  // cargan al cerrar el turno.
+  const golpesBase = abierto?.t.golpesInicio ?? ultimo?.t.golpesFin ?? c.golpesInicio ?? null;
+  // Tolva estimada (sólo informativa): lo cargado menos lo que ya se inyectó.
+  const kgCargados = [...tolvaMap.values()].reduce((t, m) => (aGramos(t) + aGramos(m.kg)) / 1000, 0);
+  const golpesHechos = c.golpesInicio != null && ultimo?.t.golpesFin != null ? ultimo.t.golpesFin - c.golpesInicio : 0;
+  const kgPorGolpe = kgPorUnidad != null ? kgPorUnidad * ppg + Number(prod.coladaKgPorGolpe ?? 0) : null;
+  const tolvaEstimadaKg = kgPorGolpe != null ? Math.max(0, Math.round((kgCargados - golpesHechos * kgPorGolpe) * 10) / 10) : null;
 
   return {
     inyectora: iny,
@@ -195,13 +253,18 @@ export async function vistaTaller(inyectora: string) {
       productoNumero: prod.productoNumero,
       colorNombre: prod.colorNombre,
       partidaNumero: prod.partidaNumero,
-      kgPorUnidad: prod.kgPorUnidad != null ? Number(prod.kgPorUnidad) : null,
-      piezasPorGolpe: c.piezasPorGolpe ?? 1,
+      kgPorUnidad,
+      piezasPorGolpe: ppg,
       golpesInicioProduccion: c.golpesInicio,
       objetivo,
       producido,
-      falta: objetivo != null ? Math.max(0, objetivo - producido) : null,
-      golpesFaltantes: objetivo != null ? Math.ceil(Math.max(0, objetivo - producido) / (c.piezasPorGolpe ?? 1)) : null,
+      falta,
+      golpesFaltantes,
+      contadorObjetivo: golpesBase != null && golpesFaltantes != null ? golpesBase + golpesFaltantes : null,
+      hayCargas: cargasTolva.length > 0,
+      ultimaCarga: cargasTolva.reduce<Date | null>((m, x) => (!m || x.fecha > m ? x.fecha : m), null),
+      tolvaEstimadaKg,
+      descartePiezas: kgPorUnidad ? Math.round(Number(c.descarteKg ?? 0) / kgPorUnidad) : 0,
       receta: r.REGIMEN ?? null,
       recetaArranque: r.ARRANQUE ?? null,
       usarArranque,
@@ -337,17 +400,15 @@ export type CargarRecetaInput = {
   ajustes?: { materiaPrimaId: number; presentacionId: number; cantidad: number }[] | null;
   motivoExcepcion?: string | null;
   token?: string | null;
-  /** Por defecto el material sale del pie de máquina; si se destilda, se
-   *  retira del stock general en el mismo paso (retiro + carga). */
-  usarPie?: boolean;
-  /** Código de barras leído por material (opcional): fija y valida el lote. */
-  codigos?: { materiaPrimaId: number; codigo: string }[] | null;
 };
 
 /**
  * Ejecuta la receta: por cada material, toma los kg del pie de máquina de esa
- * inyectora (líneas de retiro abiertas, primero las más viejas) y los pasa a
+ * producción (líneas de retiro abiertas, primero las más viejas) y los pasa a
  * la tolva. Todo o nada: si falta material, no carga nada y lo explica.
+ * Nunca descuenta del stock general: el material llega a pie de máquina sólo
+ * por un retiro (Cambios en Producción, nov. 2026). La bolsa ya se leyó en el
+ * retiro, así que acá no se lee.
  */
 export async function cargarReceta(actor: Actor, input: CargarRecetaInput): Promise<Resultado & { kg?: number; repetido?: boolean }> {
   if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
@@ -387,56 +448,13 @@ export async function cargarReceta(actor: Actor, input: CargarRecetaInput): Prom
     if (nuevos.some((n) => n.kgPres <= 0)) return { error: "Presentación inexistente." };
     items = nuevos;
   }
-  if (items.length === 0) return { error: "No hay nada para cargar. Si no se pudo cargar, registrá el motivo con «No pude cargar»." };
+  if (items.length === 0) return { error: "No hay nada para cargar. Si falta material, tocá «Pedir material»." };
 
   const ub = await ubicacionesMp();
   const motivo = excepcion ? input.motivoExcepcion!.trim() : null;
-  // Código leído (opcional): tiene que ser de un lote del material de la receta.
-  const loteDe = new Map<number, number>();
-  for (const cod of input.codigos ?? []) {
-    const limpio = cod.codigo.replace(/\s+/g, "");
-    if (!limpio) continue;
-    const [l] = await db.select().from(loteMp).where(eq(loteMp.codigoBarra, `000${limpio.slice(3)}`));
-    if (!l) return { error: `El código ${limpio} no corresponde a ningún lote ingresado.` };
-    if (l.materiaPrimaId !== cod.materiaPrimaId) return { error: `El código leído es de otro material, no del que se está cargando.` };
-    loteDe.set(cod.materiaPrimaId, l.id);
-  }
-  const usarPie = input.usarPie !== false;
-  if (!usarPie) {
-    // Sin material a pie de máquina: se retira del stock general en el mismo
-    // paso (traslado depósito → pie, con su responsable) y se carga.
-    const porMp = new Map<number, number>();
-    for (const i of items) porMp.set(i.materiaPrimaId, (aGramos(porMp.get(i.materiaPrimaId) ?? 0) + aGramos(kgDe(i.cantidad, i.kgPres))) / 1000);
-    const lineas: { materiaPrimaId: number; loteMpId: number | null; cantidadKg: number }[] = [];
-    for (const [mpId, kg] of porMp) {
-      const fijo = loteDe.get(mpId);
-      if (fijo) {
-        lineas.push({ materiaPrimaId: mpId, loteMpId: fijo, cantidadKg: kg });
-        continue;
-      }
-      // Lotes con saldo, primero los más viejos; si no hay lotes, stock sin lote.
-      const lotes = await db.select({ id: loteMp.id }).from(loteMp).where(eq(loteMp.materiaPrimaId, mpId)).orderBy(asc(loteMp.fechaIngreso), asc(loteMp.id));
-      const disp = await disponibleDeLotes(db, lotes.map((l) => l.id));
-      let resta = kg;
-      for (const l of lotes) {
-        const d = disp.get(l.id) ?? 0;
-        if (resta <= EPS || d <= EPS) continue;
-        const toma = Math.min(d, resta);
-        lineas.push({ materiaPrimaId: mpId, loteMpId: l.id, cantidadKg: Math.round(toma * 1000) / 1000 });
-        resta = (aGramos(resta) - aGramos(toma)) / 1000;
-      }
-      if (resta > EPS) lineas.push({ materiaPrimaId: mpId, loteMpId: null, cantidadKg: resta });
-    }
-    const ret = await registrarRetiroMaquina(
-      actor,
-      { cicloId: c.id, operarioId: actor.id, entregaId: actor.id, observaciones: "Retiro del stock general al cargar la tolva (sin material a pie de máquina)", lineas, token: input.token ? `${input.token}:retiro` : null },
-      { paraCargaInmediata: true },
-    );
-    if (ret.error) return { error: ret.error };
-  }
-  // Líneas a pie de máquina de la inyectora: se leen antes de la transacción;
-  // cada carga vuelve a bloquear y validar su línea adentro.
-  const retiros = await obtenerRetirosMaquina({ estado: "ABIERTO", inyectora: num(c.inyectora) });
+  // Líneas a pie de máquina de esta producción: se leen antes de la
+  // transacción; cada carga vuelve a bloquear y validar su línea adentro.
+  const retiros = retirosDeProduccion(await obtenerRetirosMaquina({ estado: "ABIERTO", inyectora: num(c.inyectora) }), c);
   return db
     .transaction(async (tx) => {
       if (input.token) {
@@ -459,11 +477,11 @@ export async function cargarReceta(actor: Actor, input: CargarRecetaInput): Prom
           .slice()
           .sort((a, b) => a.id - b.id)
           .flatMap((r) => r.lineas)
-          .filter((l) => l.materiaPrimaId === mpId && !l.anulado && l.saldo.pie > EPS && (!loteDe.has(mpId) || l.loteMpId === loteDe.get(mpId)));
+          .filter((l) => l.materiaPrimaId === mpId && !l.anulado && l.saldo.pie > EPS);
         const hay = lineas.reduce((t, l) => (aGramos(t) + aGramos(l.saldo.pie)) / 1000, 0);
         if (kg > hay + EPS) {
           throw new ErrorCarga(
-            `A pie de máquina hay ${new Intl.NumberFormat("es-AR").format(hay)} kg de ${nombre} y la carga pide ${new Intl.NumberFormat("es-AR").format(kg)} kg. Pedí el retiro del material, o cargá lo que hay indicando el motivo.`,
+            `A pie de máquina hay ${new Intl.NumberFormat("es-AR").format(hay)} kg de ${nombreCortoMp(nombre)} y la carga pide ${new Intl.NumberFormat("es-AR").format(kg)} kg. Pedí material, o cargá lo que hay con «Cargué distinto».`,
           );
         }
         let resta = kg;
@@ -538,7 +556,9 @@ export async function registrarNovedad(
 export type CerrarTurnoInput = {
   cicloId: number;
   golpesFin: number;
-  descarteKg?: number | null;
+  /** Piezas descartadas en el turno: el sistema calcula los kg con el peso por
+   *  pieza (Cambios en Producción, nov. 2026: el operario cuenta piezas). */
+  descartePiezas?: number | null;
   motivoInterrupcion?: string | null;
   observaciones?: string | null;
   /** Foto del material a pie de máquina y en tolva al cerrar (lo calcula el sistema). */
@@ -554,9 +574,17 @@ async function cerrarTurnoTx(tx: Tx, actor: Actor, input: CerrarTurnoInput) {
   if (t.golpesInicio != null && input.golpesFin < t.golpesInicio) {
     return { error: `Los golpes al cierre (${input.golpesFin}) no pueden ser menores que al inicio del turno (${t.golpesInicio}).` } as const;
   }
-  const descarte = input.descarteKg ?? 0;
-  if (!Number.isFinite(descarte) || descarte < 0 || descarte > 5000) return { error: "El descarte va en kilos (0 o más)." } as const;
   const piezas = t.golpesInicio != null ? (input.golpesFin - t.golpesInicio) * (c.piezasPorGolpe ?? 1) : null;
+  const descartadas = input.descartePiezas ?? 0;
+  if (!Number.isInteger(descartadas) || descartadas < 0) return { error: "El descarte va en piezas: un número entero (0 o más)." } as const;
+  if (piezas != null && descartadas > piezas) return { error: `El descarte (${descartadas}) no puede superar las piezas del turno (${piezas}).` } as const;
+  let descarte = 0;
+  if (descartadas > 0) {
+    const [pr] = c.productoId ? await tx.select({ kg: producto.kgPorUnidad }).from(producto).where(eq(producto.id, c.productoId)) : [];
+    const kgPieza = pr?.kg != null ? Number(pr.kg) : 0;
+    if (!(kgPieza > 0)) return { error: "El producto no tiene peso por pieza para registrar el descarte: avisale al Encargado." } as const;
+    descarte = Math.round(descartadas * kgPieza * 1000) / 1000;
+  }
   const interrupcion = input.motivoInterrupcion && input.motivoInterrupcion !== "Sin interrupciones" ? input.motivoInterrupcion.trim() : null;
   await tx
     .update(turnoProduccion)
@@ -590,15 +618,17 @@ export async function cerrarTurno(actor: Actor, input: CerrarTurnoInput): Promis
 
 /**
  * Cierre definitivo de la producción desde la máquina: cierra el turno abierto
- * (si lo hay) y la producción. Piezas = golpes; descarte en piezas = kg de
- * descarte ÷ peso por pieza; entra a stock lo bueno. Rebarba y scrap en kg.
+ * (si lo hay) y la producción. Piezas = golpes; el descarte se carga en piezas
+ * por turno (se guarda en kg con el peso por pieza); entra a stock lo bueno.
+ * Rebarba y scrap en kg.
  */
 export async function cerrarProduccionTaller(
   actor: Actor,
   input: {
     cicloId: number;
     golpesFin?: number | null;
-    descarteKg?: number | null;
+    /** Piezas descartadas en el último turno. */
+    descartePiezas?: number | null;
     rebarbaKg?: number | null;
     scrapKg?: number | null;
     cerrarPartida?: boolean;
@@ -625,7 +655,7 @@ export async function cerrarProduccionTaller(
   const [abierto] = await db.select().from(turnoProduccion).where(and(eq(turnoProduccion.cicloId, c0.id), eq(turnoProduccion.estado, "ABIERTO")));
   if (abierto) {
     if (input.golpesFin == null) return { error: "Indicá los golpes de la máquina al terminar." };
-    const r = await db.transaction((tx) => cerrarTurnoTx(tx, actor, { cicloId: c0.id, golpesFin: input.golpesFin!, descarteKg: input.descarteKg }));
+    const r = await db.transaction((tx) => cerrarTurnoTx(tx, actor, { cicloId: c0.id, golpesFin: input.golpesFin!, descartePiezas: input.descartePiezas }));
     if ("error" in r) return { error: r.error };
   }
   const [c] = await db.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
@@ -717,16 +747,79 @@ export async function relevosRecientes(limite = 30) {
  */
 export async function iniciarTandaAsignada(
   actor: Actor,
-  input: { tandaId: number; golpesInicio: number | null; operarioNombre?: string | null; turno?: Turno | null },
+  input: { tandaId: number; golpesInicio: number | null; operarioNombre?: string | null; turno?: Turno | null; motivo?: string | null },
 ): Promise<Resultado & { cicloId?: number }> {
   if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
+  const motivo = input.motivo?.trim() || null;
+  // Arranca el operario. Si no tiene el celular, el Encargado puede arrancar en
+  // su nombre, con motivo (Cambios en Producción, nov. 2026).
+  const enNombre = actor.rol !== "OPERARIO";
+  if (enNombre && !input.operarioNombre?.trim()) return { error: "Elegí qué operario está en la máquina." };
+  if (enNombre && !motivo) return { error: "Indicá por qué arrancás en nombre del operario." };
+  const [td] = await db.select({ inyectora: tanda.inyectora }).from(tanda).where(eq(tanda.id, input.tandaId));
+  const cola = td?.inyectora ? await colaDeMaquina(td.inyectora) : [];
+  const fueraDeOrden = cola.length > 0 && cola[0].id !== input.tandaId;
+  if (fueraDeOrden && !motivo) return { error: "Esa tanda no es la primera de la cola: indicá el motivo para arrancarla antes." };
   const turno = input.turno ?? (await turnoActual(new Date(), actor.id))?.turno ?? null;
   if (!turno) return { error: "Ahora hay más de un turno posible (o el esquema del día no está cargado en Producción → Turnos y operarios): elegí el turno." };
-  const r = await iniciarProduccionDeTanda(actor, input.tandaId, { golpesInicio: input.golpesInicio });
+  const detalle = [fueraDeOrden ? "fuera de orden" : null, enNombre ? `en nombre de ${input.operarioNombre!.trim()}` : null].filter(Boolean).join(", ");
+  const r = await iniciarProduccionDeTanda(actor, input.tandaId, { golpesInicio: input.golpesInicio, motivo: detalle ? `Arranque ${detalle}: ${motivo}` : null });
   if (r.error || !r.cicloId) return { error: r.error ?? "No se pudo iniciar la producción." };
   const t = await tomarTurno(actor, { cicloId: r.cicloId, turno, golpesInicio: input.golpesInicio, operarioNombre: input.operarioNombre });
   if (t.error) return { error: t.error, cicloId: r.cicloId };
+  if (detalle) {
+    // Queda a la vista del Encargado en Producción → Relevos y novedades.
+    await db.insert(novedadMaquina).values({ cicloId: r.cicloId, turnoId: t.id ?? null, inyectora: td!.inyectora!, tipo: "INTERRUPCION", motivo: `Arranque ${detalle}`, detalle: motivo, usuarioId: actor.id });
+  }
   return { cicloId: r.cicloId };
+}
+
+export const MOTIVO_PEDIDO_MATERIAL = "Pedido de material";
+
+/**
+ * «Pedir material»: el operario avisa que a pie de máquina no alcanza para la
+ * carga. Le llega al Encargado y a Retiros de MP (Producción y Materia prima)
+ * hasta que alguien hace un retiro para esa máquina.
+ */
+export async function pedirMaterial(actor: Actor, input: { cicloId: number }): Promise<Resultado & { yaPedido?: boolean }> {
+  if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
+  const r = await cicloAbierto(db, input.cicloId);
+  if ("error" in r) return r;
+  const { c } = r;
+  const pendientes = await pedidosDeMaterialPendientes();
+  if (pendientes.some((p) => p.n.cicloId === c.id)) return { yaPedido: true };
+  const v = await vistaTaller(c.inyectora);
+  const p = v.produccion;
+  const receta = p && p.usarArranque && p.recetaArranque ? p.recetaArranque : p?.receta;
+  const [turno] = await db.select({ id: turnoProduccion.id }).from(turnoProduccion).where(and(eq(turnoProduccion.cicloId, c.id), eq(turnoProduccion.estado, "ABIERTO")));
+  await db.insert(novedadMaquina).values({
+    cicloId: c.id,
+    turnoId: turno?.id ?? null,
+    inyectora: num(c.inyectora),
+    tipo: "NO_CARGA",
+    motivo: MOTIVO_PEDIDO_MATERIAL,
+    detalle: `${p?.productoCodigo ?? ""} ${p?.colorNombre ?? ""}`.trim() + (receta ? ` · para una carga: ${receta.items.map((i) => `${i.texto} ${nombreCortoMp(i.materiaPrimaNombre)}`).join(" + ")}` : ""),
+    usuarioId: actor.id,
+  });
+  return {};
+}
+
+/** Pedidos de material sin atender: producción en curso y ningún retiro a esa
+ *  máquina después del pedido. */
+export async function pedidosDeMaterialPendientes() {
+  return db
+    .select({ n: novedadMaquina, usuarioNombre: usuario.nombre })
+    .from(novedadMaquina)
+    .innerJoin(cicloProduccion, eq(novedadMaquina.cicloId, cicloProduccion.id))
+    .innerJoin(usuario, eq(novedadMaquina.usuarioId, usuario.id))
+    .where(
+      and(
+        eq(novedadMaquina.motivo, MOTIVO_PEDIDO_MATERIAL),
+        isNull(cicloProduccion.fechaFin),
+        sql`not exists (select 1 from retiro_maquina rm where rm.inyectora = ${novedadMaquina.inyectora} and rm.creado_en > ${novedadMaquina.fecha})`,
+      ),
+    )
+    .orderBy(desc(novedadMaquina.fecha));
 }
 
 export async function pausarProduccion(actor: Actor, input: { cicloId: number; motivo: string | null; reanudar?: boolean }): Promise<Resultado> {
@@ -753,7 +846,7 @@ export async function pausarProduccion(actor: Actor, input: { cicloId: number; m
  * finalizar la producción.
  */
 export async function cancelarProduccion(actor: Actor, input: { cicloId: number; motivo: string | null }): Promise<Resultado> {
-  if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
+  if (!puedeCancelarProduccion(actor.rol)) return { error: "Cancelar una producción le corresponde al Encargado o a Supervisión." };
   if (!input.motivo?.trim()) return { error: "Indicá el motivo de la cancelación." };
   const [c] = await db.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
   if (!c || c.fechaFin) return { error: "La producción ya está cerrada." };

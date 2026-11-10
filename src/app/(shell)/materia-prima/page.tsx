@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { pieDeMaquina } from "@/lib/data/maquina";
 import { fraccionamientosRecientes, movimientosMp, stockMpPorUbicacion, MOTIVOS_AJUSTE_MP, MOTIVOS_DESCARTE_MP } from "@/lib/data/stock-mp";
 import { listarPresentaciones, presentacionesDe } from "@/lib/data/recetas";
-import { enBolsas, relevosRecientes } from "@/lib/data/taller";
+import { enBolsas, pedidosDeMaterialPendientes, relevosRecientes } from "@/lib/data/taller";
+import { PedidosDeMaterial } from "@/components/pedidos-material";
 import { getUsuarioActual } from "@/lib/session";
 import {
   puedeAjustarMateriaPrima,
@@ -52,7 +53,11 @@ export default async function MateriaPrimaPage({
   if (!puedeVerMateriaPrima(usuario.rol)) redirect("/tablero");
   const sp = await searchParams;
   const vista: Vista = VISTAS.some((v) => v.id === sp.vista) ? (sp.vista as Vista) : "stock";
-  const [stock, moliendasPorConfirmar] = await Promise.all([stockMpPorUbicacion(), puedeRecibirMolienda(usuario.rol) ? listarMoliendas({ estado: "ENTREGADA" }) : Promise.resolve([])]);
+  const [stock, moliendasPorConfirmar, pedidosMaterial] = await Promise.all([
+    stockMpPorUbicacion(),
+    puedeRecibirMolienda(usuario.rol) ? listarMoliendas({ estado: "ENTREGADA" }) : Promise.resolve([]),
+    puedeRetirarMateriaPrima(usuario.rol) ? pedidosDeMaterialPendientes() : Promise.resolve([]),
+  ]);
 
   return (
     <div>
@@ -74,6 +79,8 @@ export default async function MateriaPrimaPage({
           )}
         </div>
       </div>
+
+      <PedidosDeMaterial pedidos={pedidosMaterial} />
 
       {moliendasPorConfirmar.length > 0 && (
         <p className="aviso aviso-alerta mb-4 text-sm">

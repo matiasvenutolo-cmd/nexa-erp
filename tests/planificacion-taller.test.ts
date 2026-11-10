@@ -340,7 +340,7 @@ describe("Operario: turno, receta, relevo y stock por ubicación", () => {
 
   it("cierre de turno: golpes y descarte; el turno siguiente verifica el material y registra la diferencia", async () => {
     expect((await cerrarTurno(s.usuarios.OPERARIO, { cicloId, golpesFin: 900 })).error).toMatch(/no pueden ser menores/);
-    const c = await cerrarTurno(s.usuarios.OPERARIO, { cicloId, golpesFin: 1250, descarteKg: 6.1, motivoInterrupcion: "Sin interrupciones" });
+    const c = await cerrarTurno(s.usuarios.OPERARIO, { cicloId, golpesFin: 1250, descartePiezas: 10, motivoInterrupcion: "Sin interrupciones" });
     expect(c).toMatchObject({ piezas: 250 });
     let v = await vistaTaller("8");
     expect(v.produccion).toMatchObject({ producido: 250, falta: 150, turnoAbierto: null });
@@ -368,9 +368,9 @@ describe("Operario: turno, receta, relevo y stock por ubicación", () => {
 
   it("cierre de producción: consume la tolva, entra a stock lo bueno y la tanda queda completada", async () => {
     const stockAntes = await stockProd(s.productos.rejNegro.id);
-    const r = await cerrarProduccionTaller(s.usuarios.OPERARIO, { cicloId, golpesFin: 1400, descarteKg: 0, rebarbaKg: 1.5 });
+    const r = await cerrarProduccionTaller(s.usuarios.OPERARIO, { cicloId, golpesFin: 1400, descartePiezas: 0, rebarbaKg: 1.5 });
     expect(r.error).toBeUndefined();
-    // 400 piezas producidas, 10 de descarte (6,1 kg ÷ 0,61) → 390 a stock.
+    // 400 piezas producidas, 10 descartadas en el primer turno (se guardan 6,1 kg) → 390 a stock.
     expect(r.piezasAStock).toBe(390);
     expect(await stockProd(s.productos.rejNegro.id)).toBe(stockAntes + 390);
     expect(await saldoMp(s.materiaPrima.copo2240.id, ubic.proceso)).toBe(0);

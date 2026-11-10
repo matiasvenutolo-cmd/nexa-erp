@@ -5,7 +5,6 @@ import {
   actualizarTandaAction,
   cancelarTandaAction,
   crearTandaAction,
-  iniciarTandaAction,
   moverTandaAction,
   postergarTandaAction,
   quitarPedidosAction,
@@ -23,7 +22,8 @@ export function BadgeAlerta({ a }: { a: AlertaEntrega }) {
 }
 
 const ESTADO_TANDA: Record<TandaVista["estado"], { texto: string; clase: string }> = {
-  PLANIFICADA: { texto: "Planificada", clase: "badge-info" },
+  // «Planificada» y «Asignada» se unifican en «En cola» (Cambios en Producción, nov. 2026).
+  PLANIFICADA: { texto: "En cola", clase: "badge-info" },
   EN_CURSO: { texto: "En producción", clase: "badge-ok" },
   POSTERGADA: { texto: "Postergada", clase: "badge-bajo" },
   COMPLETADA: { texto: "Completada", clase: "badge-exceso" },
@@ -77,7 +77,7 @@ function CamposMaquina({ esAccesorio, inyectora, fecha, turno }: { esAccesorio: 
 }
 
 /** Una tanda de la secuencia, con todo lo que la asignación tiene que dejar visible. */
-export function TarjetaTanda({ t, posicion, total, golpesSugeridos, puedePlanificar }: { t: TandaVista; posicion: number; total: number; golpesSugeridos: number | null; puedePlanificar: boolean }) {
+export function TarjetaTanda({ t, posicion, total, puedePlanificar }: { t: TandaVista; posicion: number; total: number; puedePlanificar: boolean }) {
   const est = ESTADO_TANDA[t.estado];
   const editable = puedePlanificar && (t.estado === "PLANIFICADA" || t.estado === "POSTERGADA");
   return (
@@ -200,17 +200,16 @@ export function TarjetaTanda({ t, posicion, total, golpesSugeridos, puedePlanifi
             <Factory size={15} /> Ver la producción
           </Link>
         )}
-        {puedePlanificar && t.estado === "PLANIFICADA" && (
-          <details className="w-full sm:w-auto">
-            <summary className="btn btn-primary btn-sm list-none">Iniciar producción</summary>
-            <FormAccion accion={iniciarTandaAction} ocultos={{ id: t.id }} boton="Confirmar inicio" className="mt-2 flex flex-wrap items-end gap-2">
-              <label className="campo w-48">
-                <span>Golpes de la máquina al iniciar</span>
-                <input name="golpesInicio" type="number" min={0} step={1} defaultValue={golpesSugeridos ?? ""} className="input" />
-                <span className="campo-ayuda">{golpesSugeridos != null ? "Último registro de esta inyectora." : "Leerlo del contador de la máquina."}</span>
-              </label>
-            </FormAccion>
-          </details>
+        {/* La tanda la arranca el operario desde su pantalla: acá se le lleva el material. */}
+        {puedePlanificar && t.estado === "PLANIFICADA" && t.inyectora && (
+          <Link href={`/materia-prima/retiro?tanda=${t.id}`} className="btn btn-primary btn-sm">
+            Llevar material
+          </Link>
+        )}
+        {puedePlanificar && t.estado === "EN_CURSO" && t.cicloId && (
+          <Link href={`/materia-prima/retiro?ciclo=${t.cicloId}`} className="btn btn-outline btn-sm">
+            Reponer material
+          </Link>
         )}
         {editable && (
           <details className="w-full sm:w-auto">

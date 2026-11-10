@@ -34,6 +34,7 @@ import {
   retiroMaquina,
   retiroMp,
   saldo,
+  tanda,
   usuario,
 } from "@/lib/db/schema";
 import { ubicacionesMp } from "@/lib/data/depositos";
@@ -220,6 +221,10 @@ export type LineaRetiroInput = { materiaPrimaId: number; loteMpId: number | null
 
 export type RetiroMaquinaInput = {
   cicloId: number | null;
+  /** Material llevado antes de arrancar (Cambios en Producción, nov. 2026):
+   *  la tanda en cola fija inyectora y producto; al arrancar, el retiro pasa a
+   *  la producción. */
+  tandaId?: number | null;
   /** Sin ciclo: obligatoria y de la lista de la planta. Con ciclo: la del ciclo. */
   inyectora?: string | null;
   operarioId?: number | null;
@@ -231,15 +236,11 @@ export type RetiroMaquinaInput = {
   fecha?: string;
 };
 
-export async function registrarRetiroMaquina(
-  actor: Actor,
-  input: RetiroMaquinaInput,
-  opciones: { paraCargaInmediata?: boolean } = {},
-): Promise<Resultado & { id?: number; lineaIds?: number[]; repetido?: boolean }> {
-  // El operario puede retirar del stock general sólo para cargarlo en la
-  // tolva en el mismo paso (cuando no hay material a pie de máquina).
-  const permitido = puedeRetirarMateriaPrima(actor.rol) || (opciones.paraCargaInmediata && puedeCargarTolva(actor.rol));
-  if (!permitido) return { error: "No tenés permiso para retirar materia prima." };
+export async function registrarRetiroMaquina(actor: Actor, input: RetiroMaquinaInput): Promise<Resultado & { id?: number; lineaIds?: number[]; repetido?: boolean }> {
+  // El material llega a la máquina sólo por quien retira (Encargado,
+  // Supervisor, Retiros de MP, Materia prima): el operario nunca saca del
+  // depósito (Cambios en Producción, nov. 2026).
+  if (!puedeRetirarMateriaPrima(actor.rol)) return { error: "No tenés permiso para retirar materia prima." };
   const lineas = input.lineas.filter((l) => l.materiaPrimaId);
   if (lineas.length === 0) return { error: "Agregá al menos un material." };
   if (lineas.some((l) => !Number.isFinite(l.cantidadKg) || l.cantidadKg <= 0)) return { error: "Cada material necesita una cantidad mayor que cero." };
@@ -272,6 +273,12 @@ export async function registrarRetiroMaquina(
       inyectora = c.inyectora.replace(/inyectora/i, "").trim();
       productoPrevistoId = c.productoId;
       productoNumero = c.numero;
+    } else if (input.tandaId != null) {
+      const [t] = await tx.select({ estado: tanda.estado, inyectora: tanda.inyectora, productoId: tanda.productoId }).from(tanda).where(eq(tanda.id, input.tandaId));
+      if (!t || t.estado !== "PLANIFICADA") return { error: "La tanda no está en cola: si ya arrancó, retirá para la producción." };
+      if (!t.inyectora) return { error: "La tanda todavía no tiene máquina asignada." };
+      inyectora = t.inyectora;
+      productoPrevistoId = t.productoId;
     } else {
       const v = String(input.inyectora ?? "").replace(/inyectora/i, "").trim();
       if (!v) return { error: "Indicá la inyectora a la que va el material." };
@@ -764,6 +771,7 @@ export async function obtenerRetirosMaquina(filtro: { ids?: number[]; estado?: "
       productoCodigo: producto.codigo,
       productoKg: producto.kgPorUnidad,
       partidaNumero: partida.numero,
+      partidaId: cicloProduccion.partidaId,
       cicloAbierto: sql<boolean>`${cicloProduccion.fechaFin} is null`,
     })
     .from(retiroMaquina)
@@ -844,6 +852,7 @@ export async function obtenerRetirosMaquina(filtro: { ids?: number[]; estado?: "
       productoCodigo: c.productoCodigo,
       productoKgPorUnidad: c.productoKg != null ? Number(c.productoKg) : null,
       partidaNumero: c.partidaNumero,
+      partidaId: c.partidaId,
       cicloAbierto: c.cicloAbierto,
       lineas: ls,
       movimientos: ms,
