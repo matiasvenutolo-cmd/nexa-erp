@@ -90,6 +90,10 @@ export default async function LoginPage({
             <button type="submit" className="btn btn-azul btn-lg btn-block">
               Entrar a mi turno
             </button>
+            {/* PIN inicial común de los operarios (pedido de NEXA, 14/11/2026). */}
+            <p className="text-center text-sm text-foreground-muted">
+              ¿Es la primera vez que entrás? Tu PIN es <b className="text-foreground">0000</b>.
+            </p>
           </form>
         </div>
       </div>
