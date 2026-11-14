@@ -156,7 +156,7 @@ export default async function PedidosPage({
                   <td className="hidden text-foreground-muted xl:table-cell">{p.lineas}</td>
                   {verPrecios && <td className="hidden text-right text-foreground-muted xl:table-cell">{fmtMoneda(p.total)}</td>}
                   <td>
-                    <EstadoPedido estado={p.estado} />
+                    <EstadoPedido estado={p.estado} parcial={p.parcial} />
                   </td>
                   <td>
                     {vista === "armar" && despacha ? (

@@ -15,6 +15,7 @@ import {
   cerrarProduccionTallerAction,
   cerrarTurnoAction,
   iniciarTandaAction,
+  limpiezaAction,
   pausarAction,
   pedirMaterialAction,
   tomarTurnoAction,
@@ -442,6 +443,26 @@ function FaltaCargar({ p, pie }: { p: Prod; pie: Mat }) {
     <section className="panel space-y-3">
       <h2 className="panel-titulo">Falta cargar la tolva</h2>
       <Carga p={p} pie={pie} principal="Ya cargué" />
+      {/* Cambio de color o de modelo: material para limpiar el inyector (listado del 7/11). */}
+      {p.cambioDeProducto && pie.length > 0 && (
+        <details className="rounded-xl border border-border p-3">
+          <summary className="cursor-pointer font-semibold">Registrar material de limpieza (cambio de color o modelo)</summary>
+          <FormAccion accion={limpiezaAction} ocultos={{ cicloId: p.cicloId }} boton="Registrar limpieza" claseBoton="btn btn-azul btn-block" className="mt-3 space-y-2">
+            <select name="materiaPrimaId" required defaultValue="" className="input">
+              <option value="" disabled>
+                Material usado…
+              </option>
+              {pie.map((m) => (
+                <option key={m.materiaPrimaId} value={m.materiaPrimaId}>
+                  {m.nombre} (hay {fmtPeso(m.kg, { gramos: m.esMaster })})
+                </option>
+              ))}
+            </select>
+            <input name="kg" required inputMode="decimal" placeholder="Kg usados (ej. 5)" className="input" />
+            <input name="detalle" placeholder="Detalle (opcional, ej. venía de negro)" className="input" />
+          </FormAccion>
+        </details>
+      )}
     </section>
   );
 }

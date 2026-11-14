@@ -11,6 +11,7 @@ import {
   iniciarTandaAsignada,
   pausarProduccion,
   pedirMaterial,
+  registrarLimpieza,
   registrarReimpresion,
   revisarTurno,
   registrarNovedad,
@@ -124,6 +125,16 @@ export async function revisarTurnoAction(_p: EstadoAccion, fd: FormData): Promis
   if (r.error) return { error: r.error };
   revalidar();
   return { ok: "Revisado." };
+}
+
+export async function limpiezaAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
+  const u = await getUsuarioActual();
+  const kg = num(fd, "kg");
+  if (kg == null || Number.isNaN(kg)) return { error: "Indicá cuántos kg usaste para limpiar." };
+  const r = await registrarLimpieza(u, { cicloId: Number(fd.get("cicloId")), materiaPrimaId: Number(fd.get("materiaPrimaId")), kg, detalle: txt(fd, "detalle"), token: txt(fd, "token") });
+  if (r.error) return { error: r.error };
+  revalidar();
+  return { ok: `Limpieza registrada: ${fmtPeso(kg)}.` };
 }
 
 export async function pedirMaterialAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {

@@ -94,7 +94,7 @@ export default async function DetallePedidoPage({
             <h1 className="text-[1.6rem] leading-tight">
               #{pedido.id} · {pedido.clienteNombre}
             </h1>
-            <EstadoPedido estado={pedido.estado} />
+            <EstadoPedido estado={pedido.estado} parcial={pedido.lineas.some((l) => l.unidadesArmadas < l.unidadesPedidas)} />
             {abierto && alertaEntrega(pedido.fechaEntregaPactada) && (
               <span className={`badge-estado ${alertaEntrega(pedido.fechaEntregaPactada)!.nivel === "semana" ? "badge-bajo" : "badge-critico"}`}>
                 {alertaEntrega(pedido.fechaEntregaPactada)!.texto}

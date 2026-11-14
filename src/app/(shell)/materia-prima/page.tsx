@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { puedeContarMp } from "@/lib/data/conteo-mp";
 import { listarMoliendas } from "@/lib/data/molino";
 import { redirect } from "next/navigation";
 import { pieDeMaquina } from "@/lib/data/maquina";
@@ -76,6 +77,11 @@ export default async function MateriaPrimaPage({
           {puedeRetirarMateriaPrima(usuario.rol) && (
             <Link href="/materia-prima/retiro" className="btn btn-outline">
               Retiro a pie de máquina
+            </Link>
+          )}
+          {puedeContarMp(usuario.rol) && (
+            <Link href="/materia-prima/conteo" className="btn btn-outline">
+              Conteo físico
             </Link>
           )}
         </div>

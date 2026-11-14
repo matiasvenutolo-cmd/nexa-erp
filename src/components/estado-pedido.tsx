@@ -12,6 +12,11 @@ const CLASE: Record<Estado, string> = {
   CANCELADO: "badge-estado badge-critico",
 };
 
-export function EstadoPedido({ estado }: { estado: Estado }) {
-  return <span className={CLASE[estado]}>{ESTADO_LABEL[estado]}</span>;
+/**
+ * Listo para despachar con sólo una parte armada (listado del 7/11: «le faltan
+ * productos»): se aclara «(parcial)»; el despacho de lo armado sí está listo.
+ */
+export function EstadoPedido({ estado, parcial = false }: { estado: Estado; parcial?: boolean }) {
+  const texto = estado === "LISTO_PARA_DESPACHAR" && parcial ? "Listo para despachar (parcial)" : ESTADO_LABEL[estado];
+  return <span className={estado === "LISTO_PARA_DESPACHAR" && parcial ? "badge-estado badge-bajo" : CLASE[estado]}>{texto}</span>;
 }

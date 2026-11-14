@@ -50,6 +50,8 @@ type Fila = {
   productoId: string;
   colorLibre: string;
   cantidad: string;
+  /** Pisos: la cantidad se puede cargar en baldosas o en m² (listado del 7/11). */
+  unidad: "baldosas" | "m2";
   proveedorMasterId: string;
   masterNombre: string;
   masterCodigo: string;
@@ -72,12 +74,15 @@ const filaVacia = (): Fila => ({
   productoId: "",
   colorLibre: "",
   cantidad: "",
+  unidad: "baldosas",
   proveedorMasterId: "",
   masterNombre: "",
   masterCodigo: "",
 });
 
 const clave = claveColor;
+/** m² por baldosa cuando el producto no lo tiene cargado (planilla de cálculo por m² de NEXA). */
+const M2_POR_BALDOSA = 0.16;
 
 let siguienteKey = 1;
 
@@ -137,7 +142,10 @@ export function FormularioPedido({
         const grupo = GRUPOS.find((g) => g.key === f.grupo)!;
         const colores = coloresDeGrupo(productos, grupo);
         const prod = f.productoId && f.productoId !== LIBRE ? colores.find((p) => String(p.id) === f.productoId) : undefined;
-        const cantidad = Number(f.cantidad) || 0;
+        // En m²: baldosas = m² ÷ m² por baldosa (0,16 → 6,25 por m²), hacia arriba.
+        const valor = Number(String(f.cantidad).replace(",", ".")) || 0;
+        const m2Baldosa = prod?.m2PorUnidad ?? M2_POR_BALDOSA;
+        const cantidad = grupo.esPiso && f.unidad === "m2" ? Math.ceil(valor / m2Baldosa - 1e-9) : Math.floor(valor);
         return { fila: f, grupo, colores, prod, cantidad };
       }),
     [filas, productos],
@@ -347,13 +355,22 @@ export function FormularioPedido({
 
                 <input
                   type="number"
-                  min={1}
-                  step={1}
+                  min={grupo.esPiso && f.unidad === "m2" ? 0.01 : 1}
+                  step={grupo.esPiso && f.unidad === "m2" ? 0.01 : 1}
                   value={f.cantidad}
                   onChange={(e) => upd(f.key, { cantidad: e.target.value })}
-                  placeholder={grupo.esPiso ? "baldosas" : "unidades"}
+                  placeholder={grupo.esPiso ? (f.unidad === "m2" ? "m²" : "baldosas") : "unidades"}
                   className="input w-28"
                 />
+                {grupo.esPiso && (
+                  <select value={f.unidad} onChange={(e) => upd(f.key, { unidad: e.target.value as Fila["unidad"] })} className="input w-28" aria-label="Unidad de la cantidad">
+                    <option value="baldosas">baldosas</option>
+                    <option value="m2">m²</option>
+                  </select>
+                )}
+                {grupo.esPiso && f.unidad === "m2" && Number(f.cantidad) > 0 && (
+                  <span className="text-xs font-semibold text-brand-azul">= {fmtNumero(filasResueltas.find((r) => r.fila.key === f.key)?.cantidad ?? 0, 0)} baldosas</span>
+                )}
                 {grupo.esPiso && prod?.stock != null && Number(f.cantidad) > 0 && (
                   <span className="text-xs text-foreground-muted">
                     stock {fmtNumero(prod.stock, 0)}

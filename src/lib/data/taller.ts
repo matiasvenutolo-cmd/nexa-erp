@@ -217,6 +217,14 @@ export async function vistaTaller(inyectora: string) {
       .groupBy(movimiento.materiaPrimaId),
     c.tandaId ? db.select().from(tanda).where(eq(tanda.id, c.tandaId)) : Promise.resolve([]),
   ]);
+  // Producto de la producción anterior en la máquina: si cambia, hay limpieza del inyector.
+  const [ant] = await db
+    .select({ productoId: cicloProduccion.productoId })
+    .from(cicloProduccion)
+    .where(and(sqlInyectora(iny), sql`${cicloProduccion.id} <> ${c.id}`, sql`${cicloProduccion.fechaInicio} <= ${c.fechaInicio}`))
+    .orderBy(desc(cicloProduccion.fechaInicio), desc(cicloProduccion.id))
+    .limit(1);
+  const anteriorProducto = ant?.productoId ?? null;
   const abierto = turnos.find((t) => t.t.estado === "ABIERTO") ?? null;
   const cerrados = turnos.filter((t) => t.t.estado === "CERRADO");
   const ultimo = cerrados.at(-1) ?? null;
@@ -278,7 +286,9 @@ export async function vistaTaller(inyectora: string) {
       falta,
       golpesFaltantes,
       contadorObjetivo: golpesBase != null && golpesFaltantes != null ? golpesBase + golpesFaltantes : null,
-      hayCargas: cargasTolva.length > 0,
+      // La limpieza del inyector no cuenta como carga de la receta.
+      hayCargas: cargasTolva.some((x) => !x.motivo?.startsWith(MOTIVO_LIMPIEZA)),
+      cambioDeProducto: anteriorProducto !== c.productoId,
       cajasUltimoTurno,
       ultimaCarga: cargasTolva.reduce<Date | null>((m, x) => (!m || x.fecha > m ? x.fecha : m), null),
       tolvaEstimadaKg,
@@ -819,6 +829,47 @@ export async function iniciarTandaAsignada(
     await db.insert(novedadMaquina).values({ cicloId: r.cicloId, turnoId: t.id ?? null, inyectora: td!.inyectora!, tipo: "INTERRUPCION", motivo: `Arranque ${detalle}`, detalle: motivo, usuarioId: actor.id });
   }
   return { cicloId: r.cicloId };
+}
+
+export const MOTIVO_LIMPIEZA = "Limpieza del inyector";
+
+/**
+ * Material para limpiar el inyector en el cambio de color o de modelo
+ * (listado del 7/11): el operario elige el material de lo que hay a pie de
+ * máquina y los kg. Entra a la tolva como una carga marcada «limpieza», así se
+ * consume en esta producción y queda a la vista del Encargado.
+ */
+export async function registrarLimpieza(actor: Actor, input: { cicloId: number; materiaPrimaId: number; kg: number; detalle?: string | null; token?: string | null }): Promise<Resultado> {
+  if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
+  if (!Number.isFinite(input.kg) || input.kg <= 0) return { error: "Indicá cuántos kg usaste para limpiar." };
+  const [c] = await db.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
+  if (!c || c.fechaFin) return { error: "No hay una producción en curso en esta máquina." };
+  const retiros = retirosDeProduccion(await obtenerRetirosMaquina({ estado: "ABIERTO", inyectora: num(c.inyectora) }), c);
+  const lineas = retiros.flatMap((r) => r.lineas).filter((l) => l.materiaPrimaId === input.materiaPrimaId && !l.anulado && l.saldo.pie > EPS).sort((a, b) => a.id - b.id);
+  const hay = lineas.reduce((t, l) => (aGramos(t) + aGramos(l.saldo.pie)) / 1000, 0);
+  if (input.kg > hay + EPS) return { error: `A pie de máquina hay ${new Intl.NumberFormat("es-AR").format(hay)} kg de ese material.` };
+  const ub = await ubicacionesMp();
+  const motivo = `${MOTIVO_LIMPIEZA} (cambio de color o modelo)`;
+  return db
+    .transaction(async (tx) => {
+      const [turno] = await tx.select().from(turnoProduccion).where(and(eq(turnoProduccion.cicloId, c.id), eq(turnoProduccion.estado, "ABIERTO")));
+      if (!turno) throw new ErrorCarga("Recibí la máquina antes de registrar la limpieza.");
+      let resta = input.kg;
+      let n = 0;
+      for (const l of lineas) {
+        if (resta <= EPS) break;
+        const toma = Math.min(resta, l.saldo.pie);
+        await cargarEnTolvaTx(tx, actor, { retiroMpId: l.id, cantidadKg: Math.round(toma * 1000) / 1000, cicloId: c.id, turnoId: turno.id, token: input.token ? `${input.token}:${n}` : null, motivoExcepcion: motivo, observaciones: input.detalle?.trim() || null }, ub);
+        n++;
+        resta = (aGramos(resta) - aGramos(toma)) / 1000;
+      }
+      await tx.insert(novedadMaquina).values({ cicloId: c.id, turnoId: turno.id, inyectora: num(c.inyectora), tipo: "CARGA_DISTINTA", motivo: MOTIVO_LIMPIEZA, detalle: `${input.kg} kg${input.detalle?.trim() ? ` · ${input.detalle.trim()}` : ""}`, usuarioId: actor.id });
+      return {};
+    })
+    .catch((e) => {
+      if (e instanceof ErrorCarga || e instanceof ErrorStock) return { error: e.message };
+      throw e;
+    });
 }
 
 export const MOTIVO_PEDIDO_MATERIAL = "Pedido de material";

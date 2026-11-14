@@ -36,6 +36,8 @@ export default async function TableroPage() {
     ...grupos.flatMap((g) => g.lineas.filter((l) => l.alerta && l.aPlanificar > 0).map((l) => ({ ...l, producto: `${g.colorNombre ?? ""} · ${g.matriz}`, planificada: false }))),
     ...tandas.flatMap((x) => x.pedidos.filter((p) => p.alerta).map((p) => ({ ...p, producto: `${x.colorNombre ?? ""} · ${x.matriz}`, planificada: true }))),
   ]
+    // Una tanda dividida repite la línea del pedido: se muestra una vez.
+    .filter((u, i, todas) => todas.findIndex((o) => o.pedidoLineaId === u.pedidoLineaId && o.planificada === u.planificada) === i)
     .sort((a, b) => a.alerta!.dias - b.alerta!.dias)
     .slice(0, 8);
   const faltaComprar = compras.filter((c) => c.faltanteKg > 0);

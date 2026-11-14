@@ -37,6 +37,8 @@ export type FilaPedido = {
   prioridad: number;
   total: string | null;
   lineas: number;
+  /** Armado en parte: el despacho listo no cubre todo lo pedido. */
+  parcial: boolean;
 };
 
 export type OrdenPedidos = "fecha" | "cliente" | "entrega";
@@ -56,6 +58,7 @@ export async function listarPedidos(
       prioridad: pedido.prioridad,
       total: pedido.total,
       lineas: sql<number>`count(${pedidoLinea.id})`.mapWith(Number),
+      parcial: sql<boolean>`coalesce(sum(${pedidoLinea.unidadesArmadas}), 0) < coalesce(sum(${pedidoLinea.unidadesPedidas}), 0)`,
     })
     .from(pedido)
     .innerJoin(cliente, eq(pedido.clienteId, cliente.id))

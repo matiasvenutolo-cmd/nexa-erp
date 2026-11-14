@@ -3,7 +3,7 @@ import { Smartphone } from "lucide-react";
 import { listarCiclos, productosParaCiclo } from "@/lib/data/produccion";
 import { gruposParaPlanificar, listarTandas, necesidadDeCompra, etiquetaTurno } from "@/lib/data/planificacion";
 import { recetasDe } from "@/lib/data/recetas";
-import { MOTIVO_PEDIDO_MATERIAL, pedidosDeMaterialPendientes, relevosRecientes, vistaTaller } from "@/lib/data/taller";
+import { MOTIVO_LIMPIEZA, MOTIVO_PEDIDO_MATERIAL, pedidosDeMaterialPendientes, relevosRecientes, vistaTaller } from "@/lib/data/taller";
 import { PedidosDeMaterial } from "@/components/pedidos-material";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeCancelarProduccion, puedePlanificar, puedeAsignarTurnos } from "@/lib/auth/permisos";
@@ -401,7 +401,7 @@ const TIPO_NOVEDAD = { NO_CARGA: "No se cargó", CARGA_DISTINTA: "Carga distinta
 /** Pedidos de material y arranques fuera de orden usan tipos existentes: se
  *  nombran por su motivo. */
 const etiquetaNovedad = (n: { tipo: keyof typeof TIPO_NOVEDAD; motivo: string }) =>
-  n.motivo === MOTIVO_PEDIDO_MATERIAL ? "Pedido de material" : n.motivo.startsWith("Arranque ") ? "Arranque" : TIPO_NOVEDAD[n.tipo];
+  n.motivo === MOTIVO_PEDIDO_MATERIAL ? "Pedido de material" : n.motivo.startsWith("Arranque ") ? "Arranque" : n.motivo === MOTIVO_LIMPIEZA ? "Limpieza del inyector" : TIPO_NOVEDAD[n.tipo];
 
 
 async function Compras({ tandas }: { tandas: Awaited<ReturnType<typeof listarTandas>> }) {

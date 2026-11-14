@@ -5,6 +5,7 @@ import { getUsuarioActual } from "@/lib/session";
 import { ingresarMateriaPrima } from "@/lib/data/materia-prima";
 import { ajustarStockMp, alertaCantidad, descartarMp, altaMateriaPrima, editarMateriaPrima, fraccionarMaster, ingresarBolsonMolienda, type TipoMp } from "@/lib/data/stock-mp";
 import { fmtPeso, parseCantidadAR } from "@/lib/presentaciones";
+import { registrarConteoMp, type LineaConteoInput } from "@/lib/data/conteo-mp";
 
 export type EstadoForm = { error?: string; ok?: string; confirmar?: string };
 
@@ -125,4 +126,23 @@ export async function editarMpAction(_p: EstadoForm, fd: FormData): Promise<Esta
   if (r.error) return { error: r.error };
   revalidar();
   return { ok: "Material actualizado. Su historial no cambia." };
+}
+
+/** Conteo físico semanal (listado del 7/11): una fila por material contado. */
+export async function conteoMpAction(_p: EstadoForm, fd: FormData): Promise<EstadoForm> {
+  const u = await getUsuarioActual();
+  const lineas: LineaConteoInput[] = [];
+  for (const [k, v] of fd.entries()) {
+    if (!k.startsWith("c_") || String(v).trim() === "") continue;
+    const id = Number(k.slice(2));
+    const contado = parseCantidadAR(String(v));
+    if (contado == null) return { error: `No se entiende el stock físico "${v}". Escribí, por ejemplo, 1.500 o 25,5.` };
+    lineas.push({ materiaPrimaId: id, contado, motivo: txt(fd, `m_${id}`) });
+  }
+  const r = await registrarConteoMp(u, { fecha: String(fd.get("fecha") ?? ""), lineas, observaciones: txt(fd, "observaciones"), ajustar: fd.get("ajustar") === "1" });
+  if (r.error) return { error: r.error };
+  revalidar();
+  revalidatePath("/materia-prima/conteo");
+  const dif = r.diferencias ?? 0;
+  return { ok: `Conteo guardado: ${lineas.length} ${lineas.length === 1 ? "material" : "materiales"}, ${dif === 0 ? "sin diferencias" : `${dif} con diferencia`}${fd.get("ajustar") === "1" && dif > 0 ? ". El stock del sistema quedó igual a lo contado" : ""}.` };
 }
