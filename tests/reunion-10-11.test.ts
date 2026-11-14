@@ -61,6 +61,9 @@ describe("cambio de matriz automático y orden dentro del turno", () => {
     const [c] = await cambiosDe(ciego);
     expect(c).toMatchObject({ estado: "PROGRAMADA", inyectora: "8", fechaProgramada: hoy, turno: "NOCHE", matrizAnterior: "Rejilla" });
     expect(await cambiosDe(rejilla)).toHaveLength(0);
+    // A Taller (perfil Matrices) le llega el aviso.
+    const avisos = await listarAvisos("MATRICES");
+    expect(avisos.some((a) => a.tipo === "CAMBIO_MATRIZ" && /Rejilla → Ciego/.test(a.mensaje))).toBe(true);
   });
 
   it("dentro del turno se ordena con ↑ ↓ y el cambio de matriz pasa a la que queda segunda", async () => {

@@ -45,6 +45,7 @@ import { obtenerRetirosMaquina } from "@/lib/data/maquina";
 import { hoyISO } from "@/lib/format";
 import { HORAS_TURNO, yaPaso } from "@/lib/turnos";
 import { listarIntervenciones } from "@/lib/data/matrices";
+import { crearAviso } from "@/lib/data/avisos";
 import { aGramos } from "@/lib/presentaciones";
 
 export type Turno = "MANANA" | "TARDE" | "NOCHE";
@@ -919,6 +920,14 @@ export async function sincronizarCambiosDeMatriz(actorId: number, inyectoras: (s
   }
 }
 
+/** Aviso al perfil Matrices (Taller) por cada cambio de matriz que programa,
+ *  mueve o cancela la planificación (reunión 10/11/2026). */
+async function avisarMatrices(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], actorId: number, mensaje: string) {
+  await crearAviso(tx, { tipo: "CAMBIO_MATRIZ", destinoRol: "MATRICES", mensaje, creadoPorId: actorId });
+}
+
+const cuando = (fecha: string, turno: string | null) => `${fecha.split("-").reverse().join("/")}${turno ? `, turno ${etiquetaTurno(turno)}` : ""}`;
+
 /** Crea, actualiza o cancela el cambio de matriz programado de una tanda. */
 async function asegurarCambioDeMatriz(actorId: number, tandaId: number, cambio: { inyectora: string; fecha: string; turno: Turno | null; matriz: string; anterior: string } | null) {
   const [actual] = await db
@@ -930,6 +939,7 @@ async function asegurarCambioDeMatriz(actorId: number, tandaId: number, cambio: 
       await db.transaction(async (tx) => {
         await tx.update(intervencionMatriz).set({ estado: "CANCELADA" }).where(eq(intervencionMatriz.id, actual.id));
         await registrarCambios(tx, actorId, [{ entidad: "intervencion_matriz", entidadId: actual.id, campo: "estado", anterior: "Programada", nuevo: "Cancelada", motivo: "La tanda ya no requiere cambio de matriz" }]);
+        await avisarMatrices(tx, actorId, `Se canceló el cambio de matriz ${actual.matrizAnterior ?? ""} → ${actual.matriz} de la inyectora ${actual.inyectora ?? ""} del ${cuando(actual.fechaProgramada, actual.turno)}: la planificación ya no lo necesita.`);
       });
     }
     return;
@@ -941,6 +951,7 @@ async function asegurarCambioDeMatriz(actorId: number, tandaId: number, cambio: 
     await db.transaction(async (tx) => {
       await tx.update(intervencionMatriz).set(valores).where(eq(intervencionMatriz.id, actual.id));
       await registrarCambios(tx, actorId, [{ entidad: "intervencion_matriz", entidadId: actual.id, campo: "reprogramación", anterior: `${actual.fechaProgramada} ${actual.turno ?? ""}`, nuevo: `${valores.fechaProgramada} ${valores.turno ?? ""}`, motivo: "Se movió la tanda" }]);
+      await avisarMatrices(tx, actorId, `Se movió el cambio de matriz ${valores.matrizAnterior} → ${valores.matriz} de la inyectora ${valores.inyectora}: ahora es ${cuando(valores.fechaProgramada, valores.turno)}.`);
     });
     return;
   }
@@ -950,6 +961,7 @@ async function asegurarCambioDeMatriz(actorId: number, tandaId: number, cambio: 
       .values({ tipo: "CAMBIO_MATRIZ", ...valores, tandaId, descripcion: `${MOTIVO_CAMBIO_AUTO} (tanda ${tandaId})`, creadoPorId: actorId })
       .returning({ id: intervencionMatriz.id });
     await registrarCambios(tx, actorId, [{ entidad: "intervencion_matriz", entidadId: i.id, campo: "alta", anterior: null, nuevo: `Cambio de matriz ${cambio.anterior} → ${cambio.matriz} · iny. ${cambio.inyectora} · ${cambio.fecha}`, motivo: MOTIVO_CAMBIO_AUTO }]);
+    await avisarMatrices(tx, actorId, `Cambio de matriz ${cambio.anterior} → ${cambio.matriz} en la inyectora ${cambio.inyectora}: ${cuando(cambio.fecha, cambio.turno)}.`);
   });
 }
 

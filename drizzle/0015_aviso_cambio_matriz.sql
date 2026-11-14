@@ -1,0 +1,1 @@
+ALTER TYPE "public"."tipo_aviso" ADD VALUE 'CAMBIO_MATRIZ';
