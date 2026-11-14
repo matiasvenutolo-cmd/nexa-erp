@@ -12,7 +12,7 @@
  * el material y acepta el relevo o registra la diferencia. El cierre de la
  * producción (definitivo) sigue siendo otro paso.
  */
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, ne, sql } from "drizzle-orm";
 import { partidaNexaSql } from "@/lib/data/partida-sql";
 import { db } from "@/lib/db/client";
 import { alias } from "drizzle-orm/pg-core";
@@ -221,7 +221,7 @@ export async function vistaTaller(inyectora: string) {
   const [ant] = await db
     .select({ productoId: cicloProduccion.productoId })
     .from(cicloProduccion)
-    .where(and(sqlInyectora(iny), sql`${cicloProduccion.id} <> ${c.id}`, sql`${cicloProduccion.fechaInicio} <= ${c.fechaInicio}`))
+    .where(and(sqlInyectora(iny), ne(cicloProduccion.id, c.id), lte(cicloProduccion.fechaInicio, c.fechaInicio)))
     .orderBy(desc(cicloProduccion.fechaInicio), desc(cicloProduccion.id))
     .limit(1);
   const anteriorProducto = ant?.productoId ?? null;
