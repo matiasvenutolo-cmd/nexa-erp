@@ -21,6 +21,7 @@
  */
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { compararCodigoMp } from "@/lib/codigos-mp";
+import { partidaNexaSql } from "@/lib/data/partida-sql";
 import { db } from "@/lib/db/client";
 import {
   certificadoCalidad,
@@ -770,7 +771,7 @@ export async function obtenerRetirosMaquina(filtro: { ids?: number[]; estado?: "
       operarioNombre: operario.nombre,
       productoCodigo: producto.codigo,
       productoKg: producto.kgPorUnidad,
-      partidaNumero: partida.numero,
+      partidaNumero: partidaNexaSql,
       partidaId: cicloProduccion.partidaId,
       cicloAbierto: sql<boolean>`${cicloProduccion.fechaFin} is null`,
     })
@@ -943,7 +944,7 @@ export async function pieDeMaquina() {
 /** Ciclos abiertos de una inyectora (para cargar material). */
 export async function ciclosAbiertos() {
   return db
-    .select({ id: cicloProduccion.id, inyectora: cicloProduccion.inyectora, productoCodigo: producto.codigo, partidaNumero: partida.numero, partidaId: cicloProduccion.partidaId, fechaInicio: cicloProduccion.fechaInicio })
+    .select({ id: cicloProduccion.id, inyectora: cicloProduccion.inyectora, productoCodigo: producto.codigo, partidaNumero: partidaNexaSql, partidaId: cicloProduccion.partidaId, fechaInicio: cicloProduccion.fechaInicio })
     .from(cicloProduccion)
     .leftJoin(producto, eq(cicloProduccion.productoId, producto.id))
     .leftJoin(partida, eq(cicloProduccion.partidaId, partida.id))

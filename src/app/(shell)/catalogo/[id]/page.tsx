@@ -106,7 +106,7 @@ export default async function ProductoPage({ params, searchParams }: { params: P
                   <td>
                     {etiquetaTipo(p.familia, p.tipo)} · {p.colorNombre}
                   </td>
-                  <td>N° {c.partidaNumero}</td>
+                  <td>{c.partidaNumero}</td>
                   <td>{fmtFecha(c.fecha)}</td>
                   <td className="text-right font-semibold tabular-nums">
                     {fmtNumero(c.disponible, 0)}

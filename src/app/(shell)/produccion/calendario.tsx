@@ -2,7 +2,8 @@
 
 import { useOptimistic, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { moverTandaCalendarioAction } from "@/app/actions/planificacion";
+import { moverTandaAction, moverTandaCalendarioAction } from "@/app/actions/planificacion";
+import { yaPaso } from "@/lib/turnos";
 
 export type TarjetaCal = {
   id: number;
@@ -62,6 +63,7 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
   const soltar = (id: number, fecha: string | null, turno: TarjetaCal["turno"], maquina: string | null = null) => {
     const t = lista.find((x) => x.id === id);
     if (!t || t.enCurso) return;
+    if (fecha && yaPaso(fecha, turno)) return setError("Ese día o turno ya pasó: elegí uno de hoy en adelante.");
     const inyectora = maquina ?? t.inyectora;
     if (t.fecha === fecha && t.turno === turno && maquinaDe({ ...t, inyectora }) === maquinaDe(t)) return;
     // Cada producto en su máquina: baldosas en la 8; accesorios fuera de la 8.
@@ -78,14 +80,25 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
     });
   };
 
+  const ordenar = (id: number, direccion: "arriba" | "abajo") => {
+    setError(null);
+    start(async () => {
+      const r = await moverTandaAction(id, direccion);
+      if (r.error) setError(r.error);
+      router.refresh();
+    });
+  };
+
   const casilla = (fecha: string | null, turno: TarjetaCal["turno"], maquina: string | null) => {
     const clave = `${fecha ?? "-"}|${turno ?? "-"}|${maquina ?? "-"}`;
+    // Los días y turnos que ya pasaron no reciben tandas (reunión 10/11/2026).
+    const pasado = fecha != null && yaPaso(fecha, turno);
     const enCasilla = lista.filter((t) => (fecha == null ? t.fecha == null || t.turno == null : t.fecha === fecha && t.turno === turno && maquinaDe(t) === maquina));
     return (
       <div
         key={clave}
         onDragOver={(e) => {
-          if (!editable) return;
+          if (!editable || pasado) return;
           e.preventDefault();
           setSobre(clave);
         }}
@@ -96,7 +109,7 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
           const id = Number(e.dataTransfer.getData("text/plain"));
           if (id) soltar(id, fecha, fecha == null ? null : turno, maquina);
         }}
-        className={`min-h-24 space-y-1.5 rounded-lg border p-1.5 transition-colors ${sobre === clave ? "border-accent bg-[rgba(238,125,48,0.08)]" : "border-dashed border-border bg-surface-muted/60"}`}
+        className={`min-h-24 space-y-1.5 rounded-lg border p-1.5 transition-colors ${pasado ? "border-transparent bg-[repeating-linear-gradient(45deg,rgba(29,43,58,0.04),rgba(29,43,58,0.04)_6px,transparent_6px,transparent_12px)]" : sobre === clave ? "border-accent bg-[rgba(238,125,48,0.08)]" : "border-dashed border-border bg-surface-muted/60"}`}
         aria-label={fecha ? `${fmtDia(fecha)} · turno ${TURNOS.find((x) => x.valor === turno)?.etiqueta} · inyectora ${maquina}` : "Sin día asignado"}
       >
         {fecha != null &&
@@ -107,8 +120,8 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
                 🔧 {w.texto}
               </div>
             ))}
-        {enCasilla.map((t) => (
-          <Tarjeta key={t.id} t={t} dias={dias} editable={editable} onMover={soltar} />
+        {enCasilla.map((t, i) => (
+          <Tarjeta key={t.id} t={t} dias={dias} editable={editable} onMover={soltar} onOrdenar={fecha != null && enCasilla.length > 1 ? { arriba: i > 0, abajo: i < enCasilla.length - 1, ordenar } : null} />
         ))}
       </div>
     );
@@ -161,7 +174,20 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
   );
 }
 
-function Tarjeta({ t, dias, editable, onMover }: { t: TarjetaCal; dias: string[]; editable: boolean; onMover: (id: number, f: string | null, tu: TarjetaCal["turno"]) => void }) {
+function Tarjeta({
+  t,
+  dias,
+  editable,
+  onMover,
+  onOrdenar,
+}: {
+  t: TarjetaCal;
+  dias: string[];
+  editable: boolean;
+  onMover: (id: number, f: string | null, tu: TarjetaCal["turno"]) => void;
+  /** Orden dentro de la casilla (sólo si hay más de una tanda). */
+  onOrdenar: { arriba: boolean; abajo: boolean; ordenar: (id: number, d: "arriba" | "abajo") => void } | null;
+}) {
   const [abierto, setAbierto] = useState(false);
   const movible = editable && !t.enCurso;
   return (
@@ -194,9 +220,21 @@ function Tarjeta({ t, dias, editable, onMover }: { t: TarjetaCal; dias: string[]
         {!t.inyectora && <span className="badge-estado badge-bajo px-1.5 py-0 text-[10px]">Sin máquina</span>}
       </div>
       {movible && (
-        <button type="button" className="mt-1 text-[11px] font-semibold text-accent" onClick={() => setAbierto((x) => !x)}>
-          Mover a…
-        </button>
+        <div className="mt-1 flex items-center justify-between gap-1">
+          <button type="button" className="text-[11px] font-semibold text-accent" onClick={() => setAbierto((x) => !x)}>
+            Mover a…
+          </button>
+          {onOrdenar && (
+            <span className="flex gap-0.5">
+              <button type="button" disabled={!onOrdenar.arriba} onClick={() => onOrdenar.ordenar(t.id, "arriba")} className="rounded px-1 text-xs font-bold text-brand-azul disabled:opacity-25" aria-label="Producir antes en el turno" title="Producir antes en el turno">
+                ↑
+              </button>
+              <button type="button" disabled={!onOrdenar.abajo} onClick={() => onOrdenar.ordenar(t.id, "abajo")} className="rounded px-1 text-xs font-bold text-brand-azul disabled:opacity-25" aria-label="Producir después en el turno" title="Producir después en el turno">
+                ↓
+              </button>
+            </span>
+          )}
+        </div>
       )}
       {abierto && (
         <form

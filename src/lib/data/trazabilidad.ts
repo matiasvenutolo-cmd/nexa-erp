@@ -10,6 +10,7 @@
  *   cliente.
  */
 import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { partidaNexaSql } from "@/lib/data/partida-sql";
 import { db } from "@/lib/db/client";
 import { leerPartidaNexa } from "@/lib/codigo-nexa";
 import {
@@ -32,7 +33,7 @@ import { remitoInterno } from "@/lib/data/despachos";
 
 export type OrigenPartida = {
   partidaId: number;
-  numero: number;
+  numero: string | null;
   productoCodigo: string | null;
   productoDescripcion: string | null;
   fechaApertura: string;
@@ -58,7 +59,7 @@ export async function origenDePartidas(partidaIds: number[]): Promise<OrigenPart
   const partidas = await db
     .select({
       partidaId: partida.id,
-      numero: partida.numero,
+      numero: partidaNexaSql,
       productoCodigo: producto.codigo,
       productoDescripcion: producto.descripcion,
       productoNumero: producto.numero,
@@ -124,7 +125,7 @@ export type Destino = {
   cajaId: number | null;
   cajaCodigo: string | null;
   partidaId: number | null;
-  partidaNumero: number | null;
+  partidaNumero: string | null;
   productoCodigo: string | null;
   unidades: number;
   despachoId: number;
@@ -143,7 +144,7 @@ async function salidas(condicion: ReturnType<typeof and>): Promise<Destino[]> {
       cajaId: caja.id,
       cajaCodigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`,
       partidaId: partida.id,
-      partidaNumero: partida.numero,
+      partidaNumero: partidaNexaSql,
       productoCodigo: producto.codigo,
       unidades: piqueo.cantidad,
       despachoId: despacho.id,

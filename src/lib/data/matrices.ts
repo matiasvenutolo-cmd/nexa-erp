@@ -15,7 +15,8 @@ import type { Turno } from "@/lib/turnos";
 
 export type TipoIntervencion = (typeof intervencionMatriz.$inferSelect)["tipo"];
 export type EstadoIntervencion = (typeof intervencionMatriz.$inferSelect)["estado"];
-export const TIPO_INTERVENCION_LABEL: Record<TipoIntervencion, string> = { CAMBIO_MATRIZ: "Cambio de matriz", REPARACION: "Reparación", SERVICE: "Service programado" };
+/** En el orden del menú (reunión 10/11/2026): mantenimiento programado, reparaciones y cambio de matriz. */
+export const TIPO_INTERVENCION_LABEL: Record<TipoIntervencion, string> = { SERVICE: "Mantenimiento programado", REPARACION: "Reparación", CAMBIO_MATRIZ: "Cambio de matriz" };
 export const ESTADO_INTERVENCION_LABEL: Record<EstadoIntervencion, string> = { PROGRAMADA: "Programada", EN_CURSO: "En curso", REALIZADA: "Realizada", CANCELADA: "Cancelada" };
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -61,8 +62,10 @@ export type NuevaIntervencionInput = {
 export async function programarIntervencion(actor: Actor, input: NuevaIntervencionInput): Promise<Resultado & { id?: number }> {
   if (!puedeGestionarMatrices(actor.rol)) return { error: "No tenés permiso para programar trabajos de matrices." };
   if (!TIPO_INTERVENCION_LABEL[input.tipo]) return { error: "Tipo de trabajo inválido." };
+  // La matriz se pide sólo en un cambio de matriz: un mantenimiento o una
+  // reparación de la máquina no la necesitan.
   const matriz = input.matriz.trim();
-  if (!matriz) return { error: "Indicá la matriz." };
+  if (input.tipo === "CAMBIO_MATRIZ" && !matriz) return { error: "Indicá la matriz que entra." };
   if (!FECHA.test(input.fechaProgramada)) return { error: "Indicá la fecha programada." };
   const iny = input.inyectora?.trim() || null;
   if (iny && !(INYECTORAS as readonly string[]).includes(iny)) return { error: "Inyectora inválida." };
@@ -84,7 +87,7 @@ export async function programarIntervencion(actor: Actor, input: NuevaIntervenci
       })
       .returning();
     await registrarCambios(tx, actor.id, [
-      { entidad: "intervencion_matriz", entidadId: i.id, campo: "alta", anterior: null, nuevo: `${TIPO_INTERVENCION_LABEL[i.tipo]} · ${matriz}${iny ? ` · iny. ${iny}` : ""} · ${input.fechaProgramada}` },
+      { entidad: "intervencion_matriz", entidadId: i.id, campo: "alta", anterior: null, nuevo: `${TIPO_INTERVENCION_LABEL[i.tipo]}${matriz ? ` · ${matriz}` : ""}${iny ? ` · iny. ${iny}` : ""} · ${input.fechaProgramada}` },
     ]);
     return { id: i.id };
   });

@@ -218,8 +218,8 @@ function Origen({ partidas, titulo = "De dónde salió (partidas, producción y 
         {partidas.map((p) => (
           <div key={p.partidaId}>
             <div className="font-medium">
-              <Enlace tipo="partida" valor={p.numero}>
-                Partida N° {p.numero}
+              <Enlace tipo="partida" valor={p.numero ?? ""}>
+                Partida {p.numero}
               </Enlace>{" "}
               · {p.productoCodigo} · {fmtFecha(p.fechaApertura)}
               {p.fechaCierre ? ` a ${fmtFecha(p.fechaCierre)}` : " (abierta)"}

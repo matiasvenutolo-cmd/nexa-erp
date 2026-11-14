@@ -83,7 +83,7 @@ export const NAV_POR_ROL: Record<Rol, ItemNav[]> = Object.fromEntries(
       puedeVerMateriaPrima(r) && { href: "/materia-prima", label: "Materia prima", seccion: "Fábrica" },
       puedeVerTrazabilidad(r) && { href: "/trazabilidad", label: "Trazabilidad", seccion: "Fábrica" },
       puedeVerCompras(r) && { href: "/compras", label: "Compras", seccion: "Fábrica" },
-      puedeVerMatrices(r) && { href: "/matrices", label: "Matrices", seccion: "Fábrica" },
+      puedeVerMatrices(r) && { href: "/matrices", label: "Mantenimiento y Matrices", seccion: "Fábrica" },
       puedeVerMolino(r) && { href: "/molino", label: "Molino", seccion: "Fábrica" },
       ...itemsAdministracion(r),
     ];

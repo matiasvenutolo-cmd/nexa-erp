@@ -56,7 +56,7 @@ export default async function RetiroMpPage({ searchParams }: { searchParams: Pro
     ...abiertos.map((c) => ({
       tipo: "ciclo" as const,
       id: c.id,
-      etiqueta: `Producción #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"} · partida N° ${c.partidaNumero ?? "—"} · ${etiquetaInyectora(c.inyectora)}`,
+      etiqueta: `Producción #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"} · partida ${c.partidaNumero ?? "—"} · ${etiquetaInyectora(c.inyectora)}`,
       ...datos(c.productoCodigo),
     })),
     ...enCola.map((t) => ({

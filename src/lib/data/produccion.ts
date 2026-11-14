@@ -9,6 +9,7 @@
  * día anterior — nunca con un ciclo que abarque varios días.
  */
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { partidaNexaSql } from "@/lib/data/partida-sql";
 import { db } from "@/lib/db/client";
 import {
   cicloProduccion,
@@ -36,7 +37,7 @@ import { materialComprometido, ordenPrioridad, type FilaComprometido } from "@/l
 import { unidadesPorCaja } from "@/lib/data/catalogo";
 import { PARAMETROS } from "@/lib/data/parametros";
 import { hoyISO } from "@/lib/format";
-import { codigoEtiquetaCaja } from "@/lib/codigo-nexa";
+import { codigoEtiquetaCaja, partidaNexa } from "@/lib/codigo-nexa";
 import { resolverInyectora } from "@/lib/inyectoras";
 import { resolverDosificacion } from "@/lib/data/dosificacion";
 
@@ -180,13 +181,13 @@ export async function crearCiclo(input: NuevoCicloInput): Promise<{ id: number }
       // Continuar una partida: tiene que ser del mismo producto y seguir abierta.
       const [p] = await tx.select().from(partida).where(eq(partida.id, partidaId));
       if (!p || p.productoId !== input.productoId) return { error: "La partida elegida no es de este producto." };
-      if (p.fechaCierre) return { error: `La partida N° ${p.numero} ya está cerrada.` };
+      if (p.fechaCierre) return { error: `La partida ${partidaNexa(p.anio, p.numero)} ya está cerrada.` };
       // La continuidad sale del cierre anterior (golpes de fin): tiene que estar cerrado.
       const [abierto] = await tx
         .select({ id: cicloProduccion.id })
         .from(cicloProduccion)
         .where(and(eq(cicloProduccion.partidaId, partidaId), isNull(cicloProduccion.fechaFin)));
-      if (abierto) return { error: `La partida N° ${p.numero} tiene la producción #${abierto.id} sin cerrar: cerrala antes de continuar.` };
+      if (abierto) return { error: `La partida ${partidaNexa(p.anio, p.numero)} tiene la producción #${abierto.id} sin cerrar: cerrala antes de continuar.` };
     } else {
       // Correlativo dentro del año de la producción: con el año nuevo vuelve a
       // empezar (regla del cliente 30/10/2026). El bloqueo serializa dos
@@ -271,7 +272,7 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
   const depositoId = await getDepositoNexaId();
   const ub = await ubicacionesMp();
   const [part] = ciclo.partidaId
-    ? await db.select({ numero: partida.numero }).from(partida).where(eq(partida.id, ciclo.partidaId))
+    ? await db.select({ numero: partidaNexaSql }).from(partida).where(eq(partida.id, ciclo.partidaId))
     : [];
   const numeroPartida = part?.numero ?? null;
   // Colada automática: "el recorrido hasta la pieza pesa siempre lo mismo"
@@ -314,7 +315,7 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
         cantidad: String(input.piezasEntregadas),
         origen: "CICLO",
         origenId: cicloId,
-        motivo: `Producción #${cicloId}${numeroPartida != null ? ` · partida N° ${numeroPartida}` : ""}`,
+        motivo: `Producción #${cicloId}${numeroPartida != null ? ` · partida ${numeroPartida}` : ""}`,
         usuarioId: input.usuarioId,
       });
       await tx
@@ -438,7 +439,7 @@ export function codigoCaja(anio: number, partidaNumero: number, numeroCaja: numb
  */
 export async function generarCajas(tx: Tx, input: { cicloId: number; partidaId: number; productoId: number; piezas: number }) {
   const [prod] = await tx
-    .select({ esAccesorio: producto.esAccesorio, unidadesPorCaja: producto.unidadesPorCaja, codigo: producto.codigo, codigoBarras: producto.codigoBarras })
+    .select({ esAccesorio: producto.esAccesorio, unidadesPorCaja: producto.unidadesPorCaja, codigo: producto.codigo })
     .from(producto)
     .where(eq(producto.id, input.productoId));
   const [part] = await tx.select({ anio: partida.anio, numero: partida.numero }).from(partida).where(eq(partida.id, input.partidaId));
@@ -466,9 +467,8 @@ export async function generarCajas(tx: Tx, input: { cicloId: number; partidaId: 
       numeroCaja: ultimo + i + 1,
       cantidad,
       codigoBarra: codigoCaja(part.anio, part.numero, ultimo + i + 1),
-      // Etiqueta: código de barras del producto de la lista del cliente
-      // (001B-RU-NE); si no lo tiene cargado, el código interno.
-      codigoEtiqueta: codigoEtiquetaCaja(prod.codigoBarras?.trim() || prod.codigo, part.anio, part.numero, cantidad),
+      // Etiqueta corta: 001B-6000172-00022 (reunión 10/11/2026).
+      codigoEtiqueta: codigoEtiquetaCaja(prod.codigo, part.anio, part.numero, cantidad),
       fecha: hoy,
     })),
   );
@@ -481,7 +481,7 @@ export type FilaCiclo = {
   inyectora: string;
   productoCodigo: string | null;
   productoDescripcion: string | null;
-  partidaNumero: number | null;
+  partidaNumero: string | null;
   operarioNombre: string | null;
   golpesInicio: number | null;
   golpesFin: number | null;
@@ -500,7 +500,7 @@ export async function listarCiclos(limite = 100): Promise<FilaCiclo[]> {
       inyectora: cicloProduccion.inyectora,
       productoCodigo: producto.codigo,
       productoDescripcion: producto.descripcion,
-      partidaNumero: partida.numero,
+      partidaNumero: partidaNexaSql,
       operarioNombre: operario.nombre,
       golpesInicio: cicloProduccion.golpesInicio,
       golpesFin: cicloProduccion.golpesFin,
@@ -524,7 +524,7 @@ export type CicloConDetalle = typeof cicloProduccion.$inferSelect & {
   productoColorId: number | null;
   productoColorNombre: string | null;
   productoKgPorUnidad: string | null;
-  partidaNumero: number | null;
+  partidaNumero: string | null;
   operarioNombre: string | null;
   pedidos: { pedidoId: number; clienteNombre: string; cantidadAsignada: number }[];
 };
@@ -539,7 +539,7 @@ export async function obtenerCiclo(id: number): Promise<CicloConDetalle | null> 
       productoColorId: producto.colorId,
       productoColorNombre: color.nombre,
       productoKgPorUnidad: producto.kgPorUnidad,
-      partidaNumero: partida.numero,
+      partidaNumero: partidaNexaSql,
       operarioNombre: usuario.nombre,
     })
     .from(cicloProduccion)

@@ -71,7 +71,7 @@ export default async function ProduccionDetallePage({ params, searchParams }: { 
         </p>
         <ol className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
           {[
-            [true, `1. Inicio de producción (partida N° ${ciclo.partidaNumero ?? "—"})`],
+            [true, `1. Inicio de producción (partida ${ciclo.partidaNumero ?? "—"})`],
             [retiros.length > 0 || legado.length > 0, "2. Retiro a pie de máquina"],
             [hayCarga, "3. Carga en tolva"],
             [turnos.length > 0, `4. Turnos y relevos${turnos.length ? ` (${turnos.length})` : ""}`],
@@ -95,7 +95,7 @@ export default async function ProduccionDetallePage({ params, searchParams }: { 
       <div className="grid gap-3 rounded-lg border border-border bg-surface p-4 text-sm sm:grid-cols-4">
         <Dato label="Inicio" valor={fmtFecha(ciclo.fechaInicio)} />
         <Dato label="Inyectora" valor={etiquetaInyectora(ciclo.inyectora)} />
-        <Dato label="Partida" valor={ciclo.partidaNumero != null ? `N° ${ciclo.partidaNumero}` : "—"} />
+        <Dato label="Partida" valor={ciclo.partidaNumero ?? "—"} />
         <Dato label="Operario" valor={ciclo.operarioNombre ?? "—"} />
         <Dato label="Golpes de inicio" valor={ciclo.golpesInicio != null ? fmtNumero(ciclo.golpesInicio, 0) : "—"} />
         <Dato label="Piezas por golpe" valor={ciclo.piezasPorGolpe != null ? fmtNumero(ciclo.piezasPorGolpe, 0) : "—"} />

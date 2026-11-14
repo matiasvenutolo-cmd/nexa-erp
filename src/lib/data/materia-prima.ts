@@ -16,6 +16,7 @@
  * retirar igual, y en la trazabilidad figura como "stock sin lote".
  */
 import { asc, desc, eq, sql } from "drizzle-orm";
+import { partidaNexaSql } from "@/lib/data/partida-sql";
 import { db } from "@/lib/db/client";
 import { compararCodigoMp, ordenTipoMp } from "@/lib/codigos-mp";
 import {
@@ -212,7 +213,7 @@ export async function listarRetiros(filtro?: { cicloId?: number; limite?: number
       numeroLote: loteMp.numeroLote,
       productoNumero: producto.numero,
       productoCodigo: producto.codigo,
-      partidaNumero: partida.numero,
+      partidaNumero: partidaNexaSql,
       retiraNombre: usuario.nombre,
     })
     .from(retiroMp)
@@ -243,7 +244,7 @@ export async function ciclosParaRetiro() {
       fechaInicio: cicloProduccion.fechaInicio,
       inyectora: cicloProduccion.inyectora,
       productoCodigo: producto.codigo,
-      partidaNumero: partida.numero,
+      partidaNumero: partidaNexaSql,
       cerrado: sql<boolean>`${cicloProduccion.fechaFin} is not null`,
     })
     .from(cicloProduccion)

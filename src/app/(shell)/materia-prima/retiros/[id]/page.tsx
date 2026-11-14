@@ -16,7 +16,7 @@ export default async function RetiroDetallePage({ params }: { params: Promise<{ 
   const [ciclos, sobrantes] = await Promise.all([ciclosAbiertos(), codigosDeSobrante()]);
   const delaInyectora = ciclos
     .filter((c) => c.inyectora.replace(/inyectora/i, "").trim() === r.inyectora)
-    .map((c) => ({ id: c.id, etiqueta: `Producción #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"} · partida N° ${c.partidaNumero ?? "—"}` }));
+    .map((c) => ({ id: c.id, etiqueta: `Producción #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"} · partida ${c.partidaNumero ?? "—"}` }));
 
   return (
     <div className="max-w-5xl space-y-5">
@@ -52,7 +52,7 @@ export default async function RetiroDetallePage({ params }: { params: Promise<{ 
             ) : (
               "sin producción"
             )}
-            {r.partidaNumero != null && ` · partida N° ${r.partidaNumero}`}
+            {r.partidaNumero != null && ` · partida ${r.partidaNumero}`}
           </div>
         </div>
         <Dato label="Producto previsto" valor={r.productoCodigo ?? "—"} />

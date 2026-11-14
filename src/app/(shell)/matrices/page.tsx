@@ -39,8 +39,8 @@ export default async function MatricesPage({ searchParams }: { searchParams: Pro
     <div className="space-y-5">
       <div className="encabezado">
         <div>
-          <h1>Matrices</h1>
-          <p>Cambios de matriz programados, reparaciones, services e historial de trabajos.</p>
+          <h1>Mantenimiento y Matrices</h1>
+          <p>Mantenimiento programado, reparaciones y cambios de matriz, con su historial.</p>
         </div>
         <div className="stat">
           <span className="stat-valor">{abiertas.length}</span>
@@ -49,8 +49,8 @@ export default async function MatricesPage({ searchParams }: { searchParams: Pro
       </div>
 
       <p className="aviso aviso-info text-sm">
-        Lo programado se ve en Producción → Calendario por turno. En qué turnos se pueden hacer los cambios de matriz todavía no está definido:
-        el sistema avisa, no bloquea la producción.
+        Lo programado se ve en el calendario de Producción. Los cambios de matriz que pide la planificación se programan solos al asignar
+        una tanda a una máquina; el sistema avisa, no bloquea la producción.
       </p>
 
       {edita && (
@@ -59,7 +59,7 @@ export default async function MatricesPage({ searchParams }: { searchParams: Pro
           <FormAccion accion={programarIntervencionAction} boton="Programar" className="mt-3 grid gap-3 sm:grid-cols-3">
             <label className="campo">
               <span>Tipo *</span>
-              <select name="tipo" defaultValue="CAMBIO_MATRIZ" className="input">
+              <select name="tipo" defaultValue="SERVICE" className="input">
                 {Object.entries(TIPO_INTERVENCION_LABEL).map(([v, l]) => (
                   <option key={v} value={v}>
                     {l}
@@ -68,8 +68,8 @@ export default async function MatricesPage({ searchParams }: { searchParams: Pro
               </select>
             </label>
             <label className="campo">
-              <span>Matriz *</span>
-              <input name="matriz" required list="matrices-conocidas" className="input" placeholder="Ej.: Rejilla" />
+              <span>Matriz (sólo en un cambio de matriz)</span>
+              <input name="matriz" list="matrices-conocidas" className="input" placeholder="Ej.: Rejilla" />
             </label>
             <label className="campo">
               <span>Matriz que sale (en un cambio)</span>
@@ -133,8 +133,8 @@ export default async function MatricesPage({ searchParams }: { searchParams: Pro
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <div className="font-semibold">
-                  {TIPO_INTERVENCION_LABEL[i.tipo]} · {i.matrizAnterior ? `${i.matrizAnterior} → ` : ""}
-                  {i.matriz}
+                  {TIPO_INTERVENCION_LABEL[i.tipo]}
+                  {i.matriz ? ` · ${i.matrizAnterior ? `${i.matrizAnterior} → ` : ""}${i.matriz}` : ""}
                   {i.inyectora ? ` · inyectora ${i.inyectora}` : ""}
                 </div>
                 <div className="text-sm text-foreground-muted">
@@ -211,8 +211,8 @@ export default async function MatricesPage({ searchParams }: { searchParams: Pro
               <tr key={i.id}>
                 <td className="whitespace-nowrap">{i.realizadaEn ? fmtFechaHora(i.realizadaEn) : fmtFecha(i.fechaProgramada)}</td>
                 <td>
-                  {TIPO_INTERVENCION_LABEL[i.tipo]} · {i.matrizAnterior ? `${i.matrizAnterior} → ` : ""}
-                  {i.matriz}
+                  {TIPO_INTERVENCION_LABEL[i.tipo]}
+                  {i.matriz ? ` · ${i.matrizAnterior ? `${i.matrizAnterior} → ` : ""}${i.matriz}` : ""}
                   {i.descripcion && <div className="text-xs text-foreground-muted">{i.descripcion}</div>}
                 </td>
                 <td>{i.inyectora ? `Iny. ${i.inyectora}` : "—"}</td>

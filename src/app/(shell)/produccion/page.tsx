@@ -35,7 +35,7 @@ async function Calendario({ tandas, planifica, desde }: { tandas: Awaited<Return
     turno: w.turno,
     inyectora: w.inyectora ?? null,
     estado: w.estado,
-    texto: `${TIPO_INTERVENCION_LABEL[w.tipo]} ${w.matrizAnterior ? `${w.matrizAnterior} → ` : ""}${w.matriz}${w.inyectora ? ` · iny. ${w.inyectora}` : ""}`,
+    texto: `${TIPO_INTERVENCION_LABEL[w.tipo]}${w.matriz ? ` ${w.matrizAnterior ? `${w.matrizAnterior} → ` : ""}${w.matriz}` : ""}`,
   }));
   const colores = tandas.length ? await db.select({ id: colorT.id, hex: colorT.hex }).from(colorT).where(inArray(colorT.id, [...new Set(tandas.map((t) => t.colorId))])) : [];
   const tarjetas: TarjetaCal[] = tandas
@@ -63,16 +63,16 @@ async function Calendario({ tandas, planifica, desde }: { tandas: Awaited<Return
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-foreground-muted">
-          Arrastrá cada tanda al día y turno en que se produce. El cambio se guarda al soltar. Las tandas en producción no se mueven.
+          Arrastrá cada tanda al día, turno y máquina en que se produce; con ↑ ↓ se ordena dentro del turno. El cambio se guarda al soltar. Los días y turnos que ya pasaron no se pueden usar y las tandas en producción no se mueven.
         </p>
         <div className="flex gap-1">
-          <Link href={`/produccion?vista=calendario&desde=${sumarDias(inicio, -7)}`} className="btn btn-outline btn-sm">
+          <Link href={`/produccion?desde=${sumarDias(inicio, -7)}#calendario`} className="btn btn-outline btn-sm">
             ← Semana anterior
           </Link>
-          <Link href="/produccion?vista=calendario" className="btn btn-outline btn-sm">
+          <Link href="/produccion#calendario" className="btn btn-outline btn-sm">
             Esta semana
           </Link>
-          <Link href={`/produccion?vista=calendario&desde=${sumarDias(inicio, 7)}`} className="btn btn-outline btn-sm">
+          <Link href={`/produccion?desde=${sumarDias(inicio, 7)}#calendario`} className="btn btn-outline btn-sm">
             Semana siguiente →
           </Link>
         </div>
@@ -84,7 +84,6 @@ async function Calendario({ tandas, planifica, desde }: { tandas: Awaited<Return
 
 const VISTAS = [
   { id: "plan", label: "Planificación" },
-  { id: "calendario", label: "Calendario por turno" },
   { id: "turnos", label: "Turnos y operarios" },
   { id: "curso", label: "En curso" },
   { id: "relevos", label: "Relevos y novedades" },
@@ -102,6 +101,8 @@ type Vista = (typeof VISTAS)[number]["id"];
  */
 export default async function ProduccionPage({ searchParams }: { searchParams: Promise<{ vista?: string; desde?: string }> }) {
   const sp = await searchParams;
+  // El calendario está debajo de la planificación (reunión 10/11/2026): el
+  // enlace viejo «?vista=calendario» lleva ahí.
   const vista: Vista = VISTAS.some((v) => v.id === sp.vista) ? (sp.vista as Vista) : "plan";
   const usuario = await getUsuarioActual();
   const planifica = puedePlanificar(usuario.rol);
@@ -152,8 +153,15 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
         ))}
       </nav>
 
-      {vista === "plan" && <Planificacion tandas={tandas} grupos={grupos} planifica={planifica} />}
-      {vista === "calendario" && <Calendario tandas={tandas} planifica={planifica} desde={sp.desde} />}
+      {vista === "plan" && (
+        <div className="space-y-8">
+          <Planificacion tandas={tandas} grupos={grupos} planifica={planifica} />
+          <section id="calendario" className="space-y-3">
+            <h2 className="panel-titulo">Calendario por máquina y turno</h2>
+            <Calendario tandas={tandas} planifica={planifica} desde={sp.desde} />
+          </section>
+        </div>
+      )}
       {vista === "turnos" && <TurnosSemana desde={sp.desde} edita={puedeAsignarTurnos(usuario.rol)} />}
       {vista === "curso" && <EnCurso cancela={puedeCancelarProduccion(usuario.rol)} />}
       {vista === "relevos" && <Relevos />}
@@ -185,7 +193,7 @@ async function Planificacion({
           </p>
         ) : (
           tandas.map((t, i) => (
-            <TarjetaTanda key={t.id} t={t} posicion={i + 1} total={tandas.length} puedePlanificar={planifica} />
+            <TarjetaTanda key={t.id} t={t} posicion={i + 1} puedePlanificar={planifica} />
           ))
         )}
       </section>
@@ -222,7 +230,7 @@ async function EnCurso({ cancela }: { cancela: boolean }) {
                   {etiquetaInyectora(v.inyectora)} · {v.produccion.colorNombre ?? "—"}
                 </h3>
                 <div className="text-xs text-foreground-muted">
-                  {v.produccion.productoCodigo} · partida N° {v.produccion.partidaNumero ?? "—"}
+                  {v.produccion.productoCodigo} · partida {v.produccion.partidaNumero ?? "—"}
                 </div>
               </div>
               <span className={`badge-estado ${v.produccion.turnoAbierto ? "badge-ok" : "badge-bajo"}`}>

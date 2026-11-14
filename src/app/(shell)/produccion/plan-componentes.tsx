@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { ArrowDown, ArrowUp, Factory } from "lucide-react";
+import { Factory } from "lucide-react";
 import { FormAccion } from "@/components/form-accion";
 import {
   actualizarTandaAction,
   cancelarTandaAction,
   crearTandaAction,
-  moverTandaAction,
   postergarTandaAction,
   quitarPedidosAction,
 } from "@/app/actions/planificacion";
@@ -77,7 +76,7 @@ function CamposMaquina({ esAccesorio, inyectora, fecha, turno }: { esAccesorio: 
 }
 
 /** Una tanda de la secuencia, con todo lo que la asignación tiene que dejar visible. */
-export function TarjetaTanda({ t, posicion, total, puedePlanificar }: { t: TandaVista; posicion: number; total: number; puedePlanificar: boolean }) {
+export function TarjetaTanda({ t, posicion, puedePlanificar }: { t: TandaVista; posicion: number; puedePlanificar: boolean }) {
   const est = ESTADO_TANDA[t.estado];
   const editable = puedePlanificar && (t.estado === "PLANIFICADA" || t.estado === "POSTERGADA");
   return (
@@ -101,24 +100,6 @@ export function TarjetaTanda({ t, posicion, total, puedePlanificar }: { t: Tanda
             </div>
           </div>
         </div>
-        {puedePlanificar && t.estado !== "EN_CURSO" && (
-          <div className="flex gap-1">
-            <form action={moverTandaAction}>
-              <input type="hidden" name="id" value={t.id} />
-              <input type="hidden" name="direccion" value="arriba" />
-              <button className="btn btn-outline btn-sm" disabled={posicion === 1} aria-label="Producir antes" title="Producir antes">
-                <ArrowUp size={15} />
-              </button>
-            </form>
-            <form action={moverTandaAction}>
-              <input type="hidden" name="id" value={t.id} />
-              <input type="hidden" name="direccion" value="abajo" />
-              <button className="btn btn-outline btn-sm" disabled={posicion === total} aria-label="Producir después" title="Producir después">
-                <ArrowDown size={15} />
-              </button>
-            </form>
-          </div>
-        )}
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-5">

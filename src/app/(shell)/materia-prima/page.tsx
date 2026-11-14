@@ -347,7 +347,7 @@ async function Pie() {
                   </Link>
                 </td>
                 <td>{etiquetaInyectora(r.inyectora)}</td>
-                <td>{r.cicloId ? `#${r.cicloId}${r.partidaNumero != null ? ` · N° ${r.partidaNumero}` : ""}` : "sin producción"}</td>
+                <td>{r.cicloId ? `#${r.cicloId}${r.partidaNumero != null ? ` · partida ${r.partidaNumero}` : ""}` : "sin producción"}</td>
                 <td className="text-right tabular-nums">{fmtNumero(r.totales.retirado, 3)} kg</td>
                 <td className="text-right tabular-nums">{fmtNumero(r.totales.cargado, 3)} kg</td>
                 <td className="text-right tabular-nums">{fmtNumero(r.totales.devuelto, 3)} kg</td>

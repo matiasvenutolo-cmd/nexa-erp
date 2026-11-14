@@ -1,16 +1,14 @@
 /**
- * Código de barras NEXA de cada caja o palet (regla del cliente, 30/10/2026):
+ * Código de barras NEXA de cada caja (formato corto acordado en la reunión del
+ * 10/11/2026, etiquetas del 12/11):
  *
- *   001B-RU-NE-6000165-00025
- *   │    │  │  │       └ 5 dígitos: piezas por caja o palet
- *   │    │  │  └ 7 dígitos: último dígito del año + 6 de partida
- *   │    │  └ color del producto (NE = negro)
- *   │    └ iniciales del producto (RU = rejilla único)
- *   └ código del producto + inicial del proveedor del master
+ *   001B-6000172-00022
+ *   │    │       └ 5 dígitos: piezas de la caja
+ *   │    └ 7 dígitos: último dígito del año + 6 de partida
+ *   └ código de producto NEXA: 3 números + inicial del proveedor del master
  *
- * Los tres primeros bloques son el código de barras del producto de la lista
- * oficial del cliente. Al cambiar el año cambia el dígito y la partida vuelve
- * a empezar.
+ * Producto y color ya no van: el «001B» identifica «Rejilla único Negro».
+ * Al cambiar el año cambia el dígito y la partida vuelve a empezar.
  */
 
 /** 2026, partida 165 → "6000165". */
@@ -18,8 +16,19 @@ export function partidaNexa(anio: number, numero: number): string {
   return `${anio % 10}${String(numero).padStart(6, "0")}`;
 }
 
+/** Primer bloque del código del producto: «001B-PR-NE» → «001B». */
+export function codigoProductoNexa(codigoProducto: string): string {
+  return codigoProducto.trim().toUpperCase().split("-")[0];
+}
+
 export function codigoEtiquetaCaja(codigoProducto: string, anio: number, numeroPartida: number, piezas: number): string {
-  return `${codigoProducto.trim().toUpperCase()}-${partidaNexa(anio, numeroPartida)}-${String(piezas).padStart(5, "0")}`;
+  return `${codigoProductoNexa(codigoProducto)}-${partidaNexa(anio, numeroPartida)}-${String(piezas).padStart(5, "0")}`;
+}
+
+/** Separa un código leído: «001B-6000172-00022» → producto, partida y piezas. */
+export function leerCodigoCaja(codigo: string): { producto: string; partida: string; piezas: number } | null {
+  const m = /^([0-9]{3}[A-Z])-(\d{7})-(\d{5})$/.exec(codigo.trim().toUpperCase());
+  return m ? { producto: m[1], partida: m[2], piezas: Number(m[3]) } : null;
 }
 
 /** Lee el número de partida escrito como «165» (del año en curso) o como los

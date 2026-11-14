@@ -21,7 +21,7 @@ import { getUsuarioPorEmail } from "@/lib/data/usuarios";
 import * as schema from "@/lib/db/schema";
 import { holder } from "./helpers/db";
 import { and, eq } from "drizzle-orm";
-import { codigoEtiquetaCaja, leerPartidaNexa, partidaNexa } from "@/lib/codigo-nexa";
+import { codigoEtiquetaCaja, leerCodigoCaja, leerPartidaNexa, partidaNexa } from "@/lib/codigo-nexa";
 import { crearCiclo } from "@/lib/data/produccion";
 import { crearPedido } from "@/lib/data/pedidos";
 import { confirmarPrimerControl, iniciarDespacho, piquear } from "@/lib/data/despachos";
@@ -90,7 +90,8 @@ describe("código de barras NEXA (regla del cliente 30/10/2026)", () => {
   afterAll(cerrarBase);
 
   it("arma el código como el ejemplo del cliente y lee la partida de 7 dígitos", () => {
-    expect(codigoEtiquetaCaja("001b-ru-ne", 2026, 165, 25)).toBe("001B-RU-NE-6000165-00025");
+    expect(codigoEtiquetaCaja("001b-pr-ne", 2026, 165, 25)).toBe("001B-6000165-00025");
+    expect(leerCodigoCaja("001B-6000172-00022")).toEqual({ producto: "001B", partida: "6000172", piezas: 22 });
     expect(partidaNexa(2027, 1)).toBe("7000001");
     expect(leerPartidaNexa("6000165", 2026)).toEqual({ anio: 2026, numero: 165 });
     expect(leerPartidaNexa("9000003", 2026)).toEqual({ anio: 2019, numero: 3 });
@@ -115,7 +116,7 @@ describe("código de barras NEXA (regla del cliente 30/10/2026)", () => {
   it("despacho: la etiqueta compartida arma y controla cada caja una vez", async () => {
     const db = holder.db!;
     const [p] = await db.insert(schema.partida).values({ anio: 2026, numero: 165, productoId: s.productos.rejNegro.id, fechaApertura: "2026-10-30" }).returning();
-    const etiqueta = codigoEtiquetaCaja("001B-RU-NE", 2026, 165, 25);
+    const etiqueta = codigoEtiquetaCaja("001B-PR-NE", 2026, 165, 25);
     await db.insert(schema.caja).values([1, 2].map((n) => ({ partidaId: p.id, productoId: s.productos.rejNegro.id, numeroCaja: n, cantidad: 25, codigoBarra: `P6000165-C000${n}`, codigoEtiqueta: etiqueta, fecha: "2026-10-30" })));
     const r = await crearPedido({
       clienteId: s.cliente.id, fechaPedido: "2026-10-30", fechaEntregaPactada: "2026-11-10", numeroOrden: null, contacto: null, domicilioEntrega: null, modoEntrega: null,

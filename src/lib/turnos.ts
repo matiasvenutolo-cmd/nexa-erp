@@ -109,3 +109,28 @@ export function fechasParaTurno(ahora: Date): { hoy: string; ayer: string } {
   const { fecha } = minutosAR(ahora);
   return { hoy: fecha, ayer: diaAnterior(fecha) };
 }
+
+/** Fin más tardío de cada turno entre los esquemas (la noche termina a las 7
+ *  del día siguiente). */
+const FIN_TURNO: Record<Turno, number> = {
+  MANANA: Math.max(...Object.values(VENTANAS).flatMap((vs) => vs.filter((v) => v.turno === "MANANA").map((v) => v.hasta))),
+  TARDE: Math.max(...Object.values(VENTANAS).flatMap((vs) => vs.filter((v) => v.turno === "TARDE").map((v) => v.hasta))),
+  NOCHE: Math.max(...Object.values(VENTANAS).flatMap((vs) => vs.filter((v) => v.turno === "NOCHE").map((v) => v.hasta))),
+};
+
+/**
+ * ¿Ya pasó ese día (o ese turno de hoy)? No se planifica en el pasado
+ * (reunión 10/11/2026). Un turno de hoy se puede elegir hasta que termina.
+ */
+export function yaPaso(fecha: string, turno: Turno | null, ahora = new Date()): boolean {
+  const { fecha: hoy, minutos } = minutosAR(ahora);
+  if (fecha > hoy) return false;
+  if (fecha < hoy) {
+    // La noche de ayer todavía corre hasta las 7.
+    return !(turno === "NOCHE" && fecha === diaAnterior(hoy) && minutos + 1440 < FIN_TURNO.NOCHE);
+  }
+  return turno != null && minutos >= FIN_TURNO[turno];
+}
+
+/** Horas de un turno (todas las ventanas duran lo mismo: 9 h). */
+export const HORAS_TURNO = (VENTANAS.SIMPLE[0].hasta - VENTANAS.SIMPLE[0].desde) / 60;

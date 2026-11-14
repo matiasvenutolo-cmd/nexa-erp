@@ -13,6 +13,7 @@
  * producción (definitivo) sigue siendo otro paso.
  */
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { partidaNexaSql } from "@/lib/data/partida-sql";
 import { db } from "@/lib/db/client";
 import {
   cicloProduccion,
@@ -151,7 +152,7 @@ export async function vistaTaller(inyectora: string) {
       kgPorUnidad: producto.kgPorUnidad,
       coladaKgPorGolpe: producto.coladaKgPorGolpe,
       colorNombre: color.nombre,
-      partidaNumero: partida.numero,
+      partidaNumero: partidaNexaSql,
     })
     .from(cicloProduccion)
     .leftJoin(producto, eq(cicloProduccion.productoId, producto.id))

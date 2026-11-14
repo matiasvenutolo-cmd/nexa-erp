@@ -25,6 +25,7 @@ import {
   color,
   pedido,
   pedidoLinea,
+  intervencionMatriz,
   producto,
   retiroMaquina,
   saldo,
@@ -42,6 +43,7 @@ import { recetasDe, type Receta } from "@/lib/data/recetas";
 import { INYECTORA_BALDOSAS, resolverInyectora } from "@/lib/inyectoras";
 import { obtenerRetirosMaquina } from "@/lib/data/maquina";
 import { hoyISO } from "@/lib/format";
+import { yaPaso } from "@/lib/turnos";
 import { aGramos } from "@/lib/presentaciones";
 
 export type Turno = "MANANA" | "TARDE" | "NOCHE";
@@ -372,7 +374,15 @@ export async function listarTandas(opts: { incluirCerradas?: boolean; hoy?: stri
     .innerJoin(producto, eq(tanda.productoId, producto.id))
     .leftJoin(color, eq(producto.colorId, color.id))
     .where(opts.incluirCerradas ? undefined : inArray(tanda.estado, [...ACTIVAS]))
-    .orderBy(asc(tanda.orden), asc(tanda.id));
+    // La secuencia muestra el orden real en que se produce: lo que está en
+    // producción, después por día, turno y orden dentro del turno.
+    .orderBy(
+      sql`case when ${tanda.estado} = 'EN_CURSO' then 0 else 1 end`,
+      sql`${tanda.fecha} asc nulls last`,
+      sql`case ${tanda.turno} when 'MANANA' then 0 when 'TARDE' then 1 when 'NOCHE' then 2 else 3 end`,
+      asc(tanda.orden),
+      asc(tanda.id),
+    );
   if (filas.length === 0) return [];
   const ids = filas.map((f) => f.t.id);
   const [peds, recetas, producido] = await Promise.all([
@@ -498,6 +508,7 @@ export async function crearTanda(actor: Actor, input: NuevaTandaInput): Promise<
   const lineas = input.lineas.filter((l) => l.cantidad > 0);
   if (lineas.some((l) => !Number.isInteger(l.cantidad))) return { error: "Las cantidades van en unidades enteras." };
   if (lineas.length === 0 && stockExtra === 0) return { error: "Elegí al menos un pedido o una cantidad para stock." };
+  if (input.fecha && yaPaso(input.fecha, input.turno ?? null)) return { error: "Ese día o turno ya pasó: elegí uno de hoy en adelante." };
   const [prod] = await db.select({ id: producto.id, esAccesorio: producto.esAccesorio, activo: producto.activo }).from(producto).where(eq(producto.id, input.productoId));
   if (!prod) return { error: "Producto no encontrado." };
   let inyectora: string | null = null;
@@ -551,6 +562,9 @@ export async function crearTanda(actor: Actor, input: NuevaTandaInput): Promise<
       { entidad: "tanda", entidadId: t.id, campo: "alta", anterior: null, nuevo: `${cantidadPedidos} para pedidos + ${stockExtra} para stock` },
     ]);
     return { id: t.id };
+  }).then(async (r) => {
+    if (input.fecha) await sincronizarCambiosDeMatriz(actor.id, [inyectora]);
+    return r;
   });
 }
 
@@ -581,6 +595,11 @@ export async function actualizarTanda(
   }
   if (!prod.esAccesorio && !inyectora) inyectora = INYECTORA_BALDOSAS; // las baldosas van siempre a la 8
   if (t.estado === "EN_CURSO" && inyectora !== t.inyectora) return { error: "La tanda ya está en producción: no se puede cambiar de inyectora." };
+  const fechaNueva = input.fecha !== undefined ? input.fecha || null : t.fecha;
+  const turnoNuevo = input.turno !== undefined ? input.turno : t.turno;
+  if (fechaNueva && (fechaNueva !== t.fecha || turnoNuevo !== t.turno) && yaPaso(fechaNueva, turnoNuevo)) {
+    return { error: "Ese día o turno ya pasó: elegí uno de hoy en adelante." };
+  }
   const cantidadStock = input.cantidadStock ?? t.cantidadStock;
   if (!Number.isInteger(cantidadStock) || cantidadStock < 0) return { error: "La cantidad para stock tiene que ser un número entero (0 o más)." };
   if (t.cantidadPedidos + cantidadStock <= 0) return { error: "La tanda quedaría sin cantidad: cancelala en lugar de dejarla en cero." };
@@ -602,14 +621,27 @@ export async function actualizarTanda(
       { entidad: "tanda", entidadId: id, campo: "receta de arranque", anterior: t.usarArranque ? "sí" : "no", nuevo: nuevo.usarArranque ? "sí" : "no" },
     ]);
   });
+  await sincronizarCambiosDeMatriz(actor.id, [t.inyectora, nuevo.inyectora]);
   return {};
 }
 
-/** Sube o baja una tanda en la secuencia (intercambia el orden con la vecina). */
+/**
+ * Sube o baja una tanda dentro de su casilla del calendario (mismo día, turno
+ * y máquina): el orden se arma con el día y el turno, y esto sólo decide cuál
+ * va primero dentro del turno (reunión 10/11/2026).
+ */
 export async function moverTanda(actor: Actor, id: number, direccion: "arriba" | "abajo"): Promise<Resultado> {
   if (!puedePlanificar(actor.rol)) return { error: "No tenés permiso para planificar la producción." };
+  const [yo] = await db.select().from(tanda).where(eq(tanda.id, id));
+  if (!yo) return { error: "Tanda no encontrada." };
+  const misma = (col: typeof tanda.fecha | typeof tanda.turno | typeof tanda.inyectora, v: string | null) => (v == null ? isNull(col) : eq(col, v));
   return db.transaction(async (tx) => {
-    const activas = await tx.select({ id: tanda.id, orden: tanda.orden }).from(tanda).where(inArray(tanda.estado, [...ACTIVAS])).orderBy(asc(tanda.orden), asc(tanda.id)).for("update");
+    const activas = await tx
+      .select({ id: tanda.id, orden: tanda.orden })
+      .from(tanda)
+      .where(and(inArray(tanda.estado, [...ACTIVAS]), misma(tanda.fecha, yo.fecha), misma(tanda.turno, yo.turno), misma(tanda.inyectora, yo.inyectora)))
+      .orderBy(asc(tanda.orden), asc(tanda.id))
+      .for("update");
     const i = activas.findIndex((t) => t.id === id);
     if (i < 0) return { error: "La tanda no está en la secuencia activa." };
     const j = direccion === "arriba" ? i - 1 : i + 1;
@@ -621,6 +653,9 @@ export async function moverTanda(actor: Actor, id: number, direccion: "arriba" |
     await tx.update(tanda).set({ orden: a.orden, actualizadoEn: new Date() }).where(eq(tanda.id, b.id));
     await registrarCambios(tx, actor.id, [{ entidad: "tanda", entidadId: id, campo: "orden", anterior: i + 1, nuevo: j + 1, motivo: direccion === "arriba" ? "Adelantada en la secuencia" : "Atrasada en la secuencia" }]);
     return {};
+  }).then(async (r) => {
+    await sincronizarCambiosDeMatriz(actor.id, [yo.inyectora]);
+    return r;
   });
 }
 
@@ -636,6 +671,8 @@ export async function postergarTanda(actor: Actor, id: number, motivo: string | 
     await tx.update(tanda).set({ estado, postergadaMotivo: reactivar ? null : motivo!.trim(), actualizadoEn: new Date() }).where(eq(tanda.id, id));
     await registrarCambios(tx, actor.id, [{ entidad: "tanda", entidadId: id, campo: "estado", anterior: r.t.estado, nuevo: estado, motivo }]);
   });
+  if (!reactivar) await asegurarCambioDeMatriz(actor.id, id, null);
+  await sincronizarCambiosDeMatriz(actor.id, [r.t.inyectora]);
   return {};
 }
 
@@ -672,7 +709,88 @@ export async function cancelarTanda(actor: Actor, id: number, motivo: string | n
     await tx.update(tanda).set({ estado: "CANCELADA", actualizadoEn: new Date() }).where(eq(tanda.id, id));
     await registrarCambios(tx, actor.id, [{ entidad: "tanda", entidadId: id, campo: "estado", anterior: r.t.estado, nuevo: "CANCELADA", motivo }]);
   });
+  await asegurarCambioDeMatriz(actor.id, id, null);
+  await sincronizarCambiosDeMatriz(actor.id, [r.t.inyectora]);
   return {};
+}
+
+const MOTIVO_CAMBIO_AUTO = "Cambio de matriz por la planificación";
+
+/**
+ * Cambio de matriz automático (reunión 10/11/2026): cuando una tanda en cola
+ * usa otra matriz que la anterior en esa máquina, queda programado un «Cambio
+ * de matriz» en Mantenimiento y Matrices, con la máquina, el día y el turno de
+ * la tanda. Si la tanda se mueve, se recalcula; si deja de hacer falta (o la
+ * tanda se cancela o se posterga), el cambio programado se cancela. Se
+ * recalcula toda la cola de las máquinas tocadas, porque mover una tanda
+ * cambia cuál es la anterior de las demás.
+ */
+export async function sincronizarCambiosDeMatriz(actorId: number, inyectoras: (string | null | undefined)[]) {
+  const maquinas = [...new Set(inyectoras.filter((x): x is string => Boolean(x)))];
+  for (const iny of maquinas) {
+    const cola = await db
+      .select({ id: tanda.id, estado: tanda.estado, fecha: tanda.fecha, turno: tanda.turno, familia: producto.familia, tipo: producto.tipo })
+      .from(tanda)
+      .innerJoin(producto, eq(tanda.productoId, producto.id))
+      .where(and(eq(tanda.inyectora, iny), inArray(tanda.estado, ["PLANIFICADA", "EN_CURSO"])))
+      .orderBy(
+        sql`case when ${tanda.estado} = 'EN_CURSO' then 0 else 1 end`,
+        sql`${tanda.fecha} asc nulls last`,
+        sql`case ${tanda.turno} when 'MANANA' then 0 when 'TARDE' then 1 when 'NOCHE' then 2 else 3 end`,
+        asc(tanda.orden),
+        asc(tanda.id),
+      );
+    // Lo que tiene puesta la máquina antes de la cola: la última producción.
+    const [ultima] = await db
+      .select({ familia: producto.familia, tipo: producto.tipo })
+      .from(cicloProduccion)
+      .innerJoin(producto, eq(cicloProduccion.productoId, producto.id))
+      .where(sql`regexp_replace(${cicloProduccion.inyectora}, '[^0-9]', '', 'g') = ${iny}`)
+      .orderBy(desc(cicloProduccion.fechaInicio), desc(cicloProduccion.id))
+      .limit(1);
+    let anterior = cola[0]?.estado === "EN_CURSO" ? matrizDe(cola[0]) : ultima ? matrizDe(ultima) : null;
+    for (const t of cola) {
+      if (t.estado === "EN_CURSO") continue;
+      const matriz = matrizDe(t);
+      const hace = anterior != null && anterior !== matriz && t.fecha != null;
+      await asegurarCambioDeMatriz(actorId, t.id, hace ? { inyectora: iny, fecha: t.fecha!, turno: t.turno, matriz, anterior: anterior! } : null);
+      anterior = matriz;
+    }
+  }
+}
+
+/** Crea, actualiza o cancela el cambio de matriz programado de una tanda. */
+async function asegurarCambioDeMatriz(actorId: number, tandaId: number, cambio: { inyectora: string; fecha: string; turno: Turno | null; matriz: string; anterior: string } | null) {
+  const [actual] = await db
+    .select()
+    .from(intervencionMatriz)
+    .where(and(eq(intervencionMatriz.tandaId, tandaId), eq(intervencionMatriz.tipo, "CAMBIO_MATRIZ"), inArray(intervencionMatriz.estado, ["PROGRAMADA", "EN_CURSO"])));
+  if (!cambio) {
+    if (actual?.estado === "PROGRAMADA") {
+      await db.transaction(async (tx) => {
+        await tx.update(intervencionMatriz).set({ estado: "CANCELADA" }).where(eq(intervencionMatriz.id, actual.id));
+        await registrarCambios(tx, actorId, [{ entidad: "intervencion_matriz", entidadId: actual.id, campo: "estado", anterior: "Programada", nuevo: "Cancelada", motivo: "La tanda ya no requiere cambio de matriz" }]);
+      });
+    }
+    return;
+  }
+  const valores = { inyectora: cambio.inyectora, fechaProgramada: cambio.fecha, turno: cambio.turno, matriz: cambio.matriz, matrizAnterior: cambio.anterior };
+  if (actual) {
+    const igual = actual.inyectora === valores.inyectora && actual.fechaProgramada === valores.fechaProgramada && actual.turno === valores.turno && actual.matriz === valores.matriz && actual.matrizAnterior === valores.matrizAnterior;
+    if (igual || actual.estado !== "PROGRAMADA") return;
+    await db.transaction(async (tx) => {
+      await tx.update(intervencionMatriz).set(valores).where(eq(intervencionMatriz.id, actual.id));
+      await registrarCambios(tx, actorId, [{ entidad: "intervencion_matriz", entidadId: actual.id, campo: "reprogramación", anterior: `${actual.fechaProgramada} ${actual.turno ?? ""}`, nuevo: `${valores.fechaProgramada} ${valores.turno ?? ""}`, motivo: "Se movió la tanda" }]);
+    });
+    return;
+  }
+  await db.transaction(async (tx) => {
+    const [i] = await tx
+      .insert(intervencionMatriz)
+      .values({ tipo: "CAMBIO_MATRIZ", ...valores, tandaId, descripcion: `${MOTIVO_CAMBIO_AUTO} (tanda ${tandaId})`, creadoPorId: actorId })
+      .returning({ id: intervencionMatriz.id });
+    await registrarCambios(tx, actorId, [{ entidad: "intervencion_matriz", entidadId: i.id, campo: "alta", anterior: null, nuevo: `Cambio de matriz ${cambio.anterior} → ${cambio.matriz} · iny. ${cambio.inyectora} · ${cambio.fecha}`, motivo: MOTIVO_CAMBIO_AUTO }]);
+  });
 }
 
 /** Últimos golpes registrados en una inyectora (cierre de turno o de producción). */

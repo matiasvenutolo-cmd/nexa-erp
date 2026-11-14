@@ -24,6 +24,7 @@ import { confirmarPrimerControl, existenciasProducto, iniciarDespacho, piquear }
 import { cerrarCiclo, crearCiclo } from "@/lib/data/produccion";
 import { historialCliente, listarClientes } from "@/lib/data/clientes";
 import { turnoDe } from "@/lib/turnos";
+import { hoyISO } from "@/lib/format";
 import { actualizarTanda, crearTanda, listarTandas } from "@/lib/data/planificacion";
 import { guardarReceta, listarPresentaciones } from "@/lib/data/recetas";
 import { cancelarProduccion, cargarReceta, cerrarProduccionTaller, cerrarTurno, enBolsas, eventosDe, iniciarTandaAsignada, pausarProduccion, pedidosDeMaterialPendientes, pedirMaterial, vistaTaller } from "@/lib/data/taller";
@@ -32,6 +33,8 @@ import { actualizarDatosTecnicos } from "@/lib/data/catalogo";
 import { listarAuditoria } from "@/lib/data/auditoria";
 
 let s: Semilla;
+// Hoy a la noche: nunca ya pasó durante el día (la noche termina a las 7 del siguiente).
+const manana = hoyISO();
 const db = () => holder.db!;
 const ubic = { pie: 0, proceso: 0 };
 let masterId: number;
@@ -212,9 +215,11 @@ describe("Operario: arranca la tanda, carga desde pie de máquina, pausa y final
     expect((await guardarReceta(s.usuarios.ENCARGADO, s.productos.rejRojo.id, "REGIMEN", { items: [{ materiaPrimaId: s.materiaPrima.copo2240.id, presentacionId: bolsa25, cantidad: 2 }, { materiaPrimaId: masterId, presentacionId: b600, cantidad: 1 }] })).error).toBeUndefined();
     const t = await crearTanda(s.usuarios.ENCARGADO, { productoId: s.productos.rejRojo.id, lineas: [], cantidadStock: 100 });
     tandaId = t.id!;
-    expect((await actualizarTanda(s.usuarios.ENCARGADO, tandaId, { fecha: "2026-10-17", turno: "TARDE" })).error).toBeUndefined();
+    // No se planifica en el pasado; hoy a la noche sí.
+    expect((await actualizarTanda(s.usuarios.ENCARGADO, tandaId, { fecha: "2026-10-17", turno: "TARDE" })).error).toMatch(/ya pasó/);
+    expect((await actualizarTanda(s.usuarios.ENCARGADO, tandaId, { fecha: manana, turno: "NOCHE" })).error).toBeUndefined();
     const [tv] = (await listarTandas()).filter((x) => x.id === tandaId);
-    expect(tv).toMatchObject({ fecha: "2026-10-17", turno: "TARDE", inyectora: "8" });
+    expect(tv).toMatchObject({ fecha: manana, turno: "NOCHE", inyectora: "8" });
     // Parámetro del producto: con «acepta sobrante» activado, la receta lo admite.
     expect((await actualizarDatosTecnicos(s.usuarios.ENCARGADO, s.productos.ciegoNegro.id, { m2PorUnidad: 0.16, kgPorUnidad: 0.61, aceptaSobrante: true })).error).toBeUndefined();
     const [bolson] = await db().insert(schema.presentacionMp).values({ tipoMp: "SOBRANTE", nombre: "Bolsa 25 kg", kg: "25" }).returning();

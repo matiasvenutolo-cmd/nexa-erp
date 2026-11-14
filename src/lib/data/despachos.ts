@@ -21,6 +21,7 @@
  */
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { partidaNexaSql } from "@/lib/data/partida-sql";
 import { db } from "@/lib/db/client";
 import {
   caja,
@@ -210,7 +211,7 @@ export type DespachoDetalle = typeof despacho.$inferSelect & {
     conAlerta: boolean;
     motivoAlerta: string | null;
     cajaCodigo: string | null;
-    partidaNumero: number | null;
+    partidaNumero: string | null;
     productoCodigo: string | null;
     usuarioNombre: string;
     creadoEn: Date;
@@ -259,7 +260,7 @@ export async function listarDespachos(pedidoId: number): Promise<DespachoDetalle
       conAlerta: piqueo.conAlerta,
       motivoAlerta: piqueo.motivoAlerta,
       cajaCodigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`,
-      partidaNumero: partida.numero,
+      partidaNumero: partidaNexaSql,
       productoCodigo: producto.codigo,
       usuarioNombre: usuario.nombre,
       creadoEn: piqueo.creadoEn,
@@ -293,7 +294,7 @@ export async function cajasDisponibles(productoIds: number[]) {
       codigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`,
       productoId: caja.productoId,
       cantidad: caja.cantidad,
-      partidaNumero: partida.numero,
+      partidaNumero: partidaNexaSql,
       fecha: caja.fecha,
     })
     .from(caja)
@@ -820,7 +821,7 @@ export async function listarDespachosActivos(pedidoIds: number[]): Promise<Map<n
 export type CajaExistencia = {
   id: number;
   codigo: string;
-  partidaNumero: number;
+  partidaNumero: string | null;
   fecha: string;
   cantidadOriginal: number;
   disponible: number;
@@ -845,7 +846,7 @@ export async function existenciasProducto(productoId: number) {
   const params = await obtenerParametros();
   const capacidad = unidadesPorCaja(prod, params);
   const cajas = await db
-    .select({ id: caja.id, codigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`, cantidad: caja.cantidad, estado: caja.estado, fecha: caja.fecha, partidaNumero: partida.numero })
+    .select({ id: caja.id, codigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`, cantidad: caja.cantidad, estado: caja.estado, fecha: caja.fecha, partidaNumero: partidaNexaSql })
     .from(caja)
     .innerJoin(partida, eq(caja.partidaId, partida.id))
     .where(and(eq(caja.productoId, productoId), inArray(caja.estado, ["EN_STOCK", "ARMADA"])))

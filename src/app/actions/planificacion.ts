@@ -70,10 +70,13 @@ export async function actualizarTandaAction(_p: EstadoAccion, fd: FormData): Pro
   return { ok: "Tanda actualizada." };
 }
 
-export async function moverTandaAction(fd: FormData) {
+/** Ordena dentro de la casilla del calendario (mismo día, turno y máquina). */
+export async function moverTandaAction(id: number, direccion: "arriba" | "abajo"): Promise<{ error?: string }> {
   const u = await getUsuarioActual();
-  await moverTanda(u, Number(fd.get("id")), fd.get("direccion") === "arriba" ? "arriba" : "abajo");
+  const r = await moverTanda(u, id, direccion);
+  if (r.error) return r;
   revalidar();
+  return {};
 }
 
 export async function postergarTandaAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
