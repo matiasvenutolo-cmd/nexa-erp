@@ -11,7 +11,7 @@
  */
 import type { usuario } from "@/lib/db/schema";
 import {
-  ROLES_GESTION,
+  puedeCrearPedido,
   puedeOperarTaller,
   puedeVerCompras,
   puedeVerMateriaPrima,
@@ -114,7 +114,7 @@ export const HOME_POR_ROL: Record<Rol, string> = Object.fromEntries(
  */
 export function rutaPermitida(rol: Rol, pathname: string): boolean {
   const bajo = (base: string) => pathname === base || pathname.startsWith(`${base}/`);
-  if (bajo("/pedidos/nuevo")) return ROLES_GESTION.includes(rol);
+  if (bajo("/pedidos/nuevo")) return puedeCrearPedido(rol);
   if (bajo("/taller")) return puedeOperarTaller(rol);
   if (bajo("/admin")) return NAV_POR_ROL[rol].some((i) => i.href.startsWith("/admin"));
   return NAV_POR_ROL[rol].some((item) => bajo(item.href));

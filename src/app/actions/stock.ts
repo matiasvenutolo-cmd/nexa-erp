@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { corregirStockManual } from "@/lib/data/stock";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeCrearPedido } from "@/lib/auth/permisos";
+import { ROLES_GESTION } from "@/lib/auth/permisos";
 
 export type FormState = { error?: string; ok?: boolean };
 
@@ -11,7 +11,7 @@ export type FormState = { error?: string; ok?: boolean };
  *  de la gestión de pedidos/catálogo (src/lib/auth/permisos.ts). */
 export async function corregirStockAction(_prev: FormState, fd: FormData): Promise<FormState> {
   const usuario = await getUsuarioActual();
-  if (!puedeCrearPedido(usuario.rol)) return { error: "No tenés permiso para corregir stock." };
+  if (!ROLES_GESTION.includes(usuario.rol)) return { error: "No tenés permiso para corregir stock." };
 
   const productoId = Number(fd.get("productoId"));
   const delta = Number(fd.get("delta"));

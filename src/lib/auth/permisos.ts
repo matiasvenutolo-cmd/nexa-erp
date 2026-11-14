@@ -76,8 +76,13 @@ export function puedeCorregirProduccionMp(rol: Rol): boolean {
  */
 export const ROLES_GESTION: readonly Rol[] = ["GERENCIA", "SUPERVISOR", "ADMINISTRACION", "ENCARGADO"];
 
+/** Cargar y modificar pedidos y clientes: Ventas/Administración, Supervisión y
+ *  Gerencia. El Encargado ve los pedidos para planificar pero no los carga
+ *  (filtrado por perfil, reunión 10/11/2026). */
+const ROLES_VENTAS: readonly Rol[] = ["GERENCIA", "SUPERVISOR", "ADMINISTRACION"];
+
 export function puedeCrearPedido(rol: Rol): boolean {
-  return ROLES_GESTION.includes(rol);
+  return ROLES_VENTAS.includes(rol);
 }
 
 /** Ver Stock de productos y Clientes (sin poder editar, en el caso de la consulta). */
