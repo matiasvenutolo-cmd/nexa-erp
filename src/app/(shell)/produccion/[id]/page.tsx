@@ -10,7 +10,9 @@ import { etiquetaTurno } from "@/lib/data/planificacion";
 import { codigoDeUso, listarRetiros } from "@/lib/data/materia-prima";
 import { ciclosAbiertos, codigosDeSobrante, controlMaterialCiclo, obtenerRetirosMaquina } from "@/lib/data/maquina";
 import { getUsuarioActual } from "@/lib/session";
-import { puedeCargarTolva, puedeCerrarCiclo, puedeCorregirProduccionMp, puedeRetirarMateriaPrima, puedeVerMateriaPrima } from "@/lib/auth/permisos";
+import { puedeCancelarProduccion, puedeCargarTolva, puedeCerrarCiclo, puedeCorregirProduccionMp, puedeRetirarMateriaPrima, puedeVerMateriaPrima } from "@/lib/auth/permisos";
+import { reimprimirEtiquetaAction } from "@/app/actions/taller";
+import { FormAccion } from "@/components/form-accion";
 import { fmtNumero, fmtFecha, fmtDia } from "@/lib/format";
 import { OperacionesRetiro } from "@/components/operaciones-retiro";
 import { FormularioCierre } from "./formulario-cierre";
@@ -54,6 +56,8 @@ export default async function ProduccionDetallePage({ params, searchParams }: { 
   const puedeOperar = puedeRetirarMateriaPrima(usuario.rol);
   const puedeCorregir = puedeCorregirProduccionMp(usuario.rol);
   const puedeCargar = puedeCargarTolva(usuario.rol);
+  // Reimprimir una etiqueta: sólo el Encargado (o Supervisión), con motivo.
+  const reimprime = puedeCancelarProduccion(usuario.rol);
   const verRetiro = puedeVerMateriaPrima(usuario.rol) || puedeCorregir;
   const hayCarga = (control?.cargado ?? 0) > 0;
 
@@ -237,12 +241,31 @@ export default async function ProduccionDetallePage({ params, searchParams }: { 
 
       {cajas.length > 0 && (
         <div className="rounded-lg border border-border bg-surface p-4 text-sm">
-          <h2 className="mb-2 text-sm font-semibold text-foreground-muted">Cajas generadas ({cajas.length})</h2>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-foreground-muted">Cajas ({cajas.length})</h2>
+            <Link href={`/taller/etiquetas?ciclo=${ciclo.id}`} className="btn btn-outline btn-sm">
+              Imprimir etiquetas
+            </Link>
+          </div>
           <div className="flex flex-wrap gap-2">
             {cajas.map((c) => (
-              <Link key={c.id} href={`/trazabilidad?tipo=caja&valor=${c.codigo}`} className="rounded bg-surface-muted px-2 py-1 font-mono text-xs hover:text-accent">
-                {c.codigo} · {c.cantidad} u. · {c.estado === "EN_STOCK" ? "en stock" : c.estado === "ARMADA" ? "armada" : c.estado === "DESPACHADA" ? "despachada" : "baja"}
-              </Link>
+              <span key={c.id} className="flex items-center gap-1 rounded bg-surface-muted px-2 py-1 font-mono text-xs">
+                <Link href={`/trazabilidad?tipo=caja&valor=${c.codigo}`} className="hover:text-accent">
+                  {c.codigo} · {c.cantidad} u. · {c.estado === "EN_STOCK" ? "en stock" : c.estado === "ARMADA" ? "armada" : c.estado === "DESPACHADA" ? "despachada" : "baja"}
+                </Link>
+                {reimprime && (
+                  <details className="relative font-sans">
+                    <summary className="cursor-pointer list-none text-accent" title="Reimprimir la etiqueta">
+                      ↻
+                    </summary>
+                    <div className="absolute right-0 z-10 mt-1 w-64 rounded-xl border border-border bg-white p-3 shadow-lg">
+                      <FormAccion accion={reimprimirEtiquetaAction} ocultos={{ cajaId: c.id }} boton="Reimprimir" claseBoton="btn btn-primary btn-sm" className="space-y-2">
+                        <input name="motivo" required placeholder="Motivo (ej. se rompió la etiqueta)" className="input" />
+                      </FormAccion>
+                    </div>
+                  </details>
+                )}
+              </span>
             ))}
           </div>
         </div>

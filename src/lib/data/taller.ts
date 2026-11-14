@@ -19,6 +19,7 @@ import { alias } from "drizzle-orm/pg-core";
 import {
   cicloProduccion,
   color,
+  caja,
   movimiento,
   movimientoMaquina,
   novedadMaquina,
@@ -33,10 +34,10 @@ import {
   eventoProduccion,
 } from "@/lib/db/schema";
 import { puedeCancelarProduccion, puedeOperarTaller } from "@/lib/auth/permisos";
-import type { Actor, Resultado } from "@/lib/data/auditoria";
+import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
 import { ubicacionesMp } from "@/lib/data/depositos";
 import { ErrorCarga, cargarEnTolvaTx, obtenerRetirosMaquina } from "@/lib/data/maquina";
-import { cerrarCiclo } from "@/lib/data/produccion";
+import { cerrarCajasDelTurno, cerrarCiclo } from "@/lib/data/produccion";
 import { listarPresentaciones, presentacionesDe, recetasDe, type Receta } from "@/lib/data/recetas";
 import { ErrorStock } from "@/lib/data/ubicaciones";
 import { etiquetaTurno, iniciarProduccionDeTanda, type Turno } from "@/lib/data/planificacion";
@@ -181,7 +182,16 @@ export async function vistaTaller(inyectora: string) {
     sePuedeArrancar: !a.fecha || a.fecha <= hoy,
     enPie: armarPie(retiros.filter((r) => r.cicloId == null && r.productoPrevistoId === a.productoId), presentaciones),
   }));
-  if (!prod) return { inyectora: iny, produccion: null, pie, proxima, asignadas: asignadasConReceta } as const;
+  // Última producción terminada en la máquina (últimas 12 h): para imprimir sus etiquetas.
+  const [terminada] = prod
+    ? []
+    : await db
+        .select({ cicloId: cicloProduccion.id, cajas: sql<number>`(select count(*) from caja where caja.ciclo_id = ${cicloProduccion.id})`.mapWith(Number) })
+        .from(cicloProduccion)
+        .where(and(sqlInyectora(iny), sql`${cicloProduccion.fechaFin} > now() - interval '12 hours'`))
+        .orderBy(desc(cicloProduccion.fechaFin))
+        .limit(1);
+  if (!prod) return { inyectora: iny, produccion: null, pie, proxima, asignadas: asignadasConReceta, ultimaTerminada: terminada && terminada.cajas > 0 ? terminada : null } as const;
 
   const c = prod.ciclo;
   const [turnos, recetas, novedades, cargasTolva, sobrantes, tandaRow] = await Promise.all([
@@ -227,6 +237,10 @@ export async function vistaTaller(inyectora: string) {
     if (a) a.kg = Math.max(0, (aGramos(a.kg) - aGramos(Math.abs(sb.total))) / 1000);
   }
   const cargasDelTurno = abierto ? cargasTolva.filter((x) => x.turnoId === abierto.t.id) : [];
+  // Cajas que cerró el último turno (para imprimir sus etiquetas).
+  const [{ cajasUltimoTurno }] = ultimo
+    ? await db.select({ cajasUltimoTurno: sql<number>`count(*)`.mapWith(Number) }).from(caja).where(eq(caja.turnoId, ultimo.t.id))
+    : [{ cajasUltimoTurno: 0 }];
   const ppg = c.piezasPorGolpe ?? 1;
   const kgPorUnidad = prod.kgPorUnidad != null ? Number(prod.kgPorUnidad) : null;
   const falta = objetivo != null ? Math.max(0, objetivo - producido) : null;
@@ -246,6 +260,7 @@ export async function vistaTaller(inyectora: string) {
     proxima,
     asignadas: asignadasConReceta,
     pie,
+    ultimaTerminada: null,
     produccion: {
       cicloId: c.id,
       pausada: c.pausada,
@@ -264,6 +279,7 @@ export async function vistaTaller(inyectora: string) {
       golpesFaltantes,
       contadorObjetivo: golpesBase != null && golpesFaltantes != null ? golpesBase + golpesFaltantes : null,
       hayCargas: cargasTolva.length > 0,
+      cajasUltimoTurno,
       ultimaCarga: cargasTolva.reduce<Date | null>((m, x) => (!m || x.fecha > m ? x.fecha : m), null),
       tolvaEstimadaKg,
       descartePiezas: kgPorUnidad ? Math.round(Number(c.descarteKg ?? 0) / kgPorUnidad) : 0,
@@ -599,7 +615,9 @@ async function cerrarTurnoTx(tx: Tx, actor: Actor, input: CerrarTurnoInput) {
   if (interrupcion) {
     await tx.insert(novedadMaquina).values({ cicloId: c.id, turnoId: t.id, inyectora: num(c.inyectora), tipo: "INTERRUPCION", motivo: interrupcion, detalle: input.observaciones?.trim() || null, usuarioId: actor.id });
   }
-  return { piezas } as const;
+  // Las cajas completas del turno entran a stock y quedan para imprimir.
+  const cajas = await cerrarCajasDelTurno(tx, { cicloId: c.id, turnoId: t.id, usuarioId: actor.id });
+  return { piezas, cajas, turnoId: t.id } as const;
 }
 
 /** Texto con el material que queda: «A pie de máquina: …; en tolva: …». */
@@ -611,11 +629,11 @@ async function fotoMaterial(cicloId: number): Promise<string | null> {
   return `A pie de máquina: ${t(v.pie)}. En tolva: ${t(v.produccion?.tolva ?? [])}.`;
 }
 
-export async function cerrarTurno(actor: Actor, input: CerrarTurnoInput): Promise<Resultado & { piezas?: number | null }> {
+export async function cerrarTurno(actor: Actor, input: CerrarTurnoInput): Promise<Resultado & { piezas?: number | null; cajas?: number; turnoId?: number }> {
   if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
   const foto = await fotoMaterial(input.cicloId);
   const r = await db.transaction((tx) => cerrarTurnoTx(tx, actor, { ...input, materialAlCierre: input.materialAlCierre ?? foto }));
-  return "error" in r ? { error: r.error } : { piezas: r.piezas };
+  return "error" in r ? { error: r.error } : { piezas: r.piezas, cajas: r.cajas, turnoId: r.turnoId };
 }
 
 /**
@@ -711,6 +729,17 @@ export async function revisarTurno(actor: Actor, turnoId: number): Promise<Resul
   if (t.estado !== "CERRADO") return { error: "El turno todavía está abierto." };
   if (t.revisadoEn) return {};
   await db.update(turnoProduccion).set({ revisadoPorId: actor.id, revisadoEn: new Date() }).where(eq(turnoProduccion.id, turnoId));
+  return {};
+}
+
+/** Reimpresión de la etiqueta de una caja: sólo Encargado o Supervisión, con
+ *  motivo. No crea cajas ni toca el stock; queda en el historial. */
+export async function registrarReimpresion(actor: Actor, cajaId: number, motivo: string | null): Promise<Resultado> {
+  if (!puedeCancelarProduccion(actor.rol)) return { error: "Reimprimir una etiqueta le corresponde al Encargado." };
+  if (!motivo?.trim()) return { error: "Indicá por qué se reimprime." };
+  const [c] = await db.select({ id: caja.id, codigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})` }).from(caja).where(eq(caja.id, cajaId));
+  if (!c) return { error: "Caja no encontrada." };
+  await db.transaction((tx) => registrarCambios(tx, actor.id, [{ entidad: "caja", entidadId: c.id, campo: "reimpresión de etiqueta", anterior: null, nuevo: c.codigo, motivo: motivo.trim() }]));
   return {};
 }
 

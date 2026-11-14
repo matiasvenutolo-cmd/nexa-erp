@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { getUsuarioActual } from "@/lib/session";
 import {
   cancelarProduccion,
@@ -10,6 +11,7 @@ import {
   iniciarTandaAsignada,
   pausarProduccion,
   pedirMaterial,
+  registrarReimpresion,
   revisarTurno,
   registrarNovedad,
   tomarTurno,
@@ -107,6 +109,15 @@ export async function cargarRecetaAction(_p: EstadoAccion, fd: FormData): Promis
   return { ok: `Carga registrada: ${fmtPeso(r.kg ?? 0)} pasaron del pie de máquina a la tolva.` };
 }
 
+/** Reimpresión de una etiqueta: queda en el historial con el motivo y no
+ *  cambia el stock (imprime el mismo código). */
+export async function reimprimirEtiquetaAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
+  const u = await getUsuarioActual();
+  const r = await registrarReimpresion(u, Number(fd.get("cajaId")), txt(fd, "motivo"));
+  if (r.error) return { error: r.error };
+  redirect(`/taller/etiquetas?cajas=${Number(fd.get("cajaId"))}`);
+}
+
 export async function revisarTurnoAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
   const u = await getUsuarioActual();
   const r = await revisarTurno(u, Number(fd.get("turnoId")));
@@ -148,7 +159,7 @@ export async function cerrarTurnoAction(_p: EstadoAccion, fd: FormData): Promise
   });
   if (r.error) return { error: r.error };
   revalidar();
-  return { ok: `Turno cerrado${r.piezas != null ? `: ${r.piezas} piezas en el turno` : ""}. El siguiente operario lo ve al entrar.` };
+  return { ok: `Turno cerrado${r.piezas != null ? `: ${r.piezas} piezas en el turno` : ""}${r.cajas ? `, ${r.cajas} cajas a stock: imprimí sus etiquetas` : ""}.` };
 }
 
 export async function cerrarProduccionTallerAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {

@@ -229,10 +229,16 @@ function FormArrancar({ t, golpes, ot, quien, conMotivo, boton }: { t: Vista["as
 /** Sin producción en curso: la primera tanda de la cola, para arrancarla. */
 function EnCola({ v, iny, golpes, ot, quien }: { v: Vista; iny: string; golpes: number | null; ot: OpcionesTurno; quien: Quien }) {
   const t = v.asignadas[0];
+  const imprimir = v.ultimaTerminada && (
+    <Link href={`/taller/etiquetas?ciclo=${v.ultimaTerminada.cicloId}&ultimas=1`} className="btn btn-primary btn-block">
+      Imprimir las etiquetas de la producción que terminó
+    </Link>
+  );
   if (!t) {
     return (
       <section className="panel space-y-3">
         <h1 className="text-2xl">Inyectora {iny}</h1>
+        {imprimir}
         <p className="aviso aviso-info">No hay tanda en la cola de esta máquina. Avisá al Encargado.</p>
         {v.pie.length > 0 && <Materiales titulo="Material a pie de máquina" lista={v.pie} />}
       </section>
@@ -241,6 +247,7 @@ function EnCola({ v, iny, golpes, ot, quien }: { v: Vista; iny: string; golpes: 
   const otras = v.asignadas.slice(1).filter((x) => x.sePuedeArrancar);
   return (
     <>
+      {imprimir}
       <section className="panel space-y-4">
         <div>
           <div className="text-xs font-bold uppercase tracking-wide text-foreground-muted">
@@ -352,6 +359,11 @@ function Relevo({ p, pie, ot, quien }: { p: Prod; pie: Mat; ot: OpcionesTurno; q
           </div>
           {u.observaciones && <div>Indicaciones: {u.observaciones}</div>}
         </div>
+      )}
+      {u && p.cajasUltimoTurno > 0 && (
+        <Link href={`/taller/etiquetas?turno=${u.id}`} className="btn btn-outline btn-block">
+          Imprimir las etiquetas del turno anterior ({p.cajasUltimoTurno} {p.cajasUltimoTurno === 1 ? "caja" : "cajas"})
+        </Link>
       )}
       <Materiales titulo="A pie de máquina (contá las bolsas)" lista={pie} vacio="No queda material a pie de máquina." />
       {p.hayCargas && p.tolvaEstimadaKg != null && (

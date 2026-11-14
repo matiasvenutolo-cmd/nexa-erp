@@ -30,6 +30,8 @@ import {
   materiaPrima,
   tanda,
   eventoProduccion,
+  turnoProduccion,
+  deposito,
 } from "@/lib/db/schema";
 import { getDepositoNexaId, ubicacionesMp } from "@/lib/data/depositos";
 import { ErrorStock, moverEnUbicacion, repartirProporcional } from "@/lib/data/ubicaciones";
@@ -306,33 +308,21 @@ export async function cerrarCiclo(cicloId: number, input: FinCicloInput): Promis
       .returning({ id: cicloProduccion.id });
     if (cerrado.length === 0) return yaCerrado;
 
-    if (ciclo.productoId != null && input.piezasEntregadas != null && input.piezasEntregadas > 0) {
-      await tx.insert(movimiento).values({
-        tipo: "ENTRADA",
-        depositoId,
-        productoId: ciclo.productoId,
-        partidaId: ciclo.partidaId,
-        cantidad: String(input.piezasEntregadas),
-        origen: "CICLO",
-        origenId: cicloId,
-        motivo: `Producción #${cicloId}${numeroPartida != null ? ` · partida ${numeroPartida}` : ""}`,
-        usuarioId: input.usuarioId,
-      });
-      await tx
-        .insert(saldo)
-        .values({ depositoId, productoId: ciclo.productoId, cantidad: String(input.piezasEntregadas) })
-        .onConflictDoUpdate({
-          target: [saldo.depositoId, saldo.productoId],
-          set: { cantidad: sql`${saldo.cantidad} + ${input.piezasEntregadas}` },
-        });
+    // Las cajas completas de cada turno ya entraron al cerrar el turno: al
+    // terminar entra lo que falta, con la última caja incompleta.
+    const ya = await piezasIngresadas(tx, cicloId);
+    const aIngresar = (input.piezasEntregadas ?? 0) - ya;
+    if (aIngresar < 0) throw new ErrorStock(`Ya entraron ${ya} piezas al stock en los cierres de turno: las piezas a stock no pueden ser menos.`);
+    if (ciclo.productoId != null && aIngresar > 0) {
+      await ingresarAStock(tx, { depositoId, productoId: ciclo.productoId, partidaId: ciclo.partidaId, cicloId, piezas: aIngresar, usuarioId: input.usuarioId, motivo: `Producción #${cicloId}${numeroPartida != null ? ` · partida ${numeroPartida}` : ""}` });
     }
 
-    if (ciclo.productoId != null && ciclo.partidaId != null && input.piezasEntregadas != null && input.piezasEntregadas > 0) {
+    if (ciclo.productoId != null && ciclo.partidaId != null && aIngresar > 0) {
       await generarCajas(tx, {
         cicloId,
         partidaId: ciclo.partidaId,
         productoId: ciclo.productoId,
-        piezas: input.piezasEntregadas,
+        piezas: aIngresar,
       });
     }
 
@@ -437,7 +427,70 @@ export function codigoCaja(anio: number, partidaNumero: number, numeroCaja: numb
  * producto) y una caja abierta con el resto. Accesorios: no se embalan hasta
  * la venta (respuesta 4), quedan como un bulto sin embalar de la partida.
  */
-export async function generarCajas(tx: Tx, input: { cicloId: number; partidaId: number; productoId: number; piezas: number }) {
+/** Piezas de una producción que ya entraron al stock (cierres de turno). */
+async function piezasIngresadas(tx: Tx, cicloId: number): Promise<number> {
+  const [{ n }] = await tx
+    .select({ n: sql<number>`coalesce(sum(${movimiento.cantidad}), 0)`.mapWith(Number) })
+    .from(movimiento)
+    .where(and(eq(movimiento.origen, "CICLO"), eq(movimiento.origenId, cicloId), eq(movimiento.tipo, "ENTRADA")));
+  return n;
+}
+
+/** Entrada de piezas al stock de producto terminado, con su movimiento. */
+async function ingresarAStock(tx: Tx, input: { depositoId: number; productoId: number; partidaId: number | null; cicloId: number; piezas: number; usuarioId: number; motivo: string }) {
+  await tx.insert(movimiento).values({
+    tipo: "ENTRADA",
+    depositoId: input.depositoId,
+    productoId: input.productoId,
+    partidaId: input.partidaId,
+    cantidad: String(input.piezas),
+    origen: "CICLO",
+    origenId: input.cicloId,
+    motivo: input.motivo,
+    usuarioId: input.usuarioId,
+  });
+  await tx
+    .insert(saldo)
+    .values({ depositoId: input.depositoId, productoId: input.productoId, cantidad: String(input.piezas) })
+    .onConflictDoUpdate({ target: [saldo.depositoId, saldo.productoId], set: { cantidad: sql`${saldo.cantidad} + ${input.piezas}` } });
+}
+
+/**
+ * Al cerrar un turno (reunión 10/11/2026): las cajas completas con las piezas
+ * buenas acumuladas entran a stock y quedan listas para imprimir su etiqueta.
+ * Lo que no completa una caja queda como caja abierta para el turno siguiente.
+ * Los accesorios (sin piezas por caja) entran al terminar la producción.
+ * Devuelve cuántas cajas se cerraron.
+ */
+export async function cerrarCajasDelTurno(tx: Tx, input: { cicloId: number; turnoId: number; usuarioId: number }): Promise<number> {
+  const [c] = await tx.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
+  if (!c?.productoId || !c.partidaId) return 0;
+  const [prod] = await tx.select({ esAccesorio: producto.esAccesorio, unidadesPorCaja: producto.unidadesPorCaja, kg: producto.kgPorUnidad }).from(producto).where(eq(producto.id, c.productoId));
+  const [param] = await tx.select({ valor: parametro.valor }).from(parametro).where(eq(parametro.clave, PARAMETROS.UNIDADES_POR_CAJA_PISOS));
+  const porCaja = unidadesPorCaja(prod, { unidades_por_caja_pisos: Number(param?.valor ?? 0) });
+  if (!porCaja || porCaja <= 0) return 0;
+  const kgPieza = prod.kg != null && Number(prod.kg) > 0 ? Number(prod.kg) : null;
+  const turnos = await tx.select({ piezas: turnoProduccion.piezas, descarteKg: turnoProduccion.descarteKg }).from(turnoProduccion).where(and(eq(turnoProduccion.cicloId, c.id), eq(turnoProduccion.estado, "CERRADO")));
+  const buenas = turnos.reduce((t, x) => t + Math.max(0, (x.piezas ?? 0) - (kgPieza ? Math.round(Number(x.descarteKg ?? 0) / kgPieza) : 0)), 0);
+  const libres = buenas - (await piezasIngresadas(tx, c.id));
+  const cajas = Math.floor(libres / porCaja);
+  if (cajas <= 0) return 0;
+  const [part] = await tx.select({ numero: partidaNexaSql }).from(partida).where(eq(partida.id, c.partidaId));
+  await ingresarAStock(tx, {
+    // Dentro de la transacción: nunca una consulta por fuera (se traba).
+    depositoId: (await tx.select({ id: deposito.id }).from(deposito).where(eq(deposito.nombre, "NEXA")))[0].id,
+    productoId: c.productoId,
+    partidaId: c.partidaId,
+    cicloId: c.id,
+    piezas: cajas * porCaja,
+    usuarioId: input.usuarioId,
+    motivo: `Producción #${c.id} · cierre de turno · partida ${part?.numero ?? "—"} · ${cajas} cajas`,
+  });
+  await generarCajas(tx, { cicloId: c.id, partidaId: c.partidaId, productoId: c.productoId, piezas: cajas * porCaja, turnoId: input.turnoId });
+  return cajas;
+}
+
+export async function generarCajas(tx: Tx, input: { cicloId: number; partidaId: number; productoId: number; piezas: number; turnoId?: number | null }) {
   const [prod] = await tx
     .select({ esAccesorio: producto.esAccesorio, unidadesPorCaja: producto.unidadesPorCaja, codigo: producto.codigo })
     .from(producto)
@@ -464,6 +517,7 @@ export async function generarCajas(tx: Tx, input: { cicloId: number; partidaId: 
       partidaId: input.partidaId,
       productoId: input.productoId,
       cicloId: input.cicloId,
+      turnoId: input.turnoId ?? null,
       numeroCaja: ultimo + i + 1,
       cantidad,
       codigoBarra: codigoCaja(part.anio, part.numero, ultimo + i + 1),
@@ -669,6 +723,57 @@ export async function colaProduccion(): Promise<FilaCola[]> {
 }
 
 /** Cajas que generó un ciclo al cerrarse, con su estado actual. */
+export type EtiquetaCaja = {
+  id: number;
+  codigo: string;
+  cantidad: number;
+  productoCodigo: string;
+  productoDescripcion: string;
+  colorNombre: string | null;
+  partida: string | null;
+  fecha: string;
+  turno: string | null;
+  operario: string | null;
+};
+
+/**
+ * Datos de las etiquetas a imprimir (reunión 10/11/2026): por turno (las cajas
+ * que cerró), por producción (todas, o con `ultimas` las del último turno y la
+ * última caja incompleta) o cajas puntuales (reimpresión).
+ */
+export async function etiquetasDe(filtro: { turnoId?: number; cicloId?: number; ultimas?: boolean; cajaIds?: number[] }): Promise<EtiquetaCaja[]> {
+  let cond;
+  if (filtro.cajaIds?.length) cond = inArray(caja.id, filtro.cajaIds);
+  else if (filtro.turnoId) cond = eq(caja.turnoId, filtro.turnoId);
+  else if (filtro.cicloId && filtro.ultimas) {
+    const [ult] = await db.select({ id: turnoProduccion.id }).from(turnoProduccion).where(eq(turnoProduccion.cicloId, filtro.cicloId)).orderBy(desc(turnoProduccion.inicio)).limit(1);
+    cond = and(eq(caja.cicloId, filtro.cicloId), ult ? sql`(${caja.turnoId} = ${ult.id} or ${caja.turnoId} is null)` : undefined);
+  } else if (filtro.cicloId) cond = eq(caja.cicloId, filtro.cicloId);
+  else return [];
+  const filas = await db
+    .select({
+      id: caja.id,
+      codigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`,
+      cantidad: caja.cantidad,
+      productoCodigo: producto.codigo,
+      productoDescripcion: producto.descripcion,
+      colorNombre: color.nombre,
+      partida: partidaNexaSql,
+      fecha: caja.fecha,
+      turno: turnoProduccion.turno,
+      operario: sql<string | null>`coalesce(${turnoProduccion.operarioNombre}, ${usuario.nombre})`,
+    })
+    .from(caja)
+    .innerJoin(producto, eq(caja.productoId, producto.id))
+    .leftJoin(color, eq(producto.colorId, color.id))
+    .innerJoin(partida, eq(caja.partidaId, partida.id))
+    .leftJoin(turnoProduccion, eq(caja.turnoId, turnoProduccion.id))
+    .leftJoin(usuario, eq(turnoProduccion.operarioId, usuario.id))
+    .where(cond)
+    .orderBy(asc(caja.numeroCaja));
+  return filas;
+}
+
 export async function cajasDeCiclo(cicloId: number) {
   return db
     .select({ id: caja.id, codigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`, cantidad: caja.cantidad, estado: caja.estado })

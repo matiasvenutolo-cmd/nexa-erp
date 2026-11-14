@@ -22,6 +22,7 @@ import { actualizarCompra, calcularNecesidad, comprasSolicitadas, pendientePorMp
 import { listarAvisos } from "@/lib/data/avisos";
 import { hoyISO } from "@/lib/format";
 import { yaPaso } from "@/lib/turnos";
+import { PATRONES, anchosCode128, valoresCode128B } from "@/lib/code128";
 
 let s: Semilla;
 const db = () => holder.db!;
@@ -125,5 +126,21 @@ describe("compras: faltantes, tres necesidades y pedido de Materia prima", () =>
     expect((await pendientePorMp()).get(s.materiaPrima.copo2240.id) ?? 0).toBe(0);
     expect((await actualizarCompra(s.usuarios.COMPRAS, r.id!, { estado: "PEDIDO" })).error).toBeUndefined();
     expect((await pendientePorMp()).get(s.materiaPrima.copo2240.id)).toBe(500);
+  });
+});
+
+describe("código de barras de la etiqueta (Code 128)", () => {
+  it("la tabla de patrones es válida: cada uno suma 11 módulos (el stop 13) y no se repiten", () => {
+    expect(PATRONES).toHaveLength(107);
+    PATRONES.forEach((p, i) => expect([...p].reduce((t, n) => t + Number(n), 0)).toBe(i === 106 ? 13 : 11));
+    expect(new Set(PATRONES).size).toBe(107);
+  });
+  it("codifica el código NEXA con su dígito verificador", () => {
+    // «A» en el juego B: inicio 104, valor 33, verificador (104 + 33) % 103 = 34.
+    expect(valoresCode128B("A")).toEqual([104, 33, 34, 106]);
+    const v = valoresCode128B("001B-6000172-00022");
+    expect(v[0]).toBe(104);
+    expect(v.at(-1)).toBe(106);
+    expect(anchosCode128("001B-6000172-00022").reduce((t, n) => t + n, 0)).toBe(11 * (v.length - 1) + 13);
   });
 });

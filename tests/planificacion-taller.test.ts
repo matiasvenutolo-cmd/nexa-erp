@@ -371,8 +371,16 @@ describe("Operario: turno, receta, relevo y stock por ubicación", () => {
     const r = await cerrarProduccionTaller(s.usuarios.OPERARIO, { cicloId, golpesFin: 1400, descartePiezas: 0, rebarbaKg: 1.5 });
     expect(r.error).toBeUndefined();
     // 400 piezas producidas, 10 descartadas en el primer turno (se guardan 6,1 kg) → 390 a stock.
+    // El primer turno (250 − 10 = 240 buenas) ya cerró 9 cajas de 25 = 225 piezas. Al terminar, el último
+    // turno cierra 6 cajas completas (150) y la producción la última caja incompleta (15).
     expect(r.piezasAStock).toBe(390);
-    expect(await stockProd(s.productos.rejNegro.id)).toBe(stockAntes + 390);
+    const entradas = await db().select().from(schema.movimiento).where(and(eq(schema.movimiento.origen, "CICLO"), eq(schema.movimiento.origenId, cicloId)));
+    expect(entradas.map((m) => Number(m.cantidad))).toEqual([225, 150, 15]);
+    expect(await stockProd(s.productos.rejNegro.id)).toBe(stockAntes + 165);
+    const cajas = await db().select().from(schema.caja).where(eq(schema.caja.cicloId, cicloId));
+    expect(cajas.filter((c) => c.turnoId != null)).toHaveLength(15);
+    expect(cajas.map((c) => c.cantidad).reduce((t, n) => t + n, 0)).toBe(390);
+    expect(cajas.at(-1)!.cantidad).toBe(15); // la última, incompleta, con su cantidad real
     expect(await saldoMp(s.materiaPrima.copo2240.id, ubic.proceso)).toBe(0);
     expect(await saldoMp(masterId, ubic.proceso)).toBe(0);
     const consumo = await db().select().from(schema.movimiento).where(and(eq(schema.movimiento.origen, "CONSUMO"), eq(schema.movimiento.origenId, cicloId)));
