@@ -20,6 +20,7 @@ import { actualizarTanda, cancelarTanda, crearTanda, dividirTanda, listarTandas,
 import { guardarReceta, listarPresentaciones } from "@/lib/data/recetas";
 import { actualizarCompra, calcularNecesidad, comprasSolicitadas, pendientePorMp, solicitarCompra } from "@/lib/data/compras";
 import { listarAvisos } from "@/lib/data/avisos";
+import { crearPedido, editarLineasPedido } from "@/lib/data/pedidos";
 import { hoyISO } from "@/lib/format";
 import { yaPaso } from "@/lib/turnos";
 import { PATRONES, anchosCode128, valoresCode128B } from "@/lib/code128";
@@ -142,5 +143,36 @@ describe("código de barras de la etiqueta (Code 128)", () => {
     expect(v[0]).toBe(104);
     expect(v.at(-1)).toBe(106);
     expect(anchosCode128("001B-6000172-00022").reduce((t, n) => t + n, 0)).toBe(11 * (v.length - 1) + 13);
+  });
+});
+
+describe("editar los productos de un pedido", () => {
+  it("se agrega un color, se cambia y se quita una cantidad; ajusta reservas y tandas y avisa a Administración y al Encargado", async () => {
+    const r = await crearPedido({
+      clienteId: s.cliente.id, fechaPedido: hoy, fechaEntregaPactada: null, numeroOrden: "E-1", contacto: null, domicilioEntrega: null, modoEntrega: null,
+      requiereColocacion: false, metodoPago: null, total: null, senia: null, numeroComprobante: null, observaciones: null, usuarioId: s.usuarios.ADMINISTRACION.id,
+      lineas: [{ productoId: s.productos.rejNegro.id, unidadesPedidas: 100, colorTexto: null }],
+    });
+    if (!("id" in r)) throw new Error(r.error);
+    const [linea] = await db().select().from(schema.pedidoLinea).where(eq(schema.pedidoLinea.pedidoId, r.id));
+    // Planificada en una tanda.
+    const t = await crearTanda(s.usuarios.ENCARGADO, { productoId: s.productos.rejNegro.id, lineas: [{ pedidoLineaId: linea.id, cantidad: 100 }] });
+    expect((await editarLineasPedido(s.usuarios.OPERARIO, r.id, [{ lineaId: linea.id, unidades: 60 }])).error).toMatch(/permiso/);
+    expect((await editarLineasPedido(s.usuarios.ADMINISTRACION, r.id, [{ lineaId: linea.id, unidades: 60 }, { productoId: s.productos.rejBlanco.id, unidades: 30 }], "El cliente sumó blanco")).error).toBeUndefined();
+    const lineas = await db().select().from(schema.pedidoLinea).where(eq(schema.pedidoLinea.pedidoId, r.id));
+    expect(lineas.map((l) => l.unidadesPedidas).sort((a, b) => a - b)).toEqual([30, 60]);
+    const [res] = await db().select().from(schema.reserva).where(and(eq(schema.reserva.pedidoLineaId, linea.id), eq(schema.reserva.estado, "ABIERTA")));
+    expect(Number(res.cantidad)).toBe(60);
+    const [td] = await db().select().from(schema.tanda).where(eq(schema.tanda.id, t.id!));
+    expect(td.cantidadPedidos).toBe(60);
+    expect((await listarAvisos("ADMINISTRACION")).some((a) => a.tipo === "PEDIDO_MODIFICADO" && a.pedidoId === r.id)).toBe(true);
+    expect((await listarAvisos("ENCARGADO")).some((a) => a.tipo === "PEDIDO_MODIFICADO" && a.pedidoId === r.id)).toBe(true);
+    // Quitar el blanco.
+    const blanco = lineas.find((l) => l.productoId === s.productos.rejBlanco.id)!;
+    expect((await editarLineasPedido(s.usuarios.ADMINISTRACION, r.id, [{ lineaId: blanco.id, unidades: 0 }])).error).toBeUndefined();
+    expect(await db().select().from(schema.pedidoLinea).where(eq(schema.pedidoLinea.pedidoId, r.id))).toHaveLength(1);
+    // Con algo entregado ya no se cambia.
+    await db().update(schema.pedidoLinea).set({ unidadesDespachadas: 10 }).where(eq(schema.pedidoLinea.id, linea.id));
+    expect((await editarLineasPedido(s.usuarios.ADMINISTRACION, r.id, [{ lineaId: linea.id, unidades: 80 }])).error).toMatch(/pedido nuevo/);
   });
 });

@@ -17,6 +17,9 @@ import {
   reserva,
   saldo,
   color,
+  deposito,
+  tanda,
+  tandaPedido,
 } from "@/lib/db/schema";
 import { claveColor, pareceMulticolor, resolverColorLibre } from "@/lib/catalogo-normalizacion";
 import { getDepositoNexaId } from "@/lib/data/depositos";
@@ -403,6 +406,105 @@ export async function crearPedido(input: NuevoPedidoInput): Promise<{ id: number
     }
     return { id: nuevo.id };
   });
+}
+
+export type CambioLineaPedido =
+  | { lineaId: number; unidades: number } // 0 = quitar el renglón
+  | { productoId: number; unidades: number }; // renglón nuevo
+
+/**
+ * Cambiar lo que pidió el cliente (reunión 10/11/2026): agregar un color,
+ * cambiar cantidades o quitar un renglón, mientras el pedido no tenga nada
+ * entregado (hasta «listo para despachar»). Lo ya entregado va como un pedido
+ * nuevo. La cantidad no puede bajar de lo ya armado. Las reservas y lo
+ * planificado en tandas se ajustan solos, y le llega el aviso a Administración
+ * (para revisarlo antes del despacho) y al Encargado (por si cambia la
+ * planificación).
+ */
+export async function editarLineasPedido(actor: Actor, pedidoId: number, cambios: CambioLineaPedido[], motivo?: string | null): Promise<Resultado> {
+  if (!puedeCrearPedido(actor.rol)) return { error: "No tenés permiso para modificar pedidos." };
+  if (cambios.length === 0) return { error: "No hay cambios." };
+  if (cambios.some((c) => !Number.isInteger(c.unidades) || c.unidades < 0)) return { error: "Las cantidades van en unidades enteras." };
+  const { crearAviso } = await import("@/lib/data/avisos");
+  const { recalcularEstadoPedido } = await import("@/lib/data/despachos");
+  return db.transaction(async (tx) => {
+    const [p] = await tx.select().from(pedido).where(eq(pedido.id, pedidoId)).for("update");
+    if (!p) return { error: "Pedido no encontrado." };
+    if (p.estado === "CANCELADO" || p.estado === "ENTREGADO") return { error: "El pedido está cerrado." };
+    const lineas = await tx.select().from(pedidoLinea).where(eq(pedidoLinea.pedidoId, pedidoId));
+    if (p.estado === "PARCIALMENTE_DESPACHADO" || lineas.some((l) => l.unidadesDespachadas > 0)) {
+      return { error: "El pedido ya tiene entregas: lo que agregue el cliente va como un pedido nuevo." };
+    }
+    const [dep] = await tx.select({ id: deposito.id }).from(deposito).where(eq(deposito.nombre, "NEXA"));
+    const detalle: string[] = [];
+    for (const c of cambios) {
+      if ("lineaId" in c) {
+        const l = lineas.find((x) => x.id === c.lineaId);
+        if (!l) return { error: "Uno de los renglones no es de este pedido." };
+        if (c.unidades === l.unidadesPedidas) continue;
+        const nombre = await nombreProducto(tx, l.productoId);
+        if (c.unidades < l.unidadesArmadas) return { error: `${nombre}: ya hay ${l.unidadesArmadas} armadas; la cantidad no puede quedar por debajo.` };
+        if (c.unidades === 0) {
+          const usado = await tx.select({ id: piqueo.id }).from(piqueo).where(eq(piqueo.pedidoLineaId, l.id)).limit(1);
+          if (usado.length) return { error: `${nombre}: ya tiene lecturas de despacho; no se puede quitar.` };
+          if (lineas.filter((x) => x.unidadesPedidas > 0).length <= 1 && !cambios.some((o) => "productoId" in o && o.unidades > 0)) {
+            return { error: "El pedido quedaría sin productos: cancelalo en lugar de quitarle todo." };
+          }
+        }
+        await tx.update(pedidoLinea).set({ unidadesPedidas: c.unidades }).where(eq(pedidoLinea.id, l.id));
+        // Reserva: lo que queda pedido.
+        const [r] = await tx.select().from(reserva).where(and(eq(reserva.pedidoLineaId, l.id), eq(reserva.estado, "ABIERTA")));
+        if (r) await tx.update(reserva).set(c.unidades > 0 ? { cantidad: String(c.unidades) } : { cantidad: "0", estado: "LIBERADA", cerradoEn: new Date() }).where(eq(reserva.id, r.id));
+        else if (c.unidades > 0 && l.productoId != null) await tx.insert(reserva).values({ depositoId: dep.id, productoId: l.productoId, pedidoLineaId: l.id, cantidad: String(c.unidades) });
+        // Lo planificado en tandas no puede pasar de lo pedido.
+        await recortarTandas(tx, l.id, c.unidades);
+        if (c.unidades === 0) {
+          await tx.delete(tandaPedido).where(eq(tandaPedido.pedidoLineaId, l.id));
+          await tx.delete(reserva).where(eq(reserva.pedidoLineaId, l.id));
+          await tx.delete(pedidoLinea).where(eq(pedidoLinea.id, l.id));
+          detalle.push(`${nombre}: quitado (eran ${l.unidadesPedidas})`);
+        } else detalle.push(`${nombre}: ${l.unidadesPedidas} → ${c.unidades}`);
+      } else {
+        if (c.unidades <= 0) continue;
+        const [prod] = await tx.select({ id: producto.id, codigo: producto.codigo, activo: producto.activo }).from(producto).where(eq(producto.id, c.productoId));
+        if (!prod?.activo) return { error: "Producto no encontrado." };
+        if (lineas.some((l) => l.productoId === prod.id)) return { error: `${prod.codigo} ya está en el pedido: cambiá su cantidad.` };
+        const [nueva] = await tx.insert(pedidoLinea).values({ pedidoId, productoId: prod.id, unidadesPedidas: c.unidades }).returning({ id: pedidoLinea.id });
+        await tx.insert(reserva).values({ depositoId: dep.id, productoId: prod.id, pedidoLineaId: nueva.id, cantidad: String(c.unidades) });
+        detalle.push(`${prod.codigo}: agregado (${c.unidades})`);
+      }
+    }
+    if (detalle.length === 0) return { error: "No hay cambios." };
+    await registrarCambios(tx, actor.id, [{ entidad: "pedido", entidadId: pedidoId, campo: "productos", anterior: null, nuevo: detalle.join(" · "), motivo: motivo?.trim() || null }]);
+    const mensaje = `Pedido #${pedidoId}${p.numeroOrden ? ` (N° ${p.numeroOrden})` : ""} modificado: ${detalle.join(" · ")}.`;
+    await crearAviso(tx, { tipo: "PEDIDO_MODIFICADO", destinoRol: "ADMINISTRACION", mensaje: `${mensaje} Revisalo antes del despacho.`, pedidoId, creadoPorId: actor.id });
+    await crearAviso(tx, { tipo: "PEDIDO_MODIFICADO", destinoRol: "ENCARGADO", mensaje: `${mensaje} Revisá si cambia la planificación.`, pedidoId, creadoPorId: actor.id });
+    await recalcularEstadoPedido(tx, pedidoId);
+    return {};
+  });
+}
+
+type TxPedidos = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function nombreProducto(tx: TxPedidos, productoId: number | null): Promise<string> {
+  if (productoId == null) return "Renglón sin producto";
+  const [p] = await tx.select({ codigo: producto.codigo }).from(producto).where(eq(producto.id, productoId));
+  return p?.codigo ?? "Producto";
+}
+
+/** Si un renglón baja, lo planificado en tandas para él baja hasta lo pedido
+ *  (empezando por las tandas más nuevas). */
+async function recortarTandas(tx: TxPedidos, lineaId: number, unidades: number) {
+  const filas = await tx.select().from(tandaPedido).where(eq(tandaPedido.pedidoLineaId, lineaId)).orderBy(desc(tandaPedido.id));
+  let sobra = filas.reduce((t, f) => t + f.cantidad, 0) - unidades;
+  for (const f of filas) {
+    if (sobra <= 0) break;
+    const baja = Math.min(sobra, f.cantidad);
+    sobra -= baja;
+    if (baja === f.cantidad) await tx.delete(tandaPedido).where(eq(tandaPedido.id, f.id));
+    else await tx.update(tandaPedido).set({ cantidad: f.cantidad - baja }).where(eq(tandaPedido.id, f.id));
+    await tx.update(tanda).set({ cantidadPedidos: sql`${tanda.cantidadPedidos} - ${baja}` }).where(eq(tanda.id, f.tandaId));
+  }
 }
 
 /**

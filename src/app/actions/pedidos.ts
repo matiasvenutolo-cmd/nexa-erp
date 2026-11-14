@@ -9,6 +9,8 @@ import {
   cambiarPrioridad,
   asignarProductoALinea,
   archivarPedido,
+  editarLineasPedido,
+  type CambioLineaPedido,
 } from "@/lib/data/pedidos";
 import { resolverClienteDelPedido } from "@/lib/data/clientes";
 import { crearProductoNuevo } from "@/lib/data/catalogo";
@@ -226,3 +228,22 @@ export async function archivarPedidoAction(_p: { error?: string; ok?: string }, 
   revalidatePath("/produccion");
   return { ok: desarchivar ? "El pedido vuelve a las vistas operativas." : "Pedido archivado: ya no aparece en las vistas operativas (se puede desarchivar)." };
 }
+
+/** Cambios en los productos del pedido (agregar, cambiar cantidad, quitar). */
+export async function editarLineasPedidoAction(_p: { error?: string; ok?: string }, fd: FormData): Promise<{ error?: string; ok?: string }> {
+  const u = await getUsuarioActual();
+  const pedidoId = Number(fd.get("pedidoId"));
+  let cambios: CambioLineaPedido[] = [];
+  try {
+    cambios = JSON.parse(String(fd.get("cambios") ?? "[]"));
+  } catch {
+    return { error: "No se pudieron leer los cambios." };
+  }
+  const r = await editarLineasPedido(u, pedidoId, cambios, String(fd.get("motivo") ?? "").trim() || null);
+  if (r.error) return { error: r.error };
+  revalidatePath(`/pedidos/${pedidoId}`);
+  revalidatePath("/pedidos");
+  revalidatePath("/produccion");
+  return { ok: "Productos actualizados: Administración y el Encargado recibieron el aviso." };
+}
+
