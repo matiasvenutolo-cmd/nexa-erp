@@ -62,18 +62,52 @@ export function parseCantidadAR(texto: string): number | null {
 }
 
 /**
- * Kilos expresados en bolsas: primero la presentación más grande que lo
- * expresa exacto en medias bolsas (1,2 kg de master = 2 bolsitas de 600 g, no
- * 1½ de 750 g + resto); si ninguna es exacta, la más grande que entra entera,
- * con el resto aparte. Null si no entra ni una.
+ * Kilos expresados en bolsas: la combinación de hasta dos presentaciones que
+ * da exacto con menos bolsas (0,675 kg = bolsita de 375 g + bolsita de 300 g;
+ * 35 kg = bolsa de 25 kg + medida de 10 kg); una sola presentación si la
+ * combinación no ahorra más de una bolsa (4,8 kg = 8 bolsitas de 600 g). Media
+ * bolsa sólo en las de 1 kg o más. Si nada da exacto, la más grande que entra
+ * entera y el resto en peso.
+ * Null si no entra ni una.
  */
 export function enBolsas(kg: number, pres: { nombre: string; kg: number }[]): string | null {
   const g = aGramos(kg);
-  const orden = [...pres].sort((a, b) => b.kg - a.kg).filter((x) => kg + 1e-6 >= x.kg);
-  if (!orden.length) return null;
-  const p = orden.find((x) => (g * 2) % aGramos(x.kg) === 0) ?? orden[0];
-  const cant = Math.floor((g * 2) / aGramos(p.kg)) / 2;
-  const resto = g - aGramos(kgDe(cant, p.kg));
+  if (g <= 0 || pres.length === 0) return null;
+  // Unidad mínima de cada presentación: media bolsa en las bolsas de 1 kg o
+  // más (se usa media bolsa de 25 kg); las bolsitas de master, enteras.
+  const ps = [...pres].sort((a, b) => b.kg - a.kg).map((p) => ({ ...p, g: aGramos(p.kg), paso: p.kg >= 1 ? aGramos(p.kg) / 2 : aGramos(p.kg) }));
+  // Hasta dos presentaciones que den exacto, con la menor cantidad de bolsas
+  // (reunión 10/11/2026: 0,675 kg = bolsita de 375 g + bolsita de 300 g).
+  type Opcion = { partes: { p: (typeof ps)[number]; cant: number }[]; bolsas: number };
+  let mejor: Opcion | null = null;
+  // Una sola presentación se lee mejor: dos se combinan sólo si ahorran más de una bolsa.
+  const puntaje = (o: Opcion) => o.bolsas + (o.partes.length - 1);
+  const probar = (o: Opcion) => {
+    if (!mejor || puntaje(o) < puntaje(mejor) || (puntaje(o) === puntaje(mejor) && o.partes.length < mejor.partes.length)) mejor = o;
+  };
+  const bolsas = (cant: number) => Math.ceil(cant);
+  for (const p1 of ps) {
+    for (let n1 = 1; n1 * p1.paso <= g && n1 <= 200; n1++) {
+      const resto = g - n1 * p1.paso;
+      const c1 = (n1 * p1.paso) / p1.g;
+      if (resto === 0) {
+        probar({ partes: [{ p: p1, cant: c1 }], bolsas: bolsas(c1) });
+        continue;
+      }
+      for (const p2 of ps) {
+        if (p2 === p1 || resto % p2.paso !== 0) continue;
+        const c2 = resto / p2.g;
+        probar({ partes: [{ p: p1, cant: c1 }, { p: p2, cant: c2 }], bolsas: bolsas(c1) + bolsas(c2) });
+      }
+    }
+  }
+  const m = mejor as Opcion | null;
+  if (m) return m.partes.sort((a, b) => b.p.kg - a.p.kg).map((x) => fmtPresentacion(x.cant, x.p.nombre)).join(" + ");
+  // Sin combinación exacta: bolsas enteras de la más grande que entre y el resto en peso.
+  const p = ps.find((x) => x.g <= g);
+  if (!p) return null;
+  const cant = Math.floor(g / p.g);
+  const resto = g - cant * p.g;
   const fmtResto = resto >= 1000 ? `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(resto / 1000)} kg` : `${resto} g`;
   return `${fmtPresentacion(cant, p.nombre)}${resto > 0 ? ` + ${fmtResto}` : ""}`;
 }

@@ -24,6 +24,7 @@ import { crearPedido, editarLineasPedido } from "@/lib/data/pedidos";
 import { hoyISO } from "@/lib/format";
 import { yaPaso } from "@/lib/turnos";
 import { PATRONES, anchosCode128, valoresCode128B } from "@/lib/code128";
+import { enBolsas } from "@/lib/presentaciones";
 
 let s: Semilla;
 const db = () => holder.db!;
@@ -174,5 +175,19 @@ describe("editar los productos de un pedido", () => {
     // Con algo entregado ya no se cambia.
     await db().update(schema.pedidoLinea).set({ unidadesDespachadas: 10 }).where(eq(schema.pedidoLinea.id, linea.id));
     expect((await editarLineasPedido(s.usuarios.ADMINISTRACION, r.id, [{ lineaId: linea.id, unidades: 80 }])).error).toMatch(/pedido nuevo/);
+  });
+});
+
+describe("bolsas y kg en la carga", () => {
+  const master = [150, 300, 375, 600, 750, 900].map((g) => ({ nombre: `Bolsita ${g} g`, kg: g / 1000 }));
+  const virgen = [{ nombre: "Bolsa 25 kg", kg: 25 }, { nombre: "Medida 10 kg", kg: 10 }];
+  it("combina hasta dos presentaciones con la menor cantidad de bolsas", () => {
+    expect(enBolsas(0.675, master)).toBe("1 bolsita de 375 g + 1 bolsita de 300 g"); // arranque de rejilla negro
+    expect(enBolsas(1.65, master)).toBe("1 bolsita de 900 g + 1 bolsita de 750 g"); // arranque de ciego negro
+    expect(enBolsas(0.6, master)).toBe("1 bolsita de 600 g");
+    expect(enBolsas(1.2, master)).toBe("2 bolsitas de 600 g");
+    expect(enBolsas(35, virgen)).toBe("1 bolsa de 25 kg + 1 medida de 10 kg");
+    expect(enBolsas(12.5, virgen)).toBe("½ bolsa de 25 kg");
+    expect(enBolsas(26, virgen)).toBe("1 bolsa de 25 kg + 1 kg");
   });
 });

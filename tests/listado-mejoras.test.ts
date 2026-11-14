@@ -323,7 +323,8 @@ describe("Stock a pie de máquina en bolsas", () => {
     expect(enBolsas(50, [{ nombre: "Bolsa 25 kg", kg: 25 }])).toBe("2 bolsas de 25 kg");
   });
   it("si ninguna es exacta, muestra el resto en gramos", () => {
-    expect(enBolsas(1.3, master)).toBe("1½ bolsitas de 750 g + 175 g");
+    // Las bolsitas de master no se usan por la mitad (reunión 10/11/2026).
+    expect(enBolsas(1.3, master)).toBe("1 bolsita de 750 g + 550 g");
     expect(enBolsas(0.1, master)).toBeNull();
   });
 });
