@@ -15,6 +15,7 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { partidaNexaSql } from "@/lib/data/partida-sql";
 import { db } from "@/lib/db/client";
+import { alias } from "drizzle-orm/pg-core";
 import {
   cicloProduccion,
   color,
@@ -699,10 +700,26 @@ export async function turnoAbiertoDe(cicloId: number) {
 }
 
 /** Turnos y novedades recientes (para el Encargado y Materia prima). */
+/**
+ * «Revisado / OK» del Encargado (reunión 10/11/2026): vio que estén las cajas
+ * del turno, sin escanearlas. No cambia el stock; queda quién y cuándo.
+ */
+export async function revisarTurno(actor: Actor, turnoId: number): Promise<Resultado> {
+  if (!puedeCancelarProduccion(actor.rol)) return { error: "La revisión del turno la hace el Encargado o Supervisión." };
+  const [t] = await db.select().from(turnoProduccion).where(eq(turnoProduccion.id, turnoId));
+  if (!t) return { error: "Turno no encontrado." };
+  if (t.estado !== "CERRADO") return { error: "El turno todavía está abierto." };
+  if (t.revisadoEn) return {};
+  await db.update(turnoProduccion).set({ revisadoPorId: actor.id, revisadoEn: new Date() }).where(eq(turnoProduccion.id, turnoId));
+  return {};
+}
+
 export async function relevosRecientes(limite = 30) {
+  const revisor = alias(usuario, "revisor");
   const turnos = await db
-    .select({ t: turnoProduccion, usuarioNombre: usuario.nombre, productoCodigo: producto.codigo })
+    .select({ t: turnoProduccion, usuarioNombre: usuario.nombre, productoCodigo: producto.codigo, revisadoPorNombre: revisor.nombre })
     .from(turnoProduccion)
+    .leftJoin(revisor, eq(turnoProduccion.revisadoPorId, revisor.id))
     .innerJoin(usuario, eq(turnoProduccion.operarioId, usuario.id))
     .innerJoin(cicloProduccion, eq(turnoProduccion.cicloId, cicloProduccion.id))
     .leftJoin(producto, eq(cicloProduccion.productoId, producto.id))

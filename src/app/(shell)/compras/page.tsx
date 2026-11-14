@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeGestionarCompras, puedeIngresarMateriaPrima, puedeVerCompras } from "@/lib/auth/permisos";
-import { calcularNecesidad, ESTADO_COMPRA_LABEL, ESTADOS_COMPRA, listarCompras, type FilaCompra } from "@/lib/data/compras";
+import { calcularNecesidad, comprasSolicitadas, ESTADO_COMPRA_LABEL, ESTADOS_COMPRA, listarCompras, type FilaCompra } from "@/lib/data/compras";
 import { listarAuditoria } from "@/lib/data/auditoria";
 import { materiasPrimasActivas } from "@/lib/data/materia-prima";
 import { FormAccion } from "@/components/form-accion";
@@ -17,6 +17,7 @@ const VISTAS = [
 ] as const;
 
 const BADGE: Record<FilaCompra["estado"], string> = {
+  SOLICITADA: "badge-naranja",
   PEDIDO: "badge-info",
   COMPRADO: "badge-info",
   PARCIAL: "badge-bajo",
@@ -38,7 +39,7 @@ export default async function ComprasPage({ searchParams }: { searchParams: Prom
   const vista = VISTAS.some((v) => v.id === sp.vista) ? (sp.vista as (typeof VISTAS)[number]["id"]) : "necesidad";
   const gestiona = puedeGestionarCompras(usuario.rol);
   const ingresa = puedeIngresarMateriaPrima(usuario.rol);
-  const [abiertas, materias] = await Promise.all([listarCompras({ abiertas: true }), materiasPrimasActivas()]);
+  const [abiertas, materias, solicitadas] = await Promise.all([listarCompras({ abiertas: true }), materiasPrimasActivas(), comprasSolicitadas()]);
   const problemas = abiertas.filter((c) => c.estado === "DEMORA" || c.estado === "FALTANTE" || c.atrasada);
 
   return (
@@ -59,6 +60,30 @@ export default async function ComprasPage({ searchParams }: { searchParams: Prom
           </div>
         </div>
       </div>
+
+      {solicitadas.length > 0 && (
+        <section className="panel mb-5 space-y-3 border-[var(--estado-bajo-fg)]">
+          <h2 className="panel-titulo">Pedidos de Materia prima</h2>
+          {solicitadas.map((c) => (
+            <div key={c.id} className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
+              <div className="text-sm">
+                <b>{c.materiaPrimaNombre}</b> · {fmtPeso(c.cantidadKg)} · pedido el {fmtFecha(c.fechaPedido)} por {c.creadoPorNombre}
+                {c.observaciones && <div className="text-foreground-muted">{c.observaciones}</div>}
+              </div>
+              {gestiona && (
+                <div className="flex flex-wrap gap-2">
+                  <FormAccion accion={actualizarCompraAction} ocultos={{ id: c.id, estado: "PEDIDO" }} boton="Activar la compra" claseBoton="btn btn-primary btn-sm" className="flex flex-wrap items-end gap-2">
+                    <input name="proveedor" placeholder="Proveedor (opcional)" className="input w-44" />
+                  </FormAccion>
+                  <FormAccion accion={actualizarCompraAction} ocultos={{ id: c.id, estado: "CANCELADA" }} boton="Descartar" claseBoton="btn btn-outline btn-sm" className="flex flex-wrap items-end gap-2">
+                    <input name="motivo" required placeholder="Motivo" className="input w-40" />
+                  </FormAccion>
+                </div>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
 
       <nav className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
         {VISTAS.map((v) => (
@@ -252,15 +277,29 @@ function Historial({ filas }: { filas: Awaited<ReturnType<typeof listarAuditoria
   );
 }
 
+/** Lo que falta comprar para un destino, con lo que ese destino pide abajo. */
+function CeldaNecesidad({ falta, pide, fuerte }: { falta: number; pide: number; fuerte?: boolean }) {
+  if (!pide) return <td className="text-right text-foreground-muted">—</td>;
+  return (
+    <td className="text-right">
+      <div className={falta > 0 ? `font-bold ${fuerte ? "text-[var(--estado-critico-fg)]" : "text-[var(--estado-bajo-fg)]"}` : "font-semibold text-[var(--estado-ok-fg)]"}>
+        {falta > 0 ? `Faltan ${fmtPeso(falta)}` : "Cubierto"}
+      </div>
+      <div className="text-[11px] text-foreground-muted">pide {fmtPeso(pide)}</div>
+    </td>
+  );
+}
+
 async function Necesidad() {
   const n = await calcularNecesidad();
   const conNecesidad = n.filas.filter((f) => f.necesidadKg > 0 || f.proyectadaKg > 0);
   return (
     <section className="space-y-4">
       <div className="aviso aviso-info text-sm">
-        <b>Cómo se calcula:</b> material para los pedidos a producir (planificados y por planificar) + material para reponer el stock de pisos que
-        está bajo el mínimo + mínimo de la propia materia prima − stock disponible (depósito y pie de máquina) = <b>necesidad</b>. Restando lo ya
-        comprado y pendiente de entrega queda la <b>necesidad proyectada</b>. Las piezas se convierten a kilos con la receta y el peso por pieza.
+        <b>Cómo se calcula:</b> el material que piden los pedidos a producir, el que hace falta para reponer los pisos bajo el mínimo y el mínimo de la
+        propia materia prima se cubren, en ese orden, con lo disponible (depósito y pie de máquina) y lo ya comprado pendiente de entrega. Lo que
+        queda sin cubrir se muestra separado: <b>para pedidos</b> se compra sí o sí; <b>para stock mínimo de pisos</b> y <b>de materia prima</b> se
+        consulta antes con Brian y contabilidad. Las piezas se convierten a kilos con la receta y el peso por pieza.
       </div>
       {n.avisos.map((a) => (
         <p key={a} className="aviso aviso-alerta text-sm">
@@ -272,13 +311,11 @@ async function Necesidad() {
           <thead>
             <tr>
               <th>Material</th>
-              <th className="text-right">Pedidos</th>
-              <th className="text-right">Stock de pisos bajo mínimo</th>
-              <th className="text-right">Mínimo de MP</th>
               <th className="text-right">Disponible</th>
-              <th className="text-right">Necesidad</th>
               <th className="text-right">Comprado pendiente</th>
-              <th className="text-right">Proyectada</th>
+              <th className="text-right">Para pedidos (se compra sí o sí)</th>
+              <th className="text-right">Para stock mínimo de pisos</th>
+              <th className="text-right">Para stock mínimo de MP</th>
             </tr>
           </thead>
           <tbody>
@@ -302,21 +339,17 @@ async function Necesidad() {
                       </div>
                     )}
                   </td>
-                  <td className="text-right">{f.pedidosKg ? fmtPeso(f.pedidosKg, g) : "—"}</td>
-                  <td className="text-right">{f.stockProductoKg ? fmtPeso(f.stockProductoKg, g) : "—"}</td>
-                  <td className="text-right">{f.objetivoMpKg ? fmtPeso(f.objetivoMpKg, g) : "—"}</td>
                   <td className="text-right">{fmtPeso(f.disponibleKg, g)}</td>
-                  <td className={`text-right font-semibold ${f.necesidadKg > 0 ? "text-[var(--estado-bajo-fg)]" : ""}`}>{f.necesidadKg ? fmtPeso(f.necesidadKg, g) : "—"}</td>
                   <td className="text-right">{f.compradoPendienteKg ? fmtPeso(f.compradoPendienteKg, g) : "—"}</td>
-                  <td className={`text-right font-bold ${f.proyectadaKg > 0 ? "text-[var(--estado-critico-fg)]" : "text-[var(--estado-ok-fg)]"}`}>
-                    {f.proyectadaKg > 0 ? fmtPeso(f.proyectadaKg, g) : "cubierto"}
-                  </td>
+                  <CeldaNecesidad falta={f.paraPedidosKg} pide={f.pedidosKg} fuerte />
+                  <CeldaNecesidad falta={f.paraStockPisosKg} pide={f.stockProductoKg} />
+                  <CeldaNecesidad falta={f.paraMinimoMpKg} pide={f.objetivoMpKg} />
                 </tr>
               );
             })}
             {n.filas.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-foreground-muted">
+                <td colSpan={6} className="text-foreground-muted">
                   No hay demanda ni mínimos cargados que generen necesidad.
                 </td>
               </tr>

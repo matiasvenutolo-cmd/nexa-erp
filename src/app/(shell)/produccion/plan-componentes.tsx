@@ -5,6 +5,7 @@ import {
   actualizarTandaAction,
   cancelarTandaAction,
   crearTandaAction,
+  dividirTandaAction,
   postergarTandaAction,
   quitarPedidosAction,
 } from "@/app/actions/planificacion";
@@ -102,12 +103,16 @@ export function TarjetaTanda({ t, posicion, puedePlanificar }: { t: TandaVista; 
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-5">
+      <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-6">
         <Dato label="Cantidad objetivo" valor={`${fmtNumero(t.objetivo, 0)} u.`} fuerte />
         <Dato label="Para pedidos / para stock" valor={`${fmtNumero(t.cantidadPedidos, 0)} / ${fmtNumero(t.cantidadStock, 0)}`} />
         <Dato label="Máquina y turno" valor={t.inyectora ? `Iny. ${t.inyectora} · ${etiquetaTurno(t.turno)}` : "Sin asignar"} />
         <Dato label="Fecha" valor={t.fecha ? fmtFecha(t.fecha) : "—"} />
         <Dato label={t.estado === "EN_CURSO" ? "Producido" : "Cargas de receta"} valor={t.estado === "EN_CURSO" ? `${fmtNumero(t.producido, 0)} de ${fmtNumero(t.objetivo, 0)}` : (t.cargas ?? "—")} />
+        <Dato
+          label="Duración estimada"
+          valor={t.duracionHoras != null ? `≈ ${fmtNumero(t.duracionHoras, 1)} h${t.conSetup ? " (con set-up)" : ""}` : "Sin tiempos"}
+        />
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -207,6 +212,18 @@ export function TarjetaTanda({ t, posicion, puedePlanificar }: { t: TandaVista; 
               <label className="campo w-full">
                 <span>Indicaciones para el operario (opcional)</span>
                 <input name="observaciones" defaultValue={t.observaciones ?? ""} className="input" />
+              </label>
+            </FormAccion>
+          </details>
+        )}
+        {editable && t.estado === "PLANIFICADA" && t.objetivo > 1 && (
+          <details className="w-full sm:w-auto">
+            <summary className="btn btn-ghost btn-sm list-none">Dividir tanda</summary>
+            <FormAccion accion={dividirTandaAction} ocultos={{ id: t.id }} boton="Dividir" claseBoton="btn btn-outline btn-sm" className="mt-2 flex flex-wrap items-end gap-2">
+              <label className="campo w-56">
+                <span>Piezas que quedan en esta tanda</span>
+                <input name="piezas" type="number" min={1} max={t.objetivo - 1} required className="input" />
+                <span className="campo-ayuda">El resto pasa a otra tanda sin día, para ubicarla en otro turno.</span>
               </label>
             </FormAccion>
           </details>

@@ -43,7 +43,8 @@ import { recetasDe, type Receta } from "@/lib/data/recetas";
 import { INYECTORA_BALDOSAS, resolverInyectora } from "@/lib/inyectoras";
 import { obtenerRetirosMaquina } from "@/lib/data/maquina";
 import { hoyISO } from "@/lib/format";
-import { yaPaso } from "@/lib/turnos";
+import { HORAS_TURNO, yaPaso } from "@/lib/turnos";
+import { listarIntervenciones } from "@/lib/data/matrices";
 import { aGramos } from "@/lib/presentaciones";
 
 export type Turno = "MANANA" | "TARDE" | "NOCHE";
@@ -289,7 +290,74 @@ export type TandaVista = {
   material: MaterialRequerido[];
   avisos: string[];
   alerta: AlertaEntrega;
+  /** Piezas por hora y set-up del producto (Excel de Eduardo). */
+  piezasPorHora: number | null;
+  setupHoras: number | null;
+  /** Duración estimada de lo que falta: set-up (si la anterior en la máquina
+   *  es otro producto) + piezas ÷ piezas por hora. Null sin datos de tiempo. */
+  duracionHoras: number | null;
+  conSetup: boolean;
 };
+
+/** Producto de la última producción de cada máquina (lo que tiene puesto antes de la cola). */
+async function ultimoProductoPorMaquina(): Promise<Map<string, number>> {
+  const filas = await db
+    .select({ inyectora: cicloProduccion.inyectora, productoId: cicloProduccion.productoId })
+    .from(cicloProduccion)
+    .orderBy(desc(cicloProduccion.fechaInicio), desc(cicloProduccion.id))
+    .limit(50);
+  const res = new Map<string, number>();
+  for (const f of filas) {
+    const iny = f.inyectora.replace(/[^0-9]/g, "");
+    if (f.productoId != null && !res.has(iny)) res.set(iny, f.productoId);
+  }
+  return res;
+}
+
+const RANGO_TURNO: Record<string, number> = { MANANA: 0, TARDE: 1, NOCHE: 2 };
+/** Orden real de la cola: en producción, después día, turno y orden. */
+export function compararCola(a: Pick<TandaVista, "estado" | "fecha" | "turno" | "orden" | "id">, b: Pick<TandaVista, "estado" | "fecha" | "turno" | "orden" | "id">): number {
+  const curso = (x: typeof a) => (x.estado === "EN_CURSO" ? 0 : 1);
+  return (
+    curso(a) - curso(b) ||
+    (a.fecha ?? "9999").localeCompare(b.fecha ?? "9999") ||
+    (RANGO_TURNO[a.turno ?? ""] ?? 3) - (RANGO_TURNO[b.turno ?? ""] ?? 3) ||
+    a.orden - b.orden ||
+    a.id - b.id
+  );
+}
+
+/**
+ * Duración estimada de cada tanda activa, en el orden de la cola de su
+ * máquina (reunión 10/11/2026): el set-up (cambio de matriz, carga de tolva y
+ * cambio de color) se cuenta cuando la anterior en esa máquina es otro
+ * producto; lo que está en producción sólo suma lo que le falta.
+ */
+export function calcularDuraciones(vistas: TandaVista[], ultimoProducto: Map<string, number>) {
+  const anterior = new Map(ultimoProducto);
+  for (const v of [...vistas].sort(compararCola)) {
+    if (!v.inyectora || (v.estado !== "PLANIFICADA" && v.estado !== "EN_CURSO")) continue;
+    const resto = Math.max(0, v.objetivo - v.producido);
+    v.conSetup = v.estado !== "EN_CURSO" && anterior.get(v.inyectora) !== v.productoId;
+    v.duracionHoras = v.piezasPorHora ? Math.round(((v.conSetup ? (v.setupHoras ?? 0) : 0) + resto / v.piezasPorHora) * 100) / 100 : null;
+    anterior.set(v.inyectora, v.productoId);
+  }
+}
+
+/** Horas ocupadas en una casilla (día × turno × máquina): tandas + trabajos de
+ *  mantenimiento con duración (los cambios de matriz de la planificación ya
+ *  están en el set-up de la tanda). */
+export function horasEnCasilla(
+  vistas: Pick<TandaVista, "id" | "estado" | "fecha" | "turno" | "inyectora" | "duracionHoras">[],
+  trabajos: { fecha: string; turno: string | null; inyectora: string | null; duracionHoras: number | null; tandaId: number | null }[],
+  fecha: string,
+  turno: string,
+  inyectora: string,
+): number {
+  const tandas = vistas.filter((v) => (v.estado === "PLANIFICADA" || v.estado === "EN_CURSO") && v.fecha === fecha && v.turno === turno && v.inyectora === inyectora);
+  const mant = trabajos.filter((w) => w.tandaId == null && w.fecha === fecha && w.turno === turno && w.inyectora === inyectora);
+  return Math.round((tandas.reduce((t, v) => t + (v.duracionHoras ?? 0), 0) + mant.reduce((t, w) => t + (w.duracionHoras ?? 0), 0)) * 100) / 100;
+}
 
 /** Piezas producidas hasta ahora por la producción de cada tanda (turnos cerrados o cierre). */
 async function producidoPorCiclo(cicloIds: number[]): Promise<Map<number, number>> {
@@ -369,6 +437,8 @@ export async function listarTandas(opts: { incluirCerradas?: boolean; hoy?: stri
       kgPorUnidad: producto.kgPorUnidad,
       colorId: producto.colorId,
       colorNombre: color.nombre,
+      piezasPorHora: producto.piezasPorHora,
+      setupHoras: producto.setupHoras,
     })
     .from(tanda)
     .innerJoin(producto, eq(tanda.productoId, producto.id))
@@ -448,8 +518,13 @@ export async function listarTandas(opts: { incluirCerradas?: boolean; hoy?: stri
         : [],
       avisos: [],
       alerta: peorAlerta(pedidos.map((p) => p.alerta)),
+      piezasPorHora: f.piezasPorHora,
+      setupHoras: f.setupHoras != null ? Number(f.setupHoras) : null,
+      duracionHoras: null,
+      conSetup: false,
     };
   });
+  calcularDuraciones(vistas, await ultimoProductoPorMaquina());
 
   // Disponibilidad de material acumulada en el orden de la secuencia: las
   // primeras tandas consumen primero.
@@ -575,11 +650,39 @@ async function tandaEditable(id: number) {
   return { t } as const;
 }
 
+/**
+ * ¿Entra la tanda en ese turno? (reunión 10/11/2026: «no dejar cargar más de
+ * lo que entra en un turno»). Recalcula las duraciones con la tanda ya movida
+ * y suma la casilla. Si no entra, sugiere cuántas piezas dejar ahí.
+ */
+async function verificarCapacidad(id: number, destino: { fecha: string; turno: Turno; inyectora: string; cantidadStock: number }): Promise<(Resultado & { dividir?: number }) | null> {
+  const [vistas, ultimo, trabajos] = await Promise.all([
+    listarTandas(),
+    ultimoProductoPorMaquina(),
+    listarIntervenciones({ desde: destino.fecha, hasta: destino.fecha, estados: ["PROGRAMADA", "EN_CURSO"] }),
+  ]);
+  const v = vistas.find((x) => x.id === id);
+  if (!v) return null;
+  v.objetivo = v.cantidadPedidos + destino.cantidadStock;
+  Object.assign(v, { fecha: destino.fecha, turno: destino.turno, inyectora: destino.inyectora });
+  calcularDuraciones(vistas, ultimo);
+  if (v.duracionHoras == null) return null; // sin datos de tiempo no se puede controlar
+  const horas = horasEnCasilla(vistas, trabajos.map((w) => ({ ...w, fecha: w.fechaProgramada, duracionHoras: w.duracionHoras != null ? Number(w.duracionHoras) : null })), destino.fecha, destino.turno, destino.inyectora);
+  if (horas <= HORAS_TURNO + 1e-9) return null;
+  const libre = HORAS_TURNO - (horas - v.duracionHoras) - (v.conSetup ? (v.setupHoras ?? 0) : 0);
+  const piezas = v.piezasPorHora ? Math.floor(libre * v.piezasPorHora) : 0;
+  const fmt = (h: number) => new Intl.NumberFormat("es-AR", { maximumFractionDigits: 1 }).format(h);
+  return {
+    error: `No entra en el turno: con esta tanda serían ${fmt(horas)} h y el turno tiene ${HORAS_TURNO} h${piezas > 0 ? `. Entran ${piezas} piezas: podés dividir la tanda` : ". Pasala a otro turno"}.`,
+    dividir: piezas > 0 && piezas < v.objetivo - v.producido ? piezas : undefined,
+  };
+}
+
 export async function actualizarTanda(
   actor: Actor,
   id: number,
   input: { inyectora?: string | null; fecha?: string | null; turno?: Turno | null; cantidadStock?: number; usarArranque?: boolean; observaciones?: string | null },
-): Promise<Resultado> {
+): Promise<Resultado & { dividir?: number }> {
   if (!puedePlanificar(actor.rol)) return { error: "No tenés permiso para planificar la producción." };
   const r = await tandaEditable(id);
   if ("error" in r) return r;
@@ -611,6 +714,10 @@ export async function actualizarTanda(
     usarArranque: input.usarArranque ?? t.usarArranque,
     observaciones: input.observaciones !== undefined ? input.observaciones?.trim() || null : t.observaciones,
   };
+  if (nuevo.fecha && nuevo.turno && nuevo.inyectora && (nuevo.fecha !== t.fecha || nuevo.turno !== t.turno || nuevo.inyectora !== t.inyectora || nuevo.cantidadStock !== t.cantidadStock)) {
+    const cap = await verificarCapacidad(id, { fecha: nuevo.fecha, turno: nuevo.turno, inyectora: nuevo.inyectora, cantidadStock: nuevo.cantidadStock });
+    if (cap) return cap;
+  }
   await db.transaction(async (tx) => {
     await tx.update(tanda).set({ ...nuevo, actualizadoEn: new Date() }).where(eq(tanda.id, id));
     await registrarCambios(tx, actor.id, [
@@ -656,6 +763,59 @@ export async function moverTanda(actor: Actor, id: number, direccion: "arriba" |
   }).then(async (r) => {
     await sincronizarCambiosDeMatriz(actor.id, [yo.inyectora]);
     return r;
+  });
+}
+
+/**
+ * Divide una tanda para que entre en un turno: la original se queda con
+ * `piezas` (primero los pedidos más urgentes, después lo de stock) y el resto
+ * pasa a una tanda nueva del mismo producto y máquina, sin día, para ubicarla
+ * en otro turno.
+ */
+export async function dividirTanda(actor: Actor, id: number, piezas: number): Promise<Resultado & { nuevaId?: number }> {
+  if (!puedePlanificar(actor.rol)) return { error: "No tenés permiso para planificar la producción." };
+  const r = await tandaEditable(id);
+  if ("error" in r) return r;
+  const { t } = r;
+  if (t.estado !== "PLANIFICADA") return { error: "Sólo se divide una tanda en cola." };
+  const total = t.cantidadPedidos + t.cantidadStock;
+  if (!Number.isInteger(piezas) || piezas <= 0 || piezas >= total) return { error: `Indicá cuántas piezas quedan en esta tanda (entre 1 y ${total - 1}).` };
+  return db.transaction(async (tx) => {
+    const lineas = await tx
+      .select({ tp: tandaPedido })
+      .from(tandaPedido)
+      .innerJoin(pedido, eq(tandaPedido.pedidoId, pedido.id))
+      .where(eq(tandaPedido.tandaId, id))
+      .orderBy(asc(pedido.prioridad), asc(pedido.fechaEntregaPactada), asc(pedido.id), asc(tandaPedido.id));
+    let queda = piezas;
+    const mover: { pedidoId: number; pedidoLineaId: number; cantidad: number }[] = [];
+    for (const { tp } of lineas) {
+      const toma = Math.min(queda, tp.cantidad);
+      queda -= toma;
+      if (toma < tp.cantidad) mover.push({ pedidoId: tp.pedidoId, pedidoLineaId: tp.pedidoLineaId, cantidad: tp.cantidad - toma });
+      if (toma === 0) await tx.delete(tandaPedido).where(eq(tandaPedido.id, tp.id));
+      else if (toma < tp.cantidad) await tx.update(tandaPedido).set({ cantidad: toma }).where(eq(tandaPedido.id, tp.id));
+    }
+    const pedidosQuedan = piezas - queda;
+    const stockQueda = queda;
+    const [{ max }] = await tx.select({ max: sql<number>`coalesce(max(${tanda.orden}), 0)`.mapWith(Number) }).from(tanda);
+    const [nueva] = await tx
+      .insert(tanda)
+      .values({
+        productoId: t.productoId,
+        cantidadPedidos: t.cantidadPedidos - pedidosQuedan,
+        cantidadStock: t.cantidadStock - stockQueda,
+        orden: max + 1,
+        inyectora: t.inyectora,
+        usarArranque: false,
+        observaciones: t.observaciones,
+        creadoPorId: actor.id,
+      })
+      .returning({ id: tanda.id });
+    if (mover.length) await tx.insert(tandaPedido).values(mover.map((m) => ({ ...m, tandaId: nueva.id })));
+    await tx.update(tanda).set({ cantidadPedidos: pedidosQuedan, cantidadStock: stockQueda, actualizadoEn: new Date() }).where(eq(tanda.id, id));
+    await registrarCambios(tx, actor.id, [{ entidad: "tanda", entidadId: id, campo: "división", anterior: total, nuevo: `${piezas} quedan · ${total - piezas} pasan a la tanda ${nueva.id}`, motivo: "Para que entre en el turno" }]);
+    return { nuevaId: nueva.id };
   });
 }
 

@@ -46,9 +46,10 @@ export type SeccionNav = "Ventas" | "Fábrica" | "Administración";
 
 export type ItemNav = { href: string; label: string; seccion?: SeccionNav };
 
-/** Roles que reciben avisos: ventas (pedido listo), supervisión y gerencia
- *  (reclamos, errores informados para corregir). */
-export const ROLES_CON_AVISOS: readonly Rol[] = ["ADMINISTRACION", "SUPERVISOR", "GERENCIA"];
+/** Roles que reciben avisos: ventas (pedido listo o modificado), supervisión y
+ *  gerencia (reclamos, errores informados), el Encargado (pedido modificado) y
+ *  Compras (pedidos de Materia prima). */
+export const ROLES_CON_AVISOS: readonly Rol[] = ["ADMINISTRACION", "SUPERVISOR", "GERENCIA", "ENCARGADO", "COMPRAS"];
 
 /** Roles que trabajan en la planta y no necesitan el tablero ni los pedidos. */
 const SOLO_SU_PANTALLA: readonly Rol[] = ["OPERARIO", "MATERIA_PRIMA", "MATRICES", "MOLINO", "COMPRAS"];

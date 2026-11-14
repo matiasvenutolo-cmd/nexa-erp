@@ -28,6 +28,7 @@ export async function programarIntervencionAction(_p: EstadoAccion, fd: FormData
     turno: turno(fd),
     responsableId: Number(fd.get("responsableId")) || null,
     descripcion: txt(fd, "descripcion"),
+    duracionHoras: txt(fd, "duracionHoras") ? Number(String(fd.get("duracionHoras")).replace(",", ".")) : null,
   });
   if (r.error) return { error: r.error };
   revalidar();

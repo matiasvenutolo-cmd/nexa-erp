@@ -11,6 +11,8 @@ const TIPO_LABEL = {
   RECLAMO_NUEVO: "Reclamo nuevo",
   INFORME_RECLAMO: "Informe de reclamo",
   ERROR_INFORMADO: "Error informado para corregir",
+  PEDIDO_MODIFICADO: "Pedido modificado: revisarlo antes del despacho",
+  PEDIDO_MATERIA_PRIMA: "Pedido de materia prima a Compras",
 } as const;
 
 export default async function AvisosPage({ searchParams }: { searchParams: Promise<{ todos?: string }> }) {

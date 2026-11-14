@@ -16,6 +16,7 @@ import {
   puedeVerMateriaPrima, puedeRecibirMolienda } from "@/lib/auth/permisos";
 import { Semaforo } from "@/components/semaforo";
 import { FormAccion } from "@/components/form-accion";
+import { solicitarCompraAction } from "@/app/actions/compras";
 import { ajusteMpAction, altaMpAction, bolsonAction, descarteMpAction, fraccionarAction } from "@/app/actions/materia-prima";
 import { fmtDia, fmtFechaHora, fmtHora, fmtNumero, hoyISO } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
@@ -104,7 +105,7 @@ export default async function MateriaPrimaPage({
         ))}
       </nav>
 
-      {vista === "stock" && <Stock stock={stock} sp={sp} />}
+      {vista === "stock" && <Stock stock={stock} sp={sp} pide={puedeIngresarMateriaPrima(usuario.rol)} />}
       {vista === "movimientos" && <Movimientos stock={stock} sp={sp} />}
       {vista === "pie" && <Pie />}
       {vista === "operaciones" && <Ajustes stock={stock} ajusta={puedeAjustarMateriaPrima(usuario.rol)} alta={puedeAltaMateriaPrima(usuario.rol)} corrige={puedeCorregirProduccionMp(usuario.rol)} />}
@@ -114,7 +115,7 @@ export default async function MateriaPrimaPage({
 
 type Stock = Awaited<ReturnType<typeof stockMpPorUbicacion>>;
 
-async function Stock({ stock, sp }: { stock: Stock; sp: { tipo?: string; texto?: string; alertas?: string } }) {
+async function Stock({ stock, sp, pide }: { stock: Stock; sp: { tipo?: string; texto?: string; alertas?: string }; pide: boolean }) {
   const movs = await movimientosMp({ ubicacion: "deposito", limite: 15 });
   const tipo = TIPOS.some((t) => t.valor === sp.tipo) ? sp.tipo : undefined;
   const texto = sp.texto?.trim().toLowerCase();
@@ -174,9 +175,22 @@ async function Stock({ stock, sp }: { stock: Stock; sp: { tipo?: string; texto?:
                     <Semaforo estado={m.estado} />
                   </td>
                   <td className="text-right">
-                    <Link href={`/materia-prima/${m.id}`} className="btn btn-outline btn-sm">
-                      Lotes y certificados
-                    </Link>
+                    <div className="flex flex-wrap justify-end gap-1">
+                      <Link href={`/materia-prima/${m.id}`} className="btn btn-outline btn-sm">
+                        Lotes y certificados
+                      </Link>
+                      {pide && m.tipo !== "MOLIENDA" && m.tipo !== "SOBRANTE" && (
+                        <details className="relative">
+                          <summary className="btn btn-ghost btn-sm list-none">Pedir a Compras</summary>
+                          <div className="absolute right-0 z-10 mt-1 w-72 rounded-xl border border-border bg-white p-3 text-left shadow-lg">
+                            <FormAccion accion={solicitarCompraAction} ocultos={{ materiaPrimaId: m.id }} boton="Enviar pedido a Compras" claseBoton="btn btn-primary btn-sm" className="space-y-2">
+                              <input name="cantidadKg" required inputMode="decimal" placeholder="Kg (ej. 1.500)" className="input" />
+                              <input name="observaciones" placeholder="Aclaración (opcional)" className="input" />
+                            </FormAccion>
+                          </div>
+                        </details>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

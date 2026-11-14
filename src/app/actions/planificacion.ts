@@ -6,6 +6,7 @@ import {
   actualizarTanda,
   cancelarTanda,
   crearTanda,
+  dividirTanda,
   moverTanda,
   postergarTanda,
   quitarPedidosDeTanda,
@@ -151,11 +152,29 @@ export async function crearPresentacionAction(_p: EstadoAccion, fd: FormData): P
 
 /** Arrastrar y soltar en el calendario: guarda el día y el turno de la tanda. */
 /** Mover en el calendario: día, turno y, si se suelta en otra columna, la máquina. */
-export async function moverTandaCalendarioAction(id: number, fecha: string | null, turno: Turno | null, inyectora?: string): Promise<{ error?: string }> {
+export async function moverTandaCalendarioAction(id: number, fecha: string | null, turno: Turno | null, inyectora?: string): Promise<{ error?: string; dividir?: number }> {
   const u = await getUsuarioActual();
   if (fecha != null && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return { error: "Fecha inválida." };
   const r = await actualizarTanda(u, id, inyectora !== undefined ? { fecha, turno, inyectora } : { fecha, turno });
   if (r.error) return r;
   revalidar();
   return {};
+}
+
+export async function dividirTandaAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
+  const u = await getUsuarioActual();
+  const r = await dividirTanda(u, Number(fd.get("id")), Number(fd.get("piezas")));
+  if (r.error) return { error: r.error };
+  revalidar();
+  return { ok: `Tanda dividida: el resto quedó en la tanda ${r.nuevaId}, sin día.` };
+}
+
+/** Divide la tanda (quedan `piezas`) y la ubica en la casilla; el resto queda sin día. */
+export async function dividirYMoverAction(id: number, piezas: number, fecha: string, turno: Turno, inyectora?: string): Promise<{ error?: string }> {
+  const u = await getUsuarioActual();
+  const d = await dividirTanda(u, id, piezas);
+  if (d.error) return d;
+  const r = await actualizarTanda(u, id, inyectora !== undefined ? { fecha, turno, inyectora } : { fecha, turno });
+  revalidar();
+  return r.error ? { error: r.error } : {};
 }

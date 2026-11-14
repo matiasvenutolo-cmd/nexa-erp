@@ -150,7 +150,7 @@ export const estadoDespachoEnum = pgEnum("estado_despacho", ["ARMANDO", "CONTROL
 
 export const estadoReclamoEnum = pgEnum("estado_reclamo", ["ABIERTO", "EN_ANALISIS", "CERRADO"]);
 
-export const tipoAvisoEnum = pgEnum("tipo_aviso", ["PEDIDO_LISTO", "RECLAMO_NUEVO", "INFORME_RECLAMO", "ERROR_INFORMADO"]);
+export const tipoAvisoEnum = pgEnum("tipo_aviso", ["PEDIDO_LISTO", "RECLAMO_NUEVO", "INFORME_RECLAMO", "ERROR_INFORMADO", "PEDIDO_MODIFICADO", "PEDIDO_MATERIA_PRIMA"]);
 
 /** Retiro de materia prima a pie de máquina: abierto mientras quede material
  *  sin cargar, devolver o justificar (puede durar varios turnos). */
@@ -313,6 +313,11 @@ export const producto = pgTable(
     m2PorUnidad: numeric("m2_por_unidad", { precision: 8, scale: 4 }), // 0,16
     kgPorUnidad: numeric("kg_por_unidad", { precision: 8, scale: 4 }), // 0,610
     piezasPorGolpe: integer("piezas_por_golpe"), // piso 1 · rampa 2 · ángulo 4
+    /** Piezas por hora en la inyectora y horas de set-up (cambio de matriz,
+     *  carga de tolva y cambio de color): Excel «master y tiempos» de Eduardo
+     *  (13/11/2026). Con eso se estima cuánto dura cada tanda. */
+    piezasPorHora: integer("piezas_por_hora"),
+    setupHoras: numeric("setup_horas", { precision: 5, scale: 2 }),
     /** Excepción por producto. Null = regla general: pisos usan el parámetro
      *  `unidades_por_caja_pisos`; los accesorios no se embalan hasta la venta. */
     unidadesPorCaja: integer("unidades_por_caja"),
@@ -943,6 +948,9 @@ export const caja = pgTable(
       .notNull()
       .references(() => producto.id),
     cicloId: integer("ciclo_id").references(() => cicloProduccion.id),
+    /** Turno en que se cerró la caja (las cajas entran a stock al cerrar el
+     *  turno o la producción; reunión 10/11/2026). */
+    turnoId: integer("turno_id").references(() => turnoProduccion.id),
     numeroCaja: integer("numero_caja").notNull(),
     cantidad: integer("cantidad").notNull(),
     /** Identificador interno único de la caja (trazabilidad). */
@@ -1412,6 +1420,9 @@ export const turnoProduccion = pgTable(
     estado: estadoTurnoEnum("estado").notNull().default("ABIERTO"),
     token: text("token").unique(),
     cerradoPorId: integer("cerrado_por_id").references(() => usuario.id),
+    /** «Revisado / OK» del Encargado: vio que estén las cajas (sin escanearlas). */
+    revisadoPorId: integer("revisado_por_id").references(() => usuario.id),
+    revisadoEn: timestamp("revisado_en", { withTimezone: true }),
   },
   (t) => [index("turno_ciclo_idx").on(t.cicloId, t.estado), index("turno_inyectora_idx").on(t.inyectora, t.estado)],
 );
@@ -1516,7 +1527,8 @@ export const asignacionOperario = pgTable(
  *  entregado» → PARCIAL; «con demora» / «con demoras de entrega» → DEMORA;
  *  «faltante en proveedor» / «material faltante» → FALTANTE. ENTREGADA y
  *  CANCELADA cierran la compra. */
-export const estadoCompraEnum = pgEnum("estado_compra", ["PEDIDO", "COMPRADO", "PARCIAL", "DEMORA", "FALTANTE", "ENTREGADA", "CANCELADA"]);
+/** SOLICITADA: Materia prima la pidió y Compras todavía no la activó. */
+export const estadoCompraEnum = pgEnum("estado_compra", ["SOLICITADA", "PEDIDO", "COMPRADO", "PARCIAL", "DEMORA", "FALTANTE", "ENTREGADA", "CANCELADA"]);
 
 export const compraMp = pgTable(
   "compra_mp",
@@ -1583,6 +1595,8 @@ export const intervencionMatriz = pgTable(
     tandaId: integer("tanda_id").references(() => tanda.id),
     descripcion: text("descripcion"),
     observaciones: text("observaciones"),
+    /** Duración estimada: se ve en el calendario de turnos. */
+    duracionHoras: numeric("duracion_horas", { precision: 5, scale: 2 }),
     iniciadaEn: timestamp("iniciada_en", { withTimezone: true }),
     realizadaEn: timestamp("realizada_en", { withTimezone: true }),
     creadoPorId: integer("creado_por_id")

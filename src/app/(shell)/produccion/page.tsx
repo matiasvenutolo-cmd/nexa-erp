@@ -8,7 +8,7 @@ import { PedidosDeMaterial } from "@/components/pedidos-material";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeCancelarProduccion, puedePlanificar, puedeAsignarTurnos } from "@/lib/auth/permisos";
 import { FormAccion } from "@/components/form-accion";
-import { cancelarProduccionAction } from "@/app/actions/taller";
+import { cancelarProduccionAction, revisarTurnoAction } from "@/app/actions/taller";
 import { fmtFecha, fmtFechaHora, fmtNumero } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
 import { etiquetaInyectora } from "@/lib/inyectoras";
@@ -35,6 +35,8 @@ async function Calendario({ tandas, planifica, desde }: { tandas: Awaited<Return
     turno: w.turno,
     inyectora: w.inyectora ?? null,
     estado: w.estado,
+    duracionHoras: w.duracionHoras != null ? Number(w.duracionHoras) : null,
+    tandaId: w.tandaId,
     texto: `${TIPO_INTERVENCION_LABEL[w.tipo]}${w.matriz ? ` ${w.matrizAnterior ? `${w.matrizAnterior} → ` : ""}${w.matriz}` : ""}`,
   }));
   const colores = tandas.length ? await db.select({ id: colorT.id, hex: colorT.hex }).from(colorT).where(inArray(colorT.id, [...new Set(tandas.map((t) => t.colorId))])) : [];
@@ -57,6 +59,7 @@ async function Calendario({ tandas, planifica, desde }: { tandas: Awaited<Return
         inyectora: t.inyectora,
         esAccesorio: t.esAccesorio,
         enCurso: t.estado === "EN_CURSO",
+        duracionHoras: t.duracionHoras,
       };
     });
   return (
@@ -164,7 +167,7 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
       )}
       {vista === "turnos" && <TurnosSemana desde={sp.desde} edita={puedeAsignarTurnos(usuario.rol)} />}
       {vista === "curso" && <EnCurso cancela={puedeCancelarProduccion(usuario.rol)} />}
-      {vista === "relevos" && <Relevos />}
+      {vista === "relevos" && <Relevos revisa={puedeCancelarProduccion(usuario.rol)} />}
       {vista === "compras" && <Compras tandas={tandas} />}
       {vista === "historial" && <Historial />}
     </div>
@@ -290,7 +293,7 @@ async function EnCurso({ cancela }: { cancela: boolean }) {
   );
 }
 
-async function Relevos() {
+async function Relevos({ revisa }: { revisa: boolean }) {
   const { turnos, novedades, excepciones } = await relevosRecientes(40);
   return (
     <div className="space-y-6">
@@ -308,10 +311,11 @@ async function Relevos() {
               <th className="text-right">Descarte</th>
               <th>Recepción del relevo</th>
               <th>Interrupción</th>
+              <th>Revisado</th>
             </tr>
           </thead>
           <tbody>
-            {turnos.map(({ t, usuarioNombre, productoCodigo }) => (
+            {turnos.map(({ t, usuarioNombre, productoCodigo, revisadoPorNombre }) => (
               <tr key={t.id}>
                 <td>{fmtFechaHora(t.inicio)}</td>
                 <td>
@@ -328,11 +332,22 @@ async function Relevos() {
                   {t.recepcionOk == null ? "—" : t.recepcionOk ? <span className="badge-estado badge-ok">Coincidía</span> : <span className="badge-estado badge-critico">Diferencia: {t.recepcionMotivo}</span>}
                 </td>
                 <td>{t.motivoInterrupcion ?? "—"}</td>
+                <td>
+                  {t.revisadoEn ? (
+                    <span className="badge-estado badge-ok" title={fmtFechaHora(t.revisadoEn)}>
+                      ✓ {revisadoPorNombre}
+                    </span>
+                  ) : t.estado === "CERRADO" && revisa ? (
+                    <FormAccion accion={revisarTurnoAction} ocultos={{ turnoId: t.id }} boton="Revisado / OK" claseBoton="btn btn-outline btn-sm" className="flex" />
+                  ) : (
+                    "—"
+                  )}
+                </td>
               </tr>
             ))}
             {turnos.length === 0 && (
               <tr>
-                <td colSpan={9} className="text-foreground-muted">
+                <td colSpan={10} className="text-foreground-muted">
                   Todavía no hay turnos registrados.
                 </td>
               </tr>

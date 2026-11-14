@@ -57,6 +57,8 @@ export type NuevaIntervencionInput = {
   responsableId?: number | null;
   tandaId?: number | null;
   descripcion?: string | null;
+  /** Duración estimada en horas: se ve en el calendario de turnos. */
+  duracionHoras?: number | null;
 };
 
 export async function programarIntervencion(actor: Actor, input: NuevaIntervencionInput): Promise<Resultado & { id?: number }> {
@@ -70,6 +72,7 @@ export async function programarIntervencion(actor: Actor, input: NuevaIntervenci
   const iny = input.inyectora?.trim() || null;
   if (iny && !(INYECTORAS as readonly string[]).includes(iny)) return { error: "Inyectora inválida." };
   if (input.tipo === "CAMBIO_MATRIZ" && !iny) return { error: "Un cambio de matriz necesita la máquina." };
+  if (input.duracionHoras != null && (!Number.isFinite(input.duracionHoras) || input.duracionHoras <= 0 || input.duracionHoras > 72)) return { error: "La duración estimada va en horas (entre 0 y 72)." };
   return db.transaction(async (tx) => {
     const [i] = await tx
       .insert(intervencionMatriz)
@@ -83,6 +86,7 @@ export async function programarIntervencion(actor: Actor, input: NuevaIntervenci
         responsableId: input.responsableId ?? null,
         tandaId: input.tandaId ?? null,
         descripcion: input.descripcion?.trim() || null,
+        duracionHoras: input.duracionHoras != null ? String(input.duracionHoras) : null,
         creadoPorId: actor.id,
       })
       .returning();

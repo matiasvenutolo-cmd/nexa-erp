@@ -91,6 +91,10 @@ export default async function MatricesPage({ searchParams }: { searchParams: Pro
               <input name="fechaProgramada" type="date" required defaultValue={hoy} className="input" />
             </label>
             <label className="campo">
+              <span>Duración estimada (horas)</span>
+              <input name="duracionHoras" inputMode="decimal" placeholder="Ej.: 3" className="input" />
+            </label>
+            <label className="campo">
               <span>Turno</span>
               <select name="turno" defaultValue="" className="input">
                 <option value="">Sin definir</option>

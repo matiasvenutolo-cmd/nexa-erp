@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getUsuarioActual } from "@/lib/session";
-import { actualizarCompra, crearCompra, ESTADOS_COMPRA, type EstadoCompra } from "@/lib/data/compras";
+import { actualizarCompra, crearCompra, ESTADOS_COMPRA, solicitarCompra, type EstadoCompra } from "@/lib/data/compras";
 import type { EstadoAccion } from "@/components/form-accion";
 import { parseCantidadAR } from "@/lib/presentaciones";
 
@@ -32,6 +32,17 @@ export async function crearCompraAction(_p: EstadoAccion, fd: FormData): Promise
   if (r.error) return { error: r.error };
   revalidar();
   return { ok: `Compra #${r.id} registrada.` };
+}
+
+export async function solicitarCompraAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
+  const u = await getUsuarioActual();
+  const kg = parseCantidadAR(String(fd.get("cantidadKg") ?? ""));
+  if (kg == null) return { error: "No se entiende la cantidad: escribí, por ejemplo, 1.500 o 25,5." };
+  const r = await solicitarCompra(u, { materiaPrimaId: Number(fd.get("materiaPrimaId")), cantidadKg: kg, observaciones: txt(fd, "observaciones") });
+  if (r.error) return { error: r.error };
+  revalidar();
+  revalidatePath("/materia-prima");
+  return { ok: "Pedido enviado: Compras recibe el aviso." };
 }
 
 export async function actualizarCompraAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {

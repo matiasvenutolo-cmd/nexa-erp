@@ -39,6 +39,18 @@ const REGLAS: Record<string, Regla> = {
   "CIEGO|RAMPA": { base: [DIEZ, PLASTOMER], masterKg: () => 0.15 },
   "CIEGO|ESQUINERO": { base: [DIEZ, PLASTOMER], masterKg: () => 0.15 },
 };
+/** Piezas por hora y set-up (cambio de matriz + carga de tolva + cambio de
+ *  color, el tiempo más alto del rango de Eduardo). Ciego moneda y trama usan
+ *  los del piso ciego (definido el 13/11). */
+const TIEMPOS: Record<string, { piezasPorHora: number; setupHoras: number }> = {
+  "REJILLA|UNICO": { piezasPorHora: 40, setupHoras: 2.5 },
+  "REJILLA|RAMPA": { piezasPorHora: 100, setupHoras: 1.5 },
+  "REJILLA|ESQUINERO": { piezasPorHora: 664, setupHoras: 1.5 },
+  "CIEGO|TRAMA": { piezasPorHora: 80, setupHoras: 2.5 },
+  "CIEGO|MONEDA": { piezasPorHora: 80, setupHoras: 2.5 },
+  "CIEGO|RAMPA": { piezasPorHora: 86, setupHoras: 2 },
+  "CIEGO|ESQUINERO": { piezasPorHora: 440, setupHoras: 2 },
+};
 /** Presentaciones que hacen falta (se crean si no están). */
 const PRESENTACIONES = [
   { nombre: "Medida 10 kg", kg: 10, tipoMp: "VIRGEN" as const },
@@ -54,6 +66,7 @@ async function main() {
   const { db } = await import("../src/lib/db/client");
   const schema = await import("../src/lib/db/schema");
   const { crearPresentacion, guardarReceta, recetasDe } = await import("../src/lib/data/recetas");
+  const { registrarCambios } = await import("../src/lib/data/auditoria");
   const { and, eq, inArray, isNull } = await import("drizzle-orm");
   const [sistema] = await db.select({ id: schema.usuario.id }).from(schema.usuario).where(eq(schema.usuario.nombre, "Importación (sistema)")).orderBy(schema.usuario.id).limit(1);
   const actor = { id: sistema.id, rol: "GERENCIA" as const };
@@ -108,6 +121,25 @@ async function main() {
       }
     }
   }
+  // Tiempos de cada producto (todos los colores, también los de master a confirmar).
+  const conTiempo = await db.select({ id: schema.producto.id, codigo: schema.producto.codigo, familia: schema.producto.familia, tipo: schema.producto.tipo, pph: schema.producto.piezasPorHora, setup: schema.producto.setupHoras }).from(schema.producto).where(eq(schema.producto.activo, true));
+  let tiempos = 0;
+  for (const p of conTiempo) {
+    const t = TIEMPOS[`${p.familia}|${p.tipo}`];
+    if (!t || (p.pph === t.piezasPorHora && Number(p.setup) === t.setupHoras)) continue;
+    tiempos++;
+    if (APLICAR) {
+      await db.transaction(async (tx) => {
+        await tx.update(schema.producto).set({ piezasPorHora: t.piezasPorHora, setupHoras: String(t.setupHoras) }).where(eq(schema.producto.id, p.id));
+        await registrarCambios(tx, actor.id, [
+          { entidad: "producto", entidadId: p.id, campo: "piezas por hora", anterior: p.pph, nuevo: t.piezasPorHora, motivo: MOTIVO },
+          { entidad: "producto", entidadId: p.id, campo: "set-up (h)", anterior: p.setup, nuevo: t.setupHoras, motivo: MOTIVO },
+        ]);
+      });
+    }
+  }
+  if (tiempos) console.log(`~ piezas por hora y set-up: ${tiempos} productos`);
+
   // Regla general del ciego: 0,9 kg de master cada 25 kg de 2240 P + 25 kg de
   // Plastomer = 18 g por kg de mezcla, mitad y mitad.
   const { actualizarDosificacion } = await import("../src/lib/data/dosificacion");

@@ -10,6 +10,7 @@ import {
   iniciarTandaAsignada,
   pausarProduccion,
   pedirMaterial,
+  revisarTurno,
   registrarNovedad,
   tomarTurno,
 } from "@/lib/data/taller";
@@ -104,6 +105,14 @@ export async function cargarRecetaAction(_p: EstadoAccion, fd: FormData): Promis
   revalidar();
   if (r.repetido) return { ok: "Esa carga ya estaba registrada (no se duplicó)." };
   return { ok: `Carga registrada: ${fmtPeso(r.kg ?? 0)} pasaron del pie de máquina a la tolva.` };
+}
+
+export async function revisarTurnoAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
+  const u = await getUsuarioActual();
+  const r = await revisarTurno(u, Number(fd.get("turnoId")));
+  if (r.error) return { error: r.error };
+  revalidar();
+  return { ok: "Revisado." };
 }
 
 export async function pedirMaterialAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {

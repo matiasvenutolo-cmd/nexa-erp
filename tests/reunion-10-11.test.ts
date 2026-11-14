@@ -16,7 +16,10 @@ vi.mock("@/lib/db/client", async () => {
 
 import { abrirBase, cerrarBase, holder, sembrar, type Semilla } from "./helpers/db";
 import * as schema from "@/lib/db/schema";
-import { actualizarTanda, cancelarTanda, crearTanda, listarTandas, moverTanda } from "@/lib/data/planificacion";
+import { actualizarTanda, cancelarTanda, crearTanda, dividirTanda, listarTandas, moverTanda, necesidadDeCompra } from "@/lib/data/planificacion";
+import { guardarReceta, listarPresentaciones } from "@/lib/data/recetas";
+import { actualizarCompra, calcularNecesidad, comprasSolicitadas, pendientePorMp, solicitarCompra } from "@/lib/data/compras";
+import { listarAvisos } from "@/lib/data/avisos";
 import { hoyISO } from "@/lib/format";
 import { yaPaso } from "@/lib/turnos";
 
@@ -71,5 +74,56 @@ describe("cambio de matriz automático y orden dentro del turno", () => {
     expect((await cambiosDe(rejilla))[0].estado).toBe("CANCELADA");
     // Ahora la rejilla roja sigue al ciego: pide cambio de matriz.
     expect((await cambiosDe(rejilla2))[0]).toMatchObject({ estado: "PROGRAMADA", matrizAnterior: expect.stringMatching(/^Ciego/) });
+  });
+});
+
+describe("duración de las tandas y capacidad del turno", () => {
+  it("una tanda que no entra en el turno se rechaza y se puede dividir", async () => {
+    // Tiempos del Excel de Eduardo para el piso rejilla: 40 piezas por hora, 2:30 h de set-up.
+    await db().update(schema.producto).set({ piezasPorHora: 40, setupHoras: "2.5" }).where(eq(schema.producto.id, s.productos.rejBlanco.id));
+    const id = (await crearTanda(s.usuarios.ENCARGADO, { productoId: s.productos.rejBlanco.id, lineas: [], cantidadStock: 454 })).id!;
+    const [v] = (await listarTandas()).filter((t) => t.id === id);
+    expect(v).toMatchObject({ duracionHoras: 13.85, conSetup: true }); // 2,5 + 454 ÷ 40
+    const r = await actualizarTanda(s.usuarios.ENCARGADO, id, { fecha: hoy, turno: "NOCHE", inyectora: "8" });
+    expect(r.error).toMatch(/No entra en el turno/);
+    // Con lo que ya hay en ese turno de la 8 (sin tiempos cargados), entran 6,5 h × 40 = 260 piezas.
+    expect(r.dividir).toBe(260);
+    const d = await dividirTanda(s.usuarios.ENCARGADO, id, 260);
+    expect(d.error).toBeUndefined();
+    expect((await actualizarTanda(s.usuarios.ENCARGADO, id, { fecha: hoy, turno: "NOCHE", inyectora: "8" })).error).toBeUndefined();
+    const [resto] = await db().select().from(schema.tanda).where(eq(schema.tanda.id, d.nuevaId!));
+    expect(resto).toMatchObject({ cantidadStock: 194, fecha: null, inyectora: "8" });
+    // La segunda parte sigue al mismo producto: no lleva set-up.
+    expect((await listarTandas()).find((t) => t.id === d.nuevaId)).toMatchObject({ conSetup: false, duracionHoras: 4.85 });
+  });
+});
+
+describe("compras: faltantes, tres necesidades y pedido de Materia prima", () => {
+  it("con más demanda que stock, Producción → Compras muestra el faltante y Compras lo separa por destino", async () => {
+    const pres = await listarPresentaciones();
+    const bolsa = pres.find((p) => p.nombre === "Bolsa 25 kg" && p.tipoMp === "VIRGEN")!;
+    expect((await guardarReceta(s.usuarios.ENCARGADO, s.productos.rejRojo.id, "REGIMEN", { items: [{ materiaPrimaId: s.materiaPrima.copo2240.id, presentacionId: bolsa.id, cantidad: 1 }] })).error).toBeUndefined();
+    // 20.000 pisos × 0,61 kg = 12.200 kg; hay 6.975 kg de 2240 P.
+    await crearTanda(s.usuarios.ENCARGADO, { productoId: s.productos.rejRojo.id, lineas: [], cantidadStock: 20000 });
+    const nec = await necesidadDeCompra();
+    const copo = nec.find((m) => m.materiaPrimaId === s.materiaPrima.copo2240.id)!;
+    expect(copo.faltanteKg).toBeGreaterThan(0);
+    const n = await calcularNecesidad();
+    const f = n.filas.find((x) => x.materiaPrimaId === s.materiaPrima.copo2240.id)!;
+    // La tanda es para stock (sin pedidos): su material cuenta como pedido planificado.
+    expect(f.paraPedidosKg + f.paraStockPisosKg + f.paraMinimoMpKg).toBeCloseTo(f.proyectadaKg, 3);
+    expect(f.proyectadaKg).toBeGreaterThan(0);
+  });
+
+  it("Materia prima pide a Compras: queda «pedida por Materia prima» con aviso, y Compras la activa", async () => {
+    expect((await solicitarCompra(s.usuarios.DESPACHO, { materiaPrimaId: s.materiaPrima.copo2240.id, cantidadKg: 500 })).error).toMatch(/Materia prima/);
+    const r = await solicitarCompra(s.usuarios.MATERIA_PRIMA, { materiaPrimaId: s.materiaPrima.copo2240.id, cantidadKg: 500, observaciones: "para la semana" });
+    expect(r.error).toBeUndefined();
+    expect(await comprasSolicitadas()).toMatchObject([{ id: r.id, estado: "SOLICITADA", cantidadKg: 500 }]);
+    expect((await listarAvisos("COMPRAS"))[0]).toMatchObject({ tipo: "PEDIDO_MATERIA_PRIMA" });
+    // No cuenta como comprado hasta que Compras la activa.
+    expect((await pendientePorMp()).get(s.materiaPrima.copo2240.id) ?? 0).toBe(0);
+    expect((await actualizarCompra(s.usuarios.COMPRAS, r.id!, { estado: "PEDIDO" })).error).toBeUndefined();
+    expect((await pendientePorMp()).get(s.materiaPrima.copo2240.id)).toBe(500);
   });
 });

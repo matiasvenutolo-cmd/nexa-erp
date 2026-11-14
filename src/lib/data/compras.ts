@@ -9,7 +9,8 @@
 import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { compraEntrega, compraMp, materiaPrima, producto, tanda, usuario } from "@/lib/db/schema";
-import { puedeGestionarCompras } from "@/lib/auth/permisos";
+import { puedeGestionarCompras, puedeIngresarMateriaPrima } from "@/lib/auth/permisos";
+import { crearAviso } from "@/lib/data/avisos";
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
 import { hoyISO } from "@/lib/format";
 import { aGramos } from "@/lib/presentaciones";
@@ -17,6 +18,7 @@ import { aGramos } from "@/lib/presentaciones";
 export type EstadoCompra = (typeof compraMp.$inferSelect)["estado"];
 export const ESTADOS_COMPRA: EstadoCompra[] = ["PEDIDO", "COMPRADO", "PARCIAL", "DEMORA", "FALTANTE", "ENTREGADA", "CANCELADA"];
 export const ESTADO_COMPRA_LABEL: Record<EstadoCompra, string> = {
+  SOLICITADA: "Pedida por Materia prima",
   PEDIDO: "Pedido / en proceso",
   COMPRADO: "Comprado",
   PARCIAL: "Parcialmente entregado",
@@ -148,6 +150,39 @@ export async function crearCompra(actor: Actor, input: NuevaCompraInput): Promis
   });
 }
 
+/**
+ * Pedido de Materia prima a Compras (reunión 10/11/2026): la necesidad ya se
+ * calcula sola, pero Materia prima puede pedir un material con la cantidad que
+ * quiera. Queda como compra «pedida por Materia prima» y le llega el aviso a
+ * Compras, que la activa (pasa a «pedido») o la descarta.
+ */
+export async function solicitarCompra(actor: Actor, input: { materiaPrimaId: number; cantidadKg: number; observaciones?: string | null }): Promise<Resultado & { id?: number }> {
+  if (!puedeIngresarMateriaPrima(actor.rol)) return { error: "El pedido a Compras lo hace Materia prima." };
+  if (!Number.isFinite(input.cantidadKg) || input.cantidadKg <= 0) return { error: "Indicá cuántos kg hacen falta." };
+  const [mp] = await db.select({ id: materiaPrima.id, nombre: materiaPrima.nombre, tipo: materiaPrima.tipo }).from(materiaPrima).where(eq(materiaPrima.id, input.materiaPrimaId));
+  if (!mp) return { error: "Materia prima no encontrada." };
+  if (mp.tipo === "MOLIENDA" || mp.tipo === "SOBRANTE") return { error: `${mp.nombre} no se compra: sale de la planta.` };
+  return db.transaction(async (tx) => {
+    const [c] = await tx
+      .insert(compraMp)
+      .values({ materiaPrimaId: mp.id, cantidadKg: String(input.cantidadKg), fechaPedido: hoyISO(), estado: "SOLICITADA", observaciones: input.observaciones?.trim() || null, creadoPorId: actor.id })
+      .returning();
+    await registrarCambios(tx, actor.id, [{ entidad: "compra_mp", entidadId: c.id, campo: "alta", anterior: null, nuevo: `${mp.nombre} · ${input.cantidadKg} kg · ${ESTADO_COMPRA_LABEL.SOLICITADA}` }]);
+    await crearAviso(tx, {
+      tipo: "PEDIDO_MATERIA_PRIMA",
+      destinoRol: "COMPRAS",
+      mensaje: `Materia prima pide ${new Intl.NumberFormat("es-AR").format(input.cantidadKg)} kg de ${mp.nombre}${input.observaciones?.trim() ? ` (${input.observaciones.trim()})` : ""}. Activalo en Compras.`,
+      creadoPorId: actor.id,
+    });
+    return { id: c.id };
+  });
+}
+
+/** Pedidos de Materia prima que Compras todavía no activó. */
+export async function comprasSolicitadas() {
+  return (await listarCompras()).filter((c) => c.estado === "SOLICITADA");
+}
+
 /** Cambio de estado, fecha estimada u otros datos; queda en el historial. */
 export async function actualizarCompra(
   actor: Actor,
@@ -241,6 +276,15 @@ export type FilaNecesidad = {
   necesidadKg: number;
   /** necesidad − comprado pendiente de entrega. */
   proyectadaKg: number;
+  /**
+   * La necesidad proyectada separada en tres (reunión 10/11/2026), cubriendo
+   * con lo disponible y lo ya comprado en este orden: pedidos (se compra sí o
+   * sí), stock mínimo de pisos y stock mínimo de la MP (se consulta antes con
+   * Brian y contabilidad).
+   */
+  paraPedidosKg: number;
+  paraStockPisosKg: number;
+  paraMinimoMpKg: number;
   /** Algún producto que aporta a esta fila tiene el peso sin confirmar. */
   estimado: boolean;
   /** Hay una compra de este material con demora o faltante en proveedor. */
@@ -285,7 +329,7 @@ export async function calcularNecesidad(): Promise<ResultadoNecesidad> {
   const fila = (id: number, nombre: string, esMaster: boolean) => {
     let f = filas.get(id);
     if (!f) {
-      f = { materiaPrimaId: id, nombre, esMaster, pedidosKg: 0, stockProductoKg: 0, objetivoMpKg: 0, disponibleKg: 0, compradoPendienteKg: 0, necesidadKg: 0, proyectadaKg: 0, estimado: false, riesgo: null, pedidos: [], entregasEnRiesgo: false };
+      f = { materiaPrimaId: id, nombre, esMaster, pedidosKg: 0, stockProductoKg: 0, objetivoMpKg: 0, disponibleKg: 0, compradoPendienteKg: 0, necesidadKg: 0, proyectadaKg: 0, paraPedidosKg: 0, paraStockPisosKg: 0, paraMinimoMpKg: 0, estimado: false, riesgo: null, pedidos: [], entregasEnRiesgo: false };
       filas.set(id, f);
     }
     return f;
@@ -349,6 +393,15 @@ export async function calcularNecesidad(): Promise<ResultadoNecesidad> {
     const g = aGramos(f.pedidosKg) + aGramos(f.stockProductoKg) + aGramos(f.objetivoMpKg) - aGramos(f.disponibleKg);
     f.necesidadKg = Math.max(0, g) / 1000;
     f.proyectadaKg = Math.max(0, g - aGramos(f.compradoPendienteKg)) / 1000;
+    let cubre = aGramos(f.disponibleKg) + aGramos(f.compradoPendienteKg);
+    const parte = (kg: number) => {
+      const falta = Math.max(0, aGramos(kg) - cubre);
+      cubre = Math.max(0, cubre - aGramos(kg));
+      return falta / 1000;
+    };
+    f.paraPedidosKg = parte(f.pedidosKg);
+    f.paraStockPisosKg = parte(f.stockProductoKg);
+    f.paraMinimoMpKg = parte(f.objetivoMpKg);
     f.entregasEnRiesgo = f.pedidos.length > 0 && aGramos(f.disponibleKg) < aGramos(f.pedidosKg);
     const problema = compras.find((c) => c.materiaPrimaId === f.materiaPrimaId && (c.estado === "DEMORA" || c.estado === "FALTANTE" || c.atrasada));
     if (problema) {
