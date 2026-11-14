@@ -111,7 +111,7 @@ export function TarjetaTanda({ t, posicion, puedePlanificar }: { t: TandaVista; 
         <Dato label={t.estado === "EN_CURSO" ? "Producido" : "Cargas de receta"} valor={t.estado === "EN_CURSO" ? `${fmtNumero(t.producido, 0)} de ${fmtNumero(t.objetivo, 0)}` : (t.cargas ?? "—")} />
         <Dato
           label="Duración estimada"
-          valor={t.duracionHoras != null ? `≈ ${fmtNumero(t.duracionHoras, 1)} h${t.conSetup ? " (con set-up)" : ""}` : "Sin tiempos"}
+          valor={t.duracionHoras != null ? `${t.duracionHoras > 0 && t.duracionHoras < 0.1 ? "menos de 0,1" : `≈ ${fmtNumero(t.duracionHoras, 1)}`} h${t.conSetup ? " (con set-up)" : ""}` : "Sin tiempos"}
         />
       </div>
 

@@ -37,7 +37,7 @@ export type TrabajoCal = { id: number; fecha: string; turno: TarjetaCal["turno"]
 
 /** Horas de un turno (todas las ventanas duran 9 h). */
 const HORAS_TURNO = 9;
-const fmtHoras = (h: number) => `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 1 }).format(h)} h`;
+const fmtHoras = (h: number) => (h > 0 && h < 0.1 ? "menos de 0,1 h" : `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 1 }).format(h)} h`);
 
 /** Las máquinas de NEXA: baldosas siempre en la 8, accesorios en la 6. */
 const MAQUINAS_BASE = ["8", "6"];
