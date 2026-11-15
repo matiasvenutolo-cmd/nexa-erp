@@ -15,7 +15,7 @@ import {
   puedeIngresarMateriaPrima,
   puedeRetirarMateriaPrima,
   puedeVerMateriaPrima, puedeRecibirMolienda } from "@/lib/auth/permisos";
-import { Semaforo } from "@/components/semaforo";
+import { ESTADO_COMPRA_MP_LABEL, ORDEN_ESTADO_COMPRA_MP, situacionCompraMp, type SituacionMp } from "@/lib/data/necesidad-mp";
 import { FormAccion } from "@/components/form-accion";
 import { solicitarCompraAction } from "@/app/actions/compras";
 import { ajusteMpAction, altaMpAction, bolsonAction, descarteMpAction, fraccionarAction } from "@/app/actions/materia-prima";
@@ -121,14 +121,19 @@ export default async function MateriaPrimaPage({
 
 type Stock = Awaited<ReturnType<typeof stockMpPorUbicacion>>;
 
+const BADGE_ESTADO_MP: Record<SituacionMp["estado"], string> = { URGENTE: "badge-critico", PROXIMAMENTE: "badge-bajo", OK: "badge-ok" };
+
 async function Stock({ stock, sp, pide }: { stock: Stock; sp: { tipo?: string; texto?: string; alertas?: string }; pide: boolean }) {
-  const movs = await movimientosMp({ ubicacion: "deposito", limite: 15 });
+  const [movs, situacion] = await Promise.all([movimientosMp({ ubicacion: "deposito", limite: 15 }), situacionCompraMp()]);
   const tipo = TIPOS.some((t) => t.valor === sp.tipo) ? sp.tipo : undefined;
   const texto = sp.texto?.trim().toLowerCase();
   const soloAlertas = sp.alertas === "1";
-  const visibles = stock.filter(
-    (m) => (!tipo || m.tipo === tipo) && (!texto || `${m.codigo} ${m.nombre}`.toLowerCase().includes(texto)) && (!soloAlertas || m.estado === "critico" || m.estado === "bajo"),
-  );
+  // Primero lo que hay que comprar: urgente, próximamente, OK; molienda y sobrante al final.
+  const orden = (id: number) => { const e = situacion.get(id)?.estado; return e ? ORDEN_ESTADO_COMPRA_MP[e] : 3; };
+  const visibles = stock
+    .filter((m) => (!tipo || m.tipo === tipo) && (!texto || `${m.codigo} ${m.nombre}`.toLowerCase().includes(texto)) && (!soloAlertas || (situacion.get(m.id)?.estado ?? "OK") !== "OK"))
+    .sort((a, b) => orden(a.id) - orden(b.id));
+  const paraComprar = stock.filter((m) => (situacion.get(m.id)?.estado ?? "OK") !== "OK").length;
   const q = (over: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries({ tipo: sp.tipo, texto: sp.texto, alertas: sp.alertas, ...over })) if (v) p.set(k, v);
@@ -143,7 +148,7 @@ async function Stock({ stock, sp, pide }: { stock: Stock; sp: { tipo?: string; t
           </Link>
         ))}
         <Link href={q({ alertas: soloAlertas ? undefined : "1" })} className={`btn btn-sm ${soloAlertas ? "btn-azul" : "btn-outline"}`}>
-          Sólo bajo el mínimo
+          Sólo para comprar ({paraComprar})
         </Link>
         <form action="/materia-prima" className="ml-auto">
           {tipo && <input type="hidden" name="tipo" value={tipo} />}
@@ -158,6 +163,7 @@ async function Stock({ stock, sp, pide }: { stock: Stock; sp: { tipo?: string; t
               <th>Código</th>
               <th>Material</th>
               <th className="text-right">Stock general</th>
+              <th className="text-right">Comprometido a producción</th>
               <th className="text-right">Mínimo</th>
               <th>Estado</th>
               <th></th>
@@ -166,6 +172,8 @@ async function Stock({ stock, sp, pide }: { stock: Stock; sp: { tipo?: string; t
           <tbody>
             {visibles.map((m) => {
               const g = m.tipo === "MASTER";
+              const s = situacion.get(m.id);
+              const peso = (v: number) => fmtPeso(v, { gramos: g && v < 10 });
               return (
                 <tr key={m.id}>
                   <td className="font-mono text-xs">{m.codigo}</td>
@@ -173,12 +181,30 @@ async function Stock({ stock, sp, pide }: { stock: Stock; sp: { tipo?: string; t
                     <Link href={`/materia-prima/${m.id}`} className="font-semibold text-accent hover:underline">
                       {m.nombre}
                     </Link>
-                    {m.pie > 0 && <div className="text-xs text-foreground-muted">+ {fmtPeso(m.pie, { gramos: g && m.pie < 10 })} a pie de máquina</div>}
                   </td>
-                  <td className="text-right font-semibold tabular-nums">{fmtPeso(m.deposito, { gramos: g && m.deposito < 10 })}</td>
-                  <td className="text-right tabular-nums text-foreground-muted">{m.minimo ? fmtPeso(m.minimo) : "—"}</td>
-                  <td>
-                    <Semaforo estado={m.estado} />
+                  <td className="whitespace-nowrap text-right font-semibold tabular-nums">{peso(m.deposito)}</td>
+                  <td className="whitespace-nowrap text-right tabular-nums">
+                    {s && s.comprometidoKg > 0 ? peso(s.comprometidoKg) : "—"}
+                    {m.pie > 0 && <div className="text-xs text-foreground-muted">{peso(m.pie)} ya a pie de máquina</div>}
+                  </td>
+                  <td className="whitespace-nowrap text-right tabular-nums text-foreground-muted">{m.minimo ? fmtPeso(m.minimo) : "—"}</td>
+                  <td className="min-w-[11rem]">
+                    {s ? (
+                      <>
+                        <span className={`badge-estado ${BADGE_ESTADO_MP[s.estado]}`}>{ESTADO_COMPRA_MP_LABEL[s.estado]}</span>
+                        {s.estado === "URGENTE" && <div className="text-xs text-[var(--estado-critico-fg)]">Faltan {peso(-s.libreKg)} para lo planificado</div>}
+                        {s.estado === "PROXIMAMENTE" && s.pedidosSinPlanificarKg > 0 && <div className="text-xs text-foreground-muted">Pedidos sin planificar: {peso(s.pedidosSinPlanificarKg)}</div>}
+                        {s.enCompraKg > 0 && (
+                          <div className="text-xs text-foreground-muted">
+                            En compra: {peso(s.enCompraKg)}
+                            {s.proximaEntrega ? ` · llega ${s.proximaEntrega.split("-").reverse().slice(0, 2).join("/")}` : ""}
+                          </div>
+                        )}
+                        {s.riesgo && <div className="text-xs font-semibold text-[var(--estado-critico-fg)]">{s.riesgo}</div>}
+                      </>
+                    ) : (
+                      <span className="text-xs text-foreground-muted">sale de la planta</span>
+                    )}
                   </td>
                   <td className="text-right">
                     <div className="flex flex-wrap justify-end gap-1">
@@ -190,7 +216,9 @@ async function Stock({ stock, sp, pide }: { stock: Stock; sp: { tipo?: string; t
                           <summary className="btn btn-ghost btn-sm list-none">Pedir a Compras</summary>
                           <div className="absolute right-0 z-10 mt-1 w-72 rounded-xl border border-border bg-white p-3 text-left shadow-lg">
                             <FormAccion accion={solicitarCompraAction} ocultos={{ materiaPrimaId: m.id }} boton="Enviar pedido a Compras" claseBoton="btn btn-primary btn-sm" className="space-y-2">
-                              <input name="cantidadKg" required inputMode="decimal" placeholder="Kg (ej. 1.500)" className="input" />
+                              {s && s.sugeridoKg > 0 && <p className="text-xs text-foreground-muted">Para volver a OK hacen falta unos {fmtPeso(s.sugeridoKg)}{s.enCompraKg > 0 ? " (ya descontado lo que está en compra)" : ""}.</p>}
+                              {s && s.enCompraKg > 0 && s.sugeridoKg === 0 && <p className="text-xs text-foreground-muted">Ya hay {fmtPeso(s.enCompraKg)} pedidos o en compra.</p>}
+                              <input name="cantidadKg" required inputMode="decimal" defaultValue={s && s.sugeridoKg > 0 ? String(s.sugeridoKg) : ""} placeholder="Kg (ej. 1.500)" className="input" />
                               <input name="observaciones" placeholder="Aclaración (opcional)" className="input" />
                             </FormAccion>
                           </div>
@@ -204,6 +232,10 @@ async function Stock({ stock, sp, pide }: { stock: Stock; sp: { tipo?: string; t
           </tbody>
         </table>
       </div>
+      <p className="text-xs text-foreground-muted">
+        <b>Comprometido a producción:</b> lo que todavía necesitan las tandas planificadas y en curso (primero se usa lo que ya está a pie de máquina).{" "}
+        <b>Compra urgente:</b> el stock general no alcanza para eso. <b>Compra próximamente:</b> lo que queda no cubre los pedidos sin planificar más el margen del material (Panel admin → Stock; si no tiene, su mínimo).
+      </p>
       <p className="text-xs text-foreground-muted">
         {visibles.length} de {stock.length}. Al entrar a cada material se ven sus lotes, certificados y movimientos. Ingresos, salidas a pie de máquina y devoluciones: pestaña Movimientos (filtrá «Stock general»).
       </p>

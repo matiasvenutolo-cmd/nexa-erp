@@ -6,9 +6,9 @@
  * que se imputa a la compra: así cada kilo se cuenta una vez y la compra pasa
  * sola a «parcialmente entregada» o «entregada».
  */
-import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { compraEntrega, compraMp, materiaPrima, producto, tanda, usuario } from "@/lib/db/schema";
+import { compraEntrega, compraMp, materiaPrima, proveedor as proveedorT, usuario } from "@/lib/db/schema";
 import { puedeGestionarCompras, puedeIngresarMateriaPrima } from "@/lib/auth/permisos";
 import { crearAviso } from "@/lib/data/avisos";
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
@@ -41,6 +41,28 @@ export const EQUIVALENCIAS_ESTADO: Record<string, EstadoCompra> = {
 export const ABIERTAS: EstadoCompra[] = ["PEDIDO", "COMPRADO", "PARCIAL", "DEMORA", "FALTANTE"];
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
+export const MONEDAS = ["ARS", "USD"] as const;
+export type Moneda = (typeof MONEDAS)[number];
+
+/** Día (AAAA-MM-DD) de un momento, en hora argentina. */
+const diaAR = (d: Date) => new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "America/Argentina/Buenos_Aires" }).format(d);
+/** Días de b a a (a − b). */
+const dias = (a: string, b: string) => Math.round((Date.parse(`${a}T12:00:00Z`) - Date.parse(`${b}T12:00:00Z`)) / 86_400_000);
+
+/**
+ * Precio por kg y total: se carga uno y el otro sale de la cantidad. Si se
+ * cargan los dos, se guardan como vienen (puede haber fletes o impuestos).
+ */
+export function montosDe(cantidadKg: number, precioKg: number | null | undefined, montoTotal: number | null | undefined): { error?: string; precioKg: number | null; montoTotal: number | null } {
+  for (const [n, v] of [["precio por kg", precioKg], ["monto total", montoTotal]] as const) {
+    if (v != null && (!Number.isFinite(v) || v < 0)) return { error: `El ${n} tiene que ser un número mayor o igual a cero.`, precioKg: null, montoTotal: null };
+  }
+  const p = precioKg ?? null;
+  const t = montoTotal ?? null;
+  if (p != null && t == null) return { precioKg: p, montoTotal: Math.round(p * cantidadKg * 100) / 100 };
+  if (t != null && p == null) return { precioKg: cantidadKg > 0 ? Math.round((t / cantidadKg) * 10000) / 10000 : null, montoTotal: t };
+  return { precioKg: p, montoTotal: t };
+}
 
 export type FilaCompra = {
   id: number;
@@ -48,6 +70,10 @@ export type FilaCompra = {
   materiaPrimaNombre: string;
   esMaster: boolean;
   proveedor: string | null;
+  proveedorId: number | null;
+  precioKg: number | null;
+  montoTotal: number | null;
+  moneda: Moneda;
   cantidadKg: number;
   recibidoKg: number;
   pendienteKg: number;
@@ -59,13 +85,19 @@ export type FilaCompra = {
   creadoPorNombre: string;
   /** Pasó la fecha estimada y sigue abierta. */
   atrasada: boolean;
+  /** Día de la última entrega, si la compra se completó. */
+  entregadaEl: string | null;
+  /** Días de atraso contra la entrega estimada (entregada tarde, o abierta y vencida); 0 si cumplió. */
+  diasDemora: number | null;
   entregas: { id: number; fecha: Date; kg: number; loteMpId: number | null; usuarioNombre: string; observaciones: string | null }[];
 };
 
-export async function listarCompras(filtro: { abiertas?: boolean; materiaPrimaId?: number } = {}): Promise<FilaCompra[]> {
+export async function listarCompras(filtro: { abiertas?: boolean; materiaPrimaId?: number; proveedorId?: number; estados?: EstadoCompra[] } = {}): Promise<FilaCompra[]> {
   const cond = [];
   if (filtro.abiertas) cond.push(inArray(compraMp.estado, ABIERTAS));
+  if (filtro.estados?.length) cond.push(inArray(compraMp.estado, filtro.estados));
   if (filtro.materiaPrimaId) cond.push(eq(compraMp.materiaPrimaId, filtro.materiaPrimaId));
+  if (filtro.proveedorId) cond.push(eq(compraMp.proveedorId, filtro.proveedorId));
   const filas = await db
     .select({ c: compraMp, mpNombre: materiaPrima.nombre, mpTipo: materiaPrima.tipo, creador: usuario.nombre })
     .from(compraMp)
@@ -87,12 +119,20 @@ export async function listarCompras(filtro: { abiertas?: boolean; materiaPrimaId
     const mias = entregas.filter((x) => x.e.compraId === c.id);
     const recibido = mias.reduce((t, x) => t + aGramos(Number(x.e.kg)), 0) / 1000;
     const cantidad = Number(c.cantidadKg);
+    const abierta = ABIERTAS.includes(c.estado);
+    const entregadaEl = c.estado === "ENTREGADA" && mias.length ? diaAR(mias[mias.length - 1].e.fecha) : null;
+    const atrasada = abierta && c.fechaEntregaEstimada != null && c.fechaEntregaEstimada < hoy;
+    const diasDemora = c.fechaEntregaEstimada == null ? null : entregadaEl ? Math.max(0, dias(entregadaEl, c.fechaEntregaEstimada)) : atrasada ? dias(hoy, c.fechaEntregaEstimada) : null;
     return {
       id: c.id,
       materiaPrimaId: c.materiaPrimaId,
       materiaPrimaNombre: mpNombre,
       esMaster: mpTipo === "MASTER",
       proveedor: c.proveedor,
+      proveedorId: c.proveedorId,
+      precioKg: c.precioKg != null ? Number(c.precioKg) : null,
+      montoTotal: c.montoTotal != null ? Number(c.montoTotal) : null,
+      moneda: (MONEDAS as readonly string[]).includes(c.moneda) ? (c.moneda as Moneda) : "ARS",
       cantidadKg: cantidad,
       recibidoKg: recibido,
       pendienteKg: ABIERTAS.includes(c.estado) ? Math.max(0, (aGramos(cantidad) - aGramos(recibido)) / 1000) : 0,
@@ -102,7 +142,9 @@ export async function listarCompras(filtro: { abiertas?: boolean; materiaPrimaId
       estado: c.estado,
       observaciones: c.observaciones,
       creadoPorNombre: creador,
-      atrasada: ABIERTAS.includes(c.estado) && c.fechaEntregaEstimada != null && c.fechaEntregaEstimada < hoy,
+      atrasada,
+      entregadaEl,
+      diasDemora,
       entregas: mias.map((x) => ({ id: x.e.id, fecha: x.e.fecha, kg: Number(x.e.kg), loteMpId: x.e.loteMpId, usuarioNombre: x.nombre, observaciones: x.e.observaciones })),
     };
   });
@@ -111,6 +153,10 @@ export async function listarCompras(filtro: { abiertas?: boolean; materiaPrimaId
 export type NuevaCompraInput = {
   materiaPrimaId: number;
   proveedor?: string | null;
+  proveedorId?: number | null;
+  precioKg?: number | null;
+  montoTotal?: number | null;
+  moneda?: Moneda;
   cantidadKg: number;
   fechaPedido: string;
   fechaEntregaEstimada?: string | null;
@@ -130,12 +176,20 @@ export async function crearCompra(actor: Actor, input: NuevaCompraInput): Promis
   const [mp] = await db.select({ id: materiaPrima.id, nombre: materiaPrima.nombre, tipo: materiaPrima.tipo }).from(materiaPrima).where(eq(materiaPrima.id, input.materiaPrimaId));
   if (!mp) return { error: "Materia prima no encontrada." };
   if (mp.tipo === "MOLIENDA" || mp.tipo === "SOBRANTE") return { error: `${mp.nombre} no se compra: sale de la planta.` };
+  const montos = montosDe(input.cantidadKg, input.precioKg, input.montoTotal);
+  if (montos.error) return { error: montos.error };
+  const prov = input.proveedorId ? await proveedorActivo(input.proveedorId) : null;
+  if (prov && "error" in prov) return { error: prov.error };
   return db.transaction(async (tx) => {
     const [c] = await tx
       .insert(compraMp)
       .values({
         materiaPrimaId: mp.id,
-        proveedor: input.proveedor?.trim() || null,
+        proveedor: prov?.nombre ?? (input.proveedor?.trim() || null),
+        proveedorId: prov?.id ?? null,
+        precioKg: montos.precioKg != null ? String(montos.precioKg) : null,
+        montoTotal: montos.montoTotal != null ? String(montos.montoTotal) : null,
+        moneda: input.moneda ?? "ARS",
         cantidadKg: String(input.cantidadKg),
         fechaPedido: input.fechaPedido,
         fechaEntregaEstimada: input.fechaEntregaEstimada || null,
@@ -178,6 +232,74 @@ export async function solicitarCompra(actor: Actor, input: { materiaPrimaId: num
   });
 }
 
+async function proveedorActivo(id: number): Promise<{ id: number; nombre: string } | { error: string }> {
+  const [p] = await db.select({ id: proveedorT.id, nombre: proveedorT.nombre, activo: proveedorT.activo }).from(proveedorT).where(eq(proveedorT.id, id));
+  if (!p) return { error: "Proveedor no encontrado." };
+  if (!p.activo) return { error: `${p.nombre} está dado de baja como proveedor.` };
+  return { id: p.id, nombre: p.nombre };
+}
+
+export type EjecutarCompraInput = {
+  proveedorId: number;
+  cantidadKg?: number;
+  precioKg?: number | null;
+  montoTotal?: number | null;
+  moneda?: Moneda;
+  fechaEntregaEstimada?: string | null;
+  numeroOc?: string | null;
+  estado?: "PEDIDO" | "COMPRADO";
+  observaciones?: string | null;
+};
+
+/**
+ * Compras ejecuta un pedido de Materia prima: elige el proveedor, confirma la
+ * cantidad y carga montos, orden de compra y entrega estimada. La compra pasa
+ * a «pedido» o «comprado» y desde ahí se sigue en Estado de compras.
+ */
+export async function ejecutarCompra(actor: Actor, id: number, input: EjecutarCompraInput): Promise<Resultado> {
+  if (!puedeGestionarCompras(actor.rol)) return { error: "No tenés permiso para ejecutar compras." };
+  if (!input.proveedorId) return { error: "Elegí el proveedor." };
+  if (input.cantidadKg != null && (!Number.isFinite(input.cantidadKg) || input.cantidadKg <= 0)) return { error: "La cantidad tiene que ser mayor que cero." };
+  if (input.fechaEntregaEstimada && !FECHA.test(input.fechaEntregaEstimada)) return { error: "Fecha de entrega inválida." };
+  const estado = input.estado ?? "PEDIDO";
+  if (!["PEDIDO", "COMPRADO"].includes(estado)) return { error: "La compra queda como «pedido» o «comprado»." };
+  if (input.moneda && !MONEDAS.includes(input.moneda)) return { error: "Moneda inválida." };
+  const prov = await proveedorActivo(input.proveedorId);
+  if ("error" in prov) return { error: prov.error };
+  return db.transaction(async (tx) => {
+    const [c] = await tx.select().from(compraMp).where(eq(compraMp.id, id)).for("update");
+    if (!c) return { error: "Pedido no encontrado." };
+    if (c.estado !== "SOLICITADA") return { error: "Ese pedido ya se ejecutó o se descartó." };
+    const cantidad = input.cantidadKg ?? Number(c.cantidadKg);
+    if (input.fechaEntregaEstimada && input.fechaEntregaEstimada < hoyISO()) return { error: "La entrega estimada no puede ser anterior a hoy." };
+    const montos = montosDe(cantidad, input.precioKg, input.montoTotal);
+    if (montos.error) return { error: montos.error };
+    const valores = {
+      estado,
+      proveedor: prov.nombre,
+      proveedorId: prov.id,
+      cantidadKg: String(cantidad),
+      precioKg: montos.precioKg != null ? String(montos.precioKg) : null,
+      montoTotal: montos.montoTotal != null ? String(montos.montoTotal) : null,
+      moneda: input.moneda ?? "ARS",
+      fechaPedido: hoyISO(),
+      fechaEntregaEstimada: input.fechaEntregaEstimada || null,
+      numeroOc: input.numeroOc?.trim() || null,
+      observaciones: input.observaciones?.trim() || c.observaciones,
+    };
+    await tx.update(compraMp).set(valores).where(eq(compraMp.id, id));
+    await registrarCambios(tx, actor.id, [
+      { entidad: "compra_mp", entidadId: id, campo: "estado", anterior: ESTADO_COMPRA_LABEL[c.estado], nuevo: ESTADO_COMPRA_LABEL[estado] },
+      { entidad: "compra_mp", entidadId: id, campo: "proveedor", anterior: c.proveedor, nuevo: prov.nombre },
+      { entidad: "compra_mp", entidadId: id, campo: "cantidad_kg", anterior: c.cantidadKg, nuevo: valores.cantidadKg },
+      { entidad: "compra_mp", entidadId: id, campo: "monto_total", anterior: c.montoTotal, nuevo: valores.montoTotal ? `${valores.montoTotal} ${valores.moneda}` : null },
+      { entidad: "compra_mp", entidadId: id, campo: "fecha_entrega_estimada", anterior: c.fechaEntregaEstimada, nuevo: valores.fechaEntregaEstimada },
+      { entidad: "compra_mp", entidadId: id, campo: "numero_oc", anterior: c.numeroOc, nuevo: valores.numeroOc },
+    ]);
+    return {};
+  });
+}
+
 /** Pedidos de Materia prima que Compras todavía no activó. */
 export async function comprasSolicitadas() {
   return (await listarCompras()).filter((c) => c.estado === "SOLICITADA");
@@ -187,9 +309,24 @@ export async function comprasSolicitadas() {
 export async function actualizarCompra(
   actor: Actor,
   id: number,
-  cambios: { estado?: EstadoCompra; fechaEntregaEstimada?: string | null; proveedor?: string | null; numeroOc?: string | null; cantidadKg?: number; observaciones?: string | null; motivo?: string | null },
+  cambios: {
+    estado?: EstadoCompra;
+    fechaEntregaEstimada?: string | null;
+    proveedor?: string | null;
+    proveedorId?: number | null;
+    precioKg?: number | null;
+    montoTotal?: number | null;
+    moneda?: Moneda;
+    numeroOc?: string | null;
+    cantidadKg?: number;
+    observaciones?: string | null;
+    motivo?: string | null;
+  },
 ): Promise<Resultado> {
   if (!puedeGestionarCompras(actor.rol)) return { error: "No tenés permiso para modificar compras." };
+  if (cambios.moneda && !MONEDAS.includes(cambios.moneda)) return { error: "Moneda inválida." };
+  const prov = cambios.proveedorId ? await proveedorActivo(cambios.proveedorId) : null;
+  if (prov && "error" in prov) return { error: prov.error };
   if (cambios.estado && !ESTADOS_COMPRA.includes(cambios.estado)) return { error: "Estado inválido." };
   if (cambios.fechaEntregaEstimada && !FECHA.test(cambios.fechaEntregaEstimada)) return { error: "Fecha de entrega inválida." };
   if (cambios.cantidadKg != null && (!Number.isFinite(cambios.cantidadKg) || cambios.cantidadKg <= 0)) return { error: "La cantidad tiene que ser mayor que cero." };
@@ -202,10 +339,19 @@ export async function actualizarCompra(
     if ((estado === "PEDIDO" || estado === "COMPRADO") && recibido > 0 && cambios.estado) return { error: "Ya tiene entregas: el estado es «parcialmente entregado», «con demora», «faltante» o «entregada»." };
     const cantidad = cambios.cantidadKg != null ? String(cambios.cantidadKg) : c.cantidadKg;
     if (Number(cantidad) < recibido) return { error: "La cantidad no puede quedar por debajo de lo ya recibido." };
+    const tocaMontos = cambios.precioKg !== undefined || cambios.montoTotal !== undefined;
+    const montos = tocaMontos
+      ? montosDe(Number(cantidad), cambios.precioKg === undefined ? null : cambios.precioKg, cambios.montoTotal === undefined ? null : cambios.montoTotal)
+      : { precioKg: c.precioKg != null ? Number(c.precioKg) : null, montoTotal: c.montoTotal != null ? Number(c.montoTotal) : null };
+    if ("error" in montos && montos.error) return { error: montos.error };
     const valores = {
       estado,
       fechaEntregaEstimada: cambios.fechaEntregaEstimada === undefined ? c.fechaEntregaEstimada : cambios.fechaEntregaEstimada || null,
-      proveedor: cambios.proveedor === undefined ? c.proveedor : cambios.proveedor?.trim() || null,
+      proveedor: prov ? prov.nombre : cambios.proveedor === undefined ? c.proveedor : cambios.proveedor?.trim() || null,
+      proveedorId: prov ? prov.id : cambios.proveedor !== undefined ? null : c.proveedorId,
+      precioKg: montos.precioKg != null ? String(montos.precioKg) : null,
+      montoTotal: montos.montoTotal != null ? String(montos.montoTotal) : null,
+      moneda: cambios.moneda ?? c.moneda,
       numeroOc: cambios.numeroOc === undefined ? c.numeroOc : cambios.numeroOc?.trim() || null,
       cantidadKg: cantidad,
       observaciones: cambios.observaciones === undefined ? c.observaciones : cambios.observaciones?.trim() || null,
@@ -216,6 +362,7 @@ export async function actualizarCompra(
       { entidad: "compra_mp", entidadId: id, campo: "fecha_entrega_estimada", anterior: c.fechaEntregaEstimada, nuevo: valores.fechaEntregaEstimada, motivo: cambios.motivo },
       { entidad: "compra_mp", entidadId: id, campo: "proveedor", anterior: c.proveedor, nuevo: valores.proveedor, motivo: cambios.motivo },
       { entidad: "compra_mp", entidadId: id, campo: "numero_oc", anterior: c.numeroOc, nuevo: valores.numeroOc, motivo: cambios.motivo },
+      { entidad: "compra_mp", entidadId: id, campo: "monto_total", anterior: c.montoTotal ? `${c.montoTotal} ${c.moneda}` : null, nuevo: valores.montoTotal ? `${valores.montoTotal} ${valores.moneda}` : null, motivo: cambios.motivo },
       { entidad: "compra_mp", entidadId: id, campo: "cantidad_kg", anterior: c.cantidadKg, nuevo: cantidad, motivo: cambios.motivo },
       { entidad: "compra_mp", entidadId: id, campo: "observaciones", anterior: c.observaciones, nuevo: valores.observaciones, motivo: cambios.motivo },
     ]);
@@ -254,167 +401,4 @@ export async function pendientePorMp(): Promise<Map<number, number>> {
   const res = new Map<number, number>();
   for (const c of await listarCompras({ abiertas: true })) res.set(c.materiaPrimaId, (aGramos(res.get(c.materiaPrimaId) ?? 0) + aGramos(c.pendienteKg)) / 1000);
   return res;
-}
-
-// ---------------------------------------------------------------------------
-// Necesidad de materia prima
-// ---------------------------------------------------------------------------
-
-export type FilaNecesidad = {
-  materiaPrimaId: number;
-  nombre: string;
-  esMaster: boolean;
-  /** Para los pedidos a producir (planificados y por planificar). */
-  pedidosKg: number;
-  /** Para reponer el stock de producto terminado hasta el mínimo. */
-  stockProductoKg: number;
-  /** Objetivo de inventario de la propia MP (su mínimo). */
-  objetivoMpKg: number;
-  disponibleKg: number;
-  compradoPendienteKg: number;
-  /** pedidos + stock de producto + objetivo − disponible. */
-  necesidadKg: number;
-  /** necesidad − comprado pendiente de entrega. */
-  proyectadaKg: number;
-  /**
-   * La necesidad proyectada separada en tres (reunión 10/11/2026), cubriendo
-   * con lo disponible y lo ya comprado en este orden: pedidos (se compra sí o
-   * sí), stock mínimo de pisos y stock mínimo de la MP (se consulta antes con
-   * Brian y contabilidad).
-   */
-  paraPedidosKg: number;
-  paraStockPisosKg: number;
-  paraMinimoMpKg: number;
-  /** Algún producto que aporta a esta fila tiene el peso sin confirmar. */
-  estimado: boolean;
-  /** Hay una compra de este material con demora o faltante en proveedor. */
-  riesgo: string | null;
-  /** Pedidos cuyo material depende de esta fila (para avisar si la entrega
-   *  prometida corre riesgo cuando falta material). */
-  pedidos: { pedidoId: number; clienteNombre: string; fechaEntrega: string | null }[];
-  /** El material disponible no alcanza para los pedidos: sus fechas corren riesgo
-   *  (la necesidad por mínimos de inventario no pone en riesgo una entrega). */
-  entregasEnRiesgo: boolean;
-};
-
-export type ResultadoNecesidad = {
-  filas: FilaNecesidad[];
-  /** Productos con demanda que no se pudieron convertir a kg. */
-  sinConfigurar: { codigo: string; unidades: number; motivo: string }[];
-  /** La mezcla del ciego no tiene proporción definida (afecta recetas sin bolsas de cada material). */
-  avisos: string[];
-};
-
-/**
- * Cruza planificación, pedidos, mínimos de producto terminado, recetas, stock
- * de MP y compras en proceso. Las unidades de pisos se pasan a kg con la
- * receta y el peso por pieza: nunca se suman piezas con kilos. Si falta la
- * receta o el peso de un producto, ese producto se informa aparte en vez de
- * inventar un valor.
- */
-export async function calcularNecesidad(): Promise<ResultadoNecesidad> {
-  const { listarTandas, gruposParaPlanificar, materialParaPiezas, disponibleMp } = await import("@/lib/data/planificacion");
-  const { recetasDe } = await import("@/lib/data/recetas");
-  const { disponiblePorProducto } = await import("@/lib/data/stock");
-  const { getDepositoNexaId } = await import("@/lib/data/depositos");
-
-  const [tandas, grupos, prods] = await Promise.all([
-    listarTandas(),
-    gruposParaPlanificar(),
-    db.select({ id: producto.id, codigo: producto.codigo, kg: producto.kgPorUnidad, minimo: producto.minimo, pesoOk: producto.pesoConfirmado }).from(producto).where(eq(producto.activo, true)),
-  ]);
-  const porProd = new Map(prods.map((p) => [p.id, p]));
-  const filas = new Map<number, FilaNecesidad>();
-  const sinConfigurar: ResultadoNecesidad["sinConfigurar"] = [];
-  const fila = (id: number, nombre: string, esMaster: boolean) => {
-    let f = filas.get(id);
-    if (!f) {
-      f = { materiaPrimaId: id, nombre, esMaster, pedidosKg: 0, stockProductoKg: 0, objetivoMpKg: 0, disponibleKg: 0, compradoPendienteKg: 0, necesidadKg: 0, proyectadaKg: 0, paraPedidosKg: 0, paraStockPisosKg: 0, paraMinimoMpKg: 0, estimado: false, riesgo: null, pedidos: [], entregasEnRiesgo: false };
-      filas.set(id, f);
-    }
-    return f;
-  };
-  type PedidoRef = FilaNecesidad["pedidos"][number];
-  const sumar = (m: { materiaPrimaId: number; nombre: string; esMaster: boolean; kg: number }, campo: "pedidosKg" | "stockProductoKg", estimado: boolean, pedidos: PedidoRef[] = []) => {
-    const f = fila(m.materiaPrimaId, m.nombre, m.esMaster);
-    f[campo] = (aGramos(f[campo]) + aGramos(m.kg)) / 1000;
-    if (estimado) f.estimado = true;
-    for (const p of pedidos) if (!f.pedidos.some((x) => x.pedidoId === p.pedidoId)) f.pedidos.push(p);
-  };
-
-  // 1. Pedidos ya planificados (material de cada tanda activa).
-  for (const t of tandas) {
-    if (t.estado === "POSTERGADA") continue;
-    const estimado = !porProd.get(t.productoId)?.pesoOk;
-    const peds = t.pedidos.map((p) => ({ pedidoId: p.pedidoId, clienteNombre: p.clienteNombre, fechaEntrega: p.fechaEntrega }));
-    for (const m of t.material) sumar({ materiaPrimaId: m.materiaPrimaId, nombre: m.nombre, esMaster: m.esMaster, kg: m.requeridoKg }, "pedidosKg", estimado, peds);
-  }
-  // 2. Pedidos todavía sin planificar, y 3. reposición de stock de producto.
-  const recetas = await recetasDe(prods.map((p) => p.id));
-  const disponiblesPt = await disponiblePorProducto(await getDepositoNexaId(), prods.map((p) => p.id));
-  const stockPlanificado = new Map<number, number>();
-  for (const t of await db.select({ productoId: tanda.productoId, n: sql<number>`sum(${tanda.cantidadStock})`.mapWith(Number) }).from(tanda).where(notInArray(tanda.estado, ["COMPLETADA", "CANCELADA"])).groupBy(tanda.productoId)) {
-    stockPlanificado.set(t.productoId, t.n);
-  }
-  const convertir = (productoId: number, unidades: number, campo: "pedidosKg" | "stockProductoKg", motivoUso: string, pedidos: PedidoRef[] = []) => {
-    if (unidades <= 0) return;
-    const p = porProd.get(productoId);
-    if (!p) return;
-    const r = recetas.get(productoId);
-    const kg = p.kg != null && Number(p.kg) > 0 ? Number(p.kg) : null;
-    const mat = materialParaPiezas(unidades, kg, r?.REGIMEN ?? null, null);
-    if (!mat) {
-      sinConfigurar.push({ codigo: p.codigo, unidades, motivo: `${motivoUso}: ${!r?.REGIMEN ? "sin receta de carga" : "sin peso por pieza"}` });
-      return;
-    }
-    for (const [id, m] of mat.porMp) sumar({ materiaPrimaId: id, nombre: m.nombre, esMaster: m.esMaster, kg: m.kg }, campo, !p.pesoOk, pedidos);
-  };
-  for (const g of grupos)
-    convertir(g.productoId, g.aPlanificar, "pedidosKg", "pedidos sin planificar", g.lineas.filter((l) => l.aPlanificar > 0).map((l) => ({ pedidoId: l.pedidoId, clienteNombre: l.clienteNombre, fechaEntrega: l.fechaEntrega })));
-  for (const p of prods) {
-    if (p.minimo == null) continue;
-    const falta = p.minimo - (disponiblesPt.get(p.id) ?? 0) - (stockPlanificado.get(p.id) ?? 0);
-    convertir(p.id, Math.max(0, Math.ceil(falta)), "stockProductoKg", "stock bajo el mínimo");
-  }
-
-  // 4. Objetivo de inventario de cada MP (su mínimo) y materiales con mínimo aunque no tengan demanda.
-  const mps = await db.select({ id: materiaPrima.id, nombre: materiaPrima.nombre, tipo: materiaPrima.tipo, minimo: materiaPrima.minimo }).from(materiaPrima).where(and(eq(materiaPrima.activo, true), inArray(materiaPrima.tipo, ["VIRGEN", "MASTER"])));
-  for (const m of mps) {
-    const min = m.minimo != null ? Number(m.minimo) : 0;
-    if (min > 0 || filas.has(m.id)) fila(m.id, m.nombre, m.tipo === "MASTER").objetivoMpKg = min;
-  }
-
-  const ids = [...filas.keys()];
-  const [disp, pendientes, compras] = await Promise.all([disponibleMp(ids), pendientePorMp(), listarCompras({ abiertas: true })]);
-  for (const f of filas.values()) {
-    const d = disp.get(f.materiaPrimaId) ?? { deposito: 0, pie: 0 };
-    f.disponibleKg = d.deposito + d.pie;
-    f.compradoPendienteKg = pendientes.get(f.materiaPrimaId) ?? 0;
-    const g = aGramos(f.pedidosKg) + aGramos(f.stockProductoKg) + aGramos(f.objetivoMpKg) - aGramos(f.disponibleKg);
-    f.necesidadKg = Math.max(0, g) / 1000;
-    f.proyectadaKg = Math.max(0, g - aGramos(f.compradoPendienteKg)) / 1000;
-    let cubre = aGramos(f.disponibleKg) + aGramos(f.compradoPendienteKg);
-    const parte = (kg: number) => {
-      const falta = Math.max(0, aGramos(kg) - cubre);
-      cubre = Math.max(0, cubre - aGramos(kg));
-      return falta / 1000;
-    };
-    f.paraPedidosKg = parte(f.pedidosKg);
-    f.paraStockPisosKg = parte(f.stockProductoKg);
-    f.paraMinimoMpKg = parte(f.objetivoMpKg);
-    f.entregasEnRiesgo = f.pedidos.length > 0 && aGramos(f.disponibleKg) < aGramos(f.pedidosKg);
-    const problema = compras.find((c) => c.materiaPrimaId === f.materiaPrimaId && (c.estado === "DEMORA" || c.estado === "FALTANTE" || c.atrasada));
-    if (problema) {
-      f.riesgo = problema.estado === "FALTANTE"
-        ? `Faltante en proveedor (compra #${problema.id})${f.esMaster ? ": evaluar un master de tono parecido de otro proveedor (no se reemplaza solo)" : ""}`
-        : `Compra #${problema.id} con demora${problema.fechaEntregaEstimada ? ` (entrega estimada ${problema.fechaEntregaEstimada})` : ""}`;
-    }
-  }
-  const avisos: string[] = [];
-  if (prods.some((p) => !p.pesoOk)) avisos.push("Los pesos por pieza todavía no están confirmados por el cliente: las cantidades marcadas como «estimado» pueden cambiar.");
-  return {
-    filas: [...filas.values()].sort((a, b) => b.proyectadaKg - a.proyectadaKg || b.necesidadKg - a.necesidadKg || a.nombre.localeCompare(b.nombre)),
-    sinConfigurar,
-    avisos,
-  };
 }

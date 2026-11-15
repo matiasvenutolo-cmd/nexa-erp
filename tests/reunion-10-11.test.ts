@@ -18,7 +18,8 @@ import { abrirBase, cerrarBase, holder, sembrar, type Semilla } from "./helpers/
 import * as schema from "@/lib/db/schema";
 import { actualizarTanda, cancelarTanda, crearTanda, dividirTanda, listarTandas, moverTanda, necesidadDeCompra } from "@/lib/data/planificacion";
 import { guardarReceta, listarPresentaciones } from "@/lib/data/recetas";
-import { actualizarCompra, calcularNecesidad, comprasSolicitadas, pendientePorMp, solicitarCompra } from "@/lib/data/compras";
+import { actualizarCompra, comprasSolicitadas, pendientePorMp, solicitarCompra } from "@/lib/data/compras";
+import { situacionCompraMp } from "@/lib/data/necesidad-mp";
 import { listarAvisos } from "@/lib/data/avisos";
 import { crearPedido, editarLineasPedido } from "@/lib/data/pedidos";
 import { hoyISO } from "@/lib/format";
@@ -104,8 +105,8 @@ describe("duración de las tandas y capacidad del turno", () => {
   });
 });
 
-describe("compras: faltantes, tres necesidades y pedido de Materia prima", () => {
-  it("con más demanda que stock, Producción → Compras muestra el faltante y Compras lo separa por destino", async () => {
+describe("compras: faltantes y pedido de Materia prima", () => {
+  it("con más demanda que stock, Producción muestra el faltante y Materia prima lo ve como compra urgente", async () => {
     const pres = await listarPresentaciones();
     const bolsa = pres.find((p) => p.nombre === "Bolsa 25 kg" && p.tipoMp === "VIRGEN")!;
     expect((await guardarReceta(s.usuarios.ENCARGADO, s.productos.rejRojo.id, "REGIMEN", { items: [{ materiaPrimaId: s.materiaPrima.copo2240.id, presentacionId: bolsa.id, cantidad: 1 }] })).error).toBeUndefined();
@@ -114,11 +115,11 @@ describe("compras: faltantes, tres necesidades y pedido de Materia prima", () =>
     const nec = await necesidadDeCompra();
     const copo = nec.find((m) => m.materiaPrimaId === s.materiaPrima.copo2240.id)!;
     expect(copo.faltanteKg).toBeGreaterThan(0);
-    const n = await calcularNecesidad();
-    const f = n.filas.find((x) => x.materiaPrimaId === s.materiaPrima.copo2240.id)!;
-    // La tanda es para stock (sin pedidos): su material cuenta como pedido planificado.
-    expect(f.paraPedidosKg + f.paraStockPisosKg + f.paraMinimoMpKg).toBeCloseTo(f.proyectadaKg, 3);
-    expect(f.proyectadaKg).toBeGreaterThan(0);
+    // En Materia prima: la tanda (aunque sea para stock) compromete el material y no alcanza.
+    const f = (await situacionCompraMp()).get(s.materiaPrima.copo2240.id)!;
+    expect(f.comprometidoKg).toBeGreaterThan(f.depositoKg);
+    expect(f.estado).toBe("URGENTE");
+    expect(f.sugeridoKg).toBeGreaterThan(0);
   });
 
   it("Materia prima pide a Compras: queda «pedida por Materia prima» con aviso, y Compras la activa", async () => {

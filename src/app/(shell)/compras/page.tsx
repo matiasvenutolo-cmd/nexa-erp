@@ -2,56 +2,63 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeGestionarCompras, puedeIngresarMateriaPrima, puedeVerCompras } from "@/lib/auth/permisos";
-import { calcularNecesidad, comprasSolicitadas, ESTADO_COMPRA_LABEL, ESTADOS_COMPRA, listarCompras, type FilaCompra } from "@/lib/data/compras";
+import { ABIERTAS, ESTADO_COMPRA_LABEL, listarCompras, type EstadoCompra, type FilaCompra } from "@/lib/data/compras";
+import { listarProveedores, type Proveedor } from "@/lib/data/proveedores";
+import { ESTADO_COMPRA_MP_LABEL, ORDEN_ESTADO_COMPRA_MP, situacionCompraMp } from "@/lib/data/necesidad-mp";
 import { listarAuditoria } from "@/lib/data/auditoria";
-import { materiasPrimasActivas } from "@/lib/data/materia-prima";
 import { FormAccion } from "@/components/form-accion";
-import { actualizarCompraAction, crearCompraAction } from "@/app/actions/compras";
-import { fmtFecha, fmtFechaHora, hoyISO } from "@/lib/format";
+import { actualizarCompraAction, ejecutarCompraAction, guardarProveedorAction } from "@/app/actions/compras";
+import { fmtFecha, fmtFechaHora } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
+import { BADGE_COMPRA, CamposMonto, Cumplio, OPCIONES_ESTADO, SelectProveedor, aInput, fmtMonto } from "./componentes";
+import { CamposProveedor } from "./proveedores/campos";
 
 const VISTAS = [
-  { id: "necesidad", label: "Necesidad de materia prima" },
-  { id: "abiertas", label: "Compras en curso" },
-  { id: "todas", label: "Todas las compras" },
+  { id: "pedidos", label: "Pedidos para comprar" },
+  { id: "estado", label: "Estado de compras" },
+  { id: "proveedores", label: "Proveedores" },
 ] as const;
+type Vista = (typeof VISTAS)[number]["id"];
 
-const BADGE: Record<FilaCompra["estado"], string> = {
-  SOLICITADA: "badge-naranja",
-  PEDIDO: "badge-info",
-  COMPRADO: "badge-info",
-  PARCIAL: "badge-bajo",
-  DEMORA: "badge-critico",
-  FALTANTE: "badge-critico",
-  ENTREGADA: "badge-ok",
-  CANCELADA: "bg-surface-muted text-foreground-muted",
-};
+const FILTROS: { id: string; label: string; estados?: EstadoCompra[] }[] = [
+  { id: "curso", label: "En curso", estados: ABIERTAS },
+  { id: "ejecutadas", label: "Ejecutadas", estados: ["ENTREGADA"] },
+  { id: "canceladas", label: "Canceladas", estados: ["CANCELADA"] },
+  { id: "todas", label: "Todas", estados: [...ABIERTAS, "ENTREGADA", "CANCELADA"] },
+];
 
 /**
- * Compras de materia prima y master (perfil Compras): qué hace falta comprar
- * según la planificación, los pedidos, los mínimos y lo que ya se compró, y el
- * seguimiento de cada compra hasta que entra al depósito.
+ * Compras (pedido de NEXA, nov. 2026): ejecuta las compras que pide Materia
+ * prima — no decide qué comprar —, eligiendo el proveedor y cargando los
+ * montos, y sigue cada compra hasta que entra al depósito. La necesidad de
+ * material la ve Materia prima en su tabla de stock.
  */
-export default async function ComprasPage({ searchParams }: { searchParams: Promise<{ vista?: string }> }) {
+export default async function ComprasPage({ searchParams }: { searchParams: Promise<{ vista?: string; filtro?: string; proveedor?: string }> }) {
   const usuario = await getUsuarioActual();
   if (!puedeVerCompras(usuario.rol)) redirect("/tablero");
   const sp = await searchParams;
-  const vista = VISTAS.some((v) => v.id === sp.vista) ? (sp.vista as (typeof VISTAS)[number]["id"]) : "necesidad";
+  const vista: Vista = VISTAS.some((v) => v.id === sp.vista) ? (sp.vista as Vista) : "pedidos";
   const gestiona = puedeGestionarCompras(usuario.rol);
-  const ingresa = puedeIngresarMateriaPrima(usuario.rol);
-  const [abiertas, materias, solicitadas] = await Promise.all([listarCompras({ abiertas: true }), materiasPrimasActivas(), comprasSolicitadas()]);
-  const problemas = abiertas.filter((c) => c.estado === "DEMORA" || c.estado === "FALTANTE" || c.atrasada);
+  const [compras, proveedores] = await Promise.all([listarCompras(), listarProveedores()]);
+  const pedidos = compras.filter((c) => c.estado === "SOLICITADA");
+  const enCurso = compras.filter((c) => ABIERTAS.includes(c.estado));
+  const problemas = enCurso.filter((c) => c.estado === "DEMORA" || c.estado === "FALTANTE" || c.atrasada);
+  const activos = proveedores.filter((p) => p.activo);
 
   return (
     <div>
       <div className="encabezado">
         <div>
           <h1>Compras</h1>
-          <p>Necesidad de materia prima y seguimiento de cada compra hasta que entra al depósito.</p>
+          <p>Ejecuta las compras que pide Materia prima y sigue cada una hasta que entra al depósito.</p>
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <div className="stat">
-            <span className="stat-valor">{abiertas.length}</span>
+            <span className={`stat-valor ${pedidos.length ? "text-[var(--estado-bajo-fg)]" : ""}`}>{pedidos.length}</span>
+            <span className="stat-label">pedidos para comprar</span>
+          </div>
+          <div className="stat">
+            <span className="stat-valor">{enCurso.length}</span>
             <span className="stat-label">compras en curso</span>
           </div>
           <div className="stat">
@@ -61,202 +68,322 @@ export default async function ComprasPage({ searchParams }: { searchParams: Prom
         </div>
       </div>
 
-      {solicitadas.length > 0 && (
-        <section className="panel mb-5 space-y-3 border-[var(--estado-bajo-fg)]">
-          <h2 className="panel-titulo">Pedidos de Materia prima</h2>
-          {solicitadas.map((c) => (
-            <div key={c.id} className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
-              <div className="text-sm">
-                <b>{c.materiaPrimaNombre}</b> · {fmtPeso(c.cantidadKg)} · pedido el {fmtFecha(c.fechaPedido)} por {c.creadoPorNombre}
-                {c.observaciones && <div className="text-foreground-muted">{c.observaciones}</div>}
-              </div>
-              {gestiona && (
-                <div className="flex flex-wrap gap-2">
-                  <FormAccion accion={actualizarCompraAction} ocultos={{ id: c.id, estado: "PEDIDO" }} boton="Activar la compra" claseBoton="btn btn-primary btn-sm" className="flex flex-wrap items-end gap-2">
-                    <input name="proveedor" placeholder="Proveedor (opcional)" className="input w-44" />
-                  </FormAccion>
-                  <FormAccion accion={actualizarCompraAction} ocultos={{ id: c.id, estado: "CANCELADA" }} boton="Descartar" claseBoton="btn btn-outline btn-sm" className="flex flex-wrap items-end gap-2">
-                    <input name="motivo" required placeholder="Motivo" className="input w-40" />
-                  </FormAccion>
-                </div>
-              )}
-            </div>
-          ))}
-        </section>
-      )}
-
       <nav className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
         {VISTAS.map((v) => (
           <Link
             key={v.id}
-            href={v.id === "necesidad" ? "/compras" : `/compras?vista=${v.id}`}
+            href={v.id === "pedidos" ? "/compras" : `/compras?vista=${v.id}`}
             className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm font-semibold ${vista === v.id ? "border-accent text-brand-azul" : "border-transparent text-foreground-muted hover:text-foreground"}`}
           >
             {v.label}
+            {v.id === "pedidos" && pedidos.length > 0 && <span className="ml-1.5 rounded-full bg-accent px-1.5 text-xs text-white">{pedidos.length}</span>}
           </Link>
         ))}
       </nav>
 
-      {vista === "necesidad" && <Necesidad />}
-      {vista !== "necesidad" && (
-        <div className="space-y-4">
-          {gestiona && (
-            <details className="panel" open={abiertas.length === 0}>
-              <summary className="cursor-pointer font-semibold text-brand-azul">Registrar una compra</summary>
-              <FormAccion accion={crearCompraAction} boton="Registrar compra" className="mt-3 grid gap-3 sm:grid-cols-3">
-                <label className="campo sm:col-span-2">
-                  <span>Material *</span>
-                  <select name="materiaPrimaId" required defaultValue="" className="input">
-                    <option value="" disabled>
-                      Elegí…
-                    </option>
-                    {materias
-                      .filter((m) => m.tipo === "VIRGEN" || m.tipo === "MASTER")
-                      .map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.nombre}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <label className="campo">
-                  <span>Cantidad (kg) *</span>
-                  <input name="cantidadKg" required inputMode="decimal" placeholder="Ej.: 1.500" className="input" />
-                </label>
-                <label className="campo">
-                  <span>Proveedor</span>
-                  <input name="proveedor" className="input" />
-                </label>
-                <label className="campo">
-                  <span>Fecha del pedido *</span>
-                  <input name="fechaPedido" type="date" required defaultValue={hoyISO()} className="input" />
-                </label>
-                <label className="campo">
-                  <span>Entrega estimada</span>
-                  <input name="fechaEntregaEstimada" type="date" className="input" />
-                </label>
-                <label className="campo">
-                  <span>N° de orden de compra</span>
-                  <input name="numeroOc" className="input" />
-                </label>
-                <label className="campo">
-                  <span>Estado</span>
-                  <select name="estado" defaultValue="PEDIDO" className="input">
-                    <option value="PEDIDO">{ESTADO_COMPRA_LABEL.PEDIDO}</option>
-                    <option value="COMPRADO">{ESTADO_COMPRA_LABEL.COMPRADO}</option>
-                  </select>
-                </label>
-                <label className="campo">
-                  <span>Observaciones</span>
-                  <input name="observaciones" className="input" />
-                </label>
-              </FormAccion>
-            </details>
-          )}
-          <ListaCompras compras={vista === "abiertas" ? abiertas : await listarCompras()} gestiona={gestiona} ingresa={ingresa} />
-        </div>
-      )}
+      {vista === "pedidos" && <Pedidos pedidos={pedidos} proveedores={activos} gestiona={gestiona} />}
+      {vista === "estado" && <Estado compras={compras} proveedores={proveedores} activos={activos} filtro={sp.filtro} proveedorId={Number(sp.proveedor) || null} gestiona={gestiona} ingresa={puedeIngresarMateriaPrima(usuario.rol)} />}
+      {vista === "proveedores" && <Proveedores proveedores={proveedores} gestiona={gestiona} />}
     </div>
   );
 }
 
-async function ListaCompras({ compras, gestiona, ingresa }: { compras: FilaCompra[]; gestiona: boolean; ingresa: boolean }) {
-  if (compras.length === 0) return <p className="aviso aviso-info">No hay compras para mostrar.</p>;
-  // El historial de todas las compras en una sola consulta (no una por compra).
-  const auditoria = await listarAuditoria({ entidad: "compra_mp", entidadIds: compras.map((c) => c.id), limite: 2000 });
+async function Pedidos({ pedidos, proveedores, gestiona }: { pedidos: FilaCompra[]; proveedores: Proveedor[]; gestiona: boolean }) {
+  if (pedidos.length === 0) return <p className="aviso aviso-info">No hay pedidos de Materia prima para ejecutar.</p>;
+  const situacion = await situacionCompraMp();
+  const orden = [...pedidos].sort((a, b) => ORDEN_ESTADO_COMPRA_MP[situacion.get(a.materiaPrimaId)?.estado ?? "OK"] - ORDEN_ESTADO_COMPRA_MP[situacion.get(b.materiaPrimaId)?.estado ?? "OK"] || a.id - b.id);
   return (
-    <ul className="space-y-2">
-      {compras.map((c) => (
-        <li key={c.id} className="panel">
-          <details>
-            <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2">
-              <span>
-                <span className="font-semibold">
-                  #{c.id} · {c.materiaPrimaNombre}
-                </span>
-                <span className="text-sm text-foreground-muted">
-                  {" "}
-                  · {fmtPeso(c.cantidadKg)}
-                  {c.proveedor ? ` · ${c.proveedor}` : ""} · pedida {fmtFecha(c.fechaPedido)}
-                  {c.fechaEntregaEstimada ? ` · entrega ${fmtFecha(c.fechaEntregaEstimada)}` : ""}
-                </span>
-              </span>
-              <span className="flex flex-wrap items-center gap-1">
-                {c.recibidoKg > 0 && <span className="text-xs text-foreground-muted">recibido {fmtPeso(c.recibidoKg)}</span>}
-                {c.atrasada && c.estado !== "DEMORA" && <span className="badge-estado badge-critico">entrega vencida</span>}
-                <span className={`badge-estado ${BADGE[c.estado]}`}>{ESTADO_COMPRA_LABEL[c.estado]}</span>
-              </span>
-            </summary>
-            <div className="mt-3 grid gap-4 lg:grid-cols-2">
-              <div className="space-y-2 text-sm">
-                {c.numeroOc && <p>Orden de compra: {c.numeroOc}</p>}
-                {c.observaciones && <p>Observaciones: {c.observaciones}</p>}
-                <p className="text-foreground-muted">Registrada por {c.creadoPorNombre}.</p>
-                <div>
-                  <div className="font-semibold">Entregas</div>
-                  {c.entregas.length === 0 ? (
-                    <p className="text-foreground-muted">Todavía no llegó nada. Las entregas se registran con el ingreso de proveedor en Materia prima.</p>
-                  ) : (
-                    <ul className="mt-1 space-y-0.5">
-                      {c.entregas.map((e) => (
-                        <li key={e.id}>
-                          {fmtFechaHora(e.fecha)} · {fmtPeso(e.kg)} · {e.usuarioNombre}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {c.pendienteKg > 0 && <p className="mt-1">Pendiente de entrega: {fmtPeso(c.pendienteKg)}</p>}
-                  {ingresa && c.pendienteKg > 0 && (
-                    <Link href={`/materia-prima/ingreso?compra=${c.id}`} className="btn btn-outline btn-sm mt-2">
-                      Registrar ingreso de esta compra
-                    </Link>
-                  )}
+    <section className="space-y-3">
+      {gestiona && proveedores.length === 0 && (
+        <p className="aviso aviso-alerta text-sm">
+          Para ejecutar una compra hace falta elegir el proveedor: cargalo primero en{" "}
+          <Link href="/compras?vista=proveedores" className="font-semibold underline">
+            Proveedores
+          </Link>
+          .
+        </p>
+      )}
+      {orden.map((c) => {
+        const s = situacion.get(c.materiaPrimaId);
+        return (
+          <article key={c.id} className="panel">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <div className="text-base font-semibold">
+                  {c.materiaPrimaNombre} · {fmtPeso(c.cantidadKg)}
                 </div>
-                <Historial filas={auditoria.filter((a) => a.entidadId === String(c.id)).slice(0, 30)} />
+                <div className="text-sm text-foreground-muted">
+                  Pedido #{c.id} · {fmtFecha(c.fechaPedido)} · {c.creadoPorNombre}
+                  {c.observaciones ? ` · «${c.observaciones}»` : ""}
+                </div>
               </div>
-              {gestiona && c.estado !== "ENTREGADA" && c.estado !== "CANCELADA" && (
-                <FormAccion accion={actualizarCompraAction} boton="Guardar cambios" ocultos={{ id: c.id }} className="grid gap-2 sm:grid-cols-2">
+              {s && s.estado !== "OK" && <span className={`badge-estado ${s.estado === "URGENTE" ? "badge-critico" : "badge-bajo"}`}>{ESTADO_COMPRA_MP_LABEL[s.estado]}</span>}
+            </div>
+            {gestiona && (
+              <div className="mt-3 grid gap-3 border-t border-border pt-3 lg:grid-cols-[1fr_auto]">
+                <FormAccion accion={ejecutarCompraAction} ocultos={{ id: c.id }} boton="Ejecutar compra" className="grid gap-3 sm:grid-cols-3">
                   <label className="campo">
-                    <span>Estado</span>
-                    <select name="estado" defaultValue={c.estado} className="input">
-                      {ESTADOS_COMPRA.map((e) => (
-                        <option key={e} value={e}>
-                          {ESTADO_COMPRA_LABEL[e]}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="campo">
-                    <span>Entrega estimada</span>
-                    <input name="fechaEntregaEstimada" type="date" defaultValue={c.fechaEntregaEstimada ?? ""} className="input" />
-                  </label>
-                  <label className="campo">
-                    <span>Proveedor</span>
-                    <input name="proveedor" defaultValue={c.proveedor ?? ""} className="input" />
-                  </label>
-                  <label className="campo">
-                    <span>N° de orden de compra</span>
-                    <input name="numeroOc" defaultValue={c.numeroOc ?? ""} className="input" />
+                    <span>Proveedor *</span>
+                    <SelectProveedor proveedores={proveedores} />
                   </label>
                   <label className="campo">
                     <span>Cantidad (kg)</span>
-                    <input name="cantidadKg" inputMode="decimal" defaultValue={String(c.cantidadKg).replace(".", ",")} className="input" />
+                    <input name="cantidadKg" inputMode="decimal" defaultValue={aInput(c.cantidadKg)} className="input" />
                   </label>
                   <label className="campo">
-                    <span>Observaciones</span>
-                    <input name="observaciones" defaultValue={c.observaciones ?? ""} className="input" />
+                    <span>Estado</span>
+                    <select name="estado" defaultValue="PEDIDO" className="input">
+                      <option value="PEDIDO">{ESTADO_COMPRA_LABEL.PEDIDO}</option>
+                      <option value="COMPRADO">{ESTADO_COMPRA_LABEL.COMPRADO}</option>
+                    </select>
                   </label>
-                  <label className="campo sm:col-span-2">
-                    <span>Motivo del cambio (queda en el historial)</span>
-                    <input name="motivo" className="input" />
+                  <CamposMonto />
+                  <label className="campo">
+                    <span>Entrega estimada</span>
+                    <input name="fechaEntregaEstimada" type="date" className="input" />
                   </label>
+                  <label className="campo">
+                    <span>N° de orden de compra</span>
+                    <input name="numeroOc" className="input" />
+                  </label>
+                  <p className="self-end text-xs text-foreground-muted">Cargá el precio por kg o el total: el otro se calcula con la cantidad.</p>
                 </FormAccion>
-              )}
-            </div>
-          </details>
-        </li>
-      ))}
-    </ul>
+                <FormAccion accion={actualizarCompraAction} ocultos={{ id: c.id, estado: "CANCELADA" }} boton="Descartar" claseBoton="btn btn-outline btn-sm" className="flex flex-col gap-2 self-end lg:w-48" confirmar="¿Descartar este pedido de Materia prima?">
+                  <input name="motivo" required placeholder="Motivo del descarte" className="input" />
+                </FormAccion>
+              </div>
+            )}
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
+async function Estado({
+  compras,
+  proveedores,
+  activos,
+  filtro,
+  proveedorId,
+  gestiona,
+  ingresa,
+}: {
+  compras: FilaCompra[];
+  proveedores: Proveedor[];
+  activos: Proveedor[];
+  filtro?: string;
+  proveedorId: number | null;
+  gestiona: boolean;
+  ingresa: boolean;
+}) {
+  const f = FILTROS.find((x) => x.id === filtro) ?? FILTROS[0];
+  const visibles = compras.filter((c) => f.estados!.includes(c.estado) && (!proveedorId || c.proveedorId === proveedorId));
+  const auditoria = visibles.length ? await listarAuditoria({ entidad: "compra_mp", entidadIds: visibles.map((c) => c.id), limite: 2000 }) : [];
+  const href = (over: { filtro?: string; proveedor?: number | null }) => {
+    const p = new URLSearchParams({ vista: "estado" });
+    const fil = over.filtro ?? f.id;
+    if (fil !== "curso") p.set("filtro", fil);
+    const prov = over.proveedor === undefined ? proveedorId : over.proveedor;
+    if (prov) p.set("proveedor", String(prov));
+    return `/compras?${p}`;
+  };
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {FILTROS.map((x) => (
+          <Link key={x.id} href={href({ filtro: x.id })} className={`btn btn-sm ${f.id === x.id ? "btn-azul" : "btn-outline"}`}>
+            {x.label} <span className="opacity-70">{compras.filter((c) => x.estados!.includes(c.estado) && (!proveedorId || c.proveedorId === proveedorId)).length}</span>
+          </Link>
+        ))}
+        <form action="/compras" className="ml-auto flex items-center gap-2">
+          <input type="hidden" name="vista" value="estado" />
+          {f.id !== "curso" && <input type="hidden" name="filtro" value={f.id} />}
+          <select name="proveedor" defaultValue={proveedorId ?? ""} className="input w-52">
+            <option value="">Todos los proveedores</option>
+            {proveedores.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nombre}
+              </option>
+            ))}
+          </select>
+          <button className="btn btn-outline btn-sm">Filtrar</button>
+        </form>
+      </div>
+      {visibles.length === 0 ? (
+        <p className="aviso aviso-info">No hay compras para mostrar.</p>
+      ) : (
+        <ul className="space-y-2">
+          {visibles.map((c) => (
+            <li key={c.id} className="panel">
+              <details>
+                <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2">
+                  <span>
+                    <span className="font-semibold">
+                      #{c.id} · {c.materiaPrimaNombre}
+                    </span>
+                    <span className="text-sm text-foreground-muted">
+                      {" "}
+                      · {fmtPeso(c.cantidadKg)} · {c.proveedor ?? "sin proveedor"} · pedida {fmtFecha(c.fechaPedido)}
+                      {c.fechaEntregaEstimada ? ` · entrega ${fmtFecha(c.fechaEntregaEstimada)}` : ""}
+                      {c.montoTotal != null ? ` · ${fmtMonto(c.montoTotal, c.moneda)}` : ""}
+                    </span>
+                  </span>
+                  <span className="flex flex-wrap items-center gap-1">
+                    {c.recibidoKg > 0 && c.estado !== "ENTREGADA" && <span className="text-xs text-foreground-muted">recibido {fmtPeso(c.recibidoKg)}</span>}
+                    {c.atrasada && c.estado !== "DEMORA" && <span className="badge-estado badge-critico">entrega vencida</span>}
+                    <span className={`badge-estado ${BADGE_COMPRA[c.estado]}`}>{ESTADO_COMPRA_LABEL[c.estado]}</span>
+                  </span>
+                </summary>
+                <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                  <div className="space-y-2 text-sm">
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+                      <dt className="text-foreground-muted">Proveedor</dt>
+                      <dd>{c.proveedorId ? <Link href={`/compras/proveedores/${c.proveedorId}`} className="font-semibold text-accent hover:underline">{c.proveedor}</Link> : (c.proveedor ?? "—")}</dd>
+                      <dt className="text-foreground-muted">Precio por kg</dt>
+                      <dd>{fmtMonto(c.precioKg, c.moneda)}</dd>
+                      <dt className="text-foreground-muted">Total</dt>
+                      <dd className="font-semibold">{fmtMonto(c.montoTotal, c.moneda)}</dd>
+                      {c.numeroOc && (
+                        <>
+                          <dt className="text-foreground-muted">Orden de compra</dt>
+                          <dd>{c.numeroOc}</dd>
+                        </>
+                      )}
+                      <dt className="text-foreground-muted">Entrega</dt>
+                      <dd>
+                        <Cumplio c={c} />
+                      </dd>
+                    </dl>
+                    {c.observaciones && <p>Observaciones: {c.observaciones}</p>}
+                    <div>
+                      <div className="font-semibold">Entregas</div>
+                      {c.entregas.length === 0 ? (
+                        <p className="text-foreground-muted">Todavía no llegó nada. Las entregas se registran con el ingreso de proveedor en Materia prima.</p>
+                      ) : (
+                        <ul className="mt-1 space-y-0.5">
+                          {c.entregas.map((e) => (
+                            <li key={e.id}>
+                              {fmtFechaHora(e.fecha)} · {fmtPeso(e.kg)} · {e.usuarioNombre}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {c.pendienteKg > 0 && <p className="mt-1">Pendiente de entrega: {fmtPeso(c.pendienteKg)}</p>}
+                      {ingresa && c.pendienteKg > 0 && (
+                        <Link href={`/materia-prima/ingreso?compra=${c.id}`} className="btn btn-outline btn-sm mt-2">
+                          Registrar ingreso de esta compra
+                        </Link>
+                      )}
+                    </div>
+                    <Historial filas={auditoria.filter((a) => a.entidadId === String(c.id)).slice(0, 30)} />
+                  </div>
+                  {gestiona && ABIERTAS.includes(c.estado) && (
+                    <FormAccion accion={actualizarCompraAction} boton="Guardar cambios" ocultos={{ id: c.id }} className="grid gap-2 sm:grid-cols-2">
+                      <label className="campo">
+                        <span>Estado</span>
+                        <select name="estado" defaultValue={c.estado} className="input">
+                          {OPCIONES_ESTADO.map((e) => (
+                            <option key={e.valor} value={e.valor}>
+                              {e.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="campo">
+                        <span>Proveedor</span>
+                        <SelectProveedor proveedores={activos.some((p) => p.id === c.proveedorId) ? activos : [...activos, ...proveedores.filter((p) => p.id === c.proveedorId)]} valor={c.proveedorId} requerido={false} />
+                      </label>
+                      <label className="campo">
+                        <span>Cantidad (kg)</span>
+                        <input name="cantidadKg" inputMode="decimal" defaultValue={aInput(c.cantidadKg)} className="input" />
+                      </label>
+                      <label className="campo">
+                        <span>Entrega estimada</span>
+                        <input name="fechaEntregaEstimada" type="date" defaultValue={c.fechaEntregaEstimada ?? ""} className="input" />
+                      </label>
+                      <CamposMonto precioKg={c.precioKg} montoTotal={c.montoTotal} moneda={c.moneda} />
+                      <label className="campo">
+                        <span>N° de orden de compra</span>
+                        <input name="numeroOc" defaultValue={c.numeroOc ?? ""} className="input" />
+                      </label>
+                      <label className="campo sm:col-span-2">
+                        <span>Observaciones</span>
+                        <input name="observaciones" defaultValue={c.observaciones ?? ""} className="input" />
+                      </label>
+                      <label className="campo sm:col-span-2">
+                        <span>Motivo del cambio (queda en el historial)</span>
+                        <input name="motivo" className="input" />
+                      </label>
+                    </FormAccion>
+                  )}
+                </div>
+              </details>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function Proveedores({ proveedores, gestiona }: { proveedores: Awaited<ReturnType<typeof listarProveedores>>; gestiona: boolean }) {
+  return (
+    <section className="space-y-4">
+      {gestiona && (
+        <details className="panel" open={proveedores.length === 0}>
+          <summary className="cursor-pointer font-semibold text-brand-azul">+ Cargar un proveedor</summary>
+          <FormAccion accion={guardarProveedorAction} boton="Guardar proveedor" className="mt-3 grid gap-3 sm:grid-cols-3">
+            <CamposProveedor />
+          </FormAccion>
+        </details>
+      )}
+      {proveedores.length === 0 ? (
+        <p className="aviso aviso-info">Todavía no hay proveedores cargados.</p>
+      ) : (
+        <div className="panel overflow-x-auto p-0">
+          <table className="tabla">
+            <thead>
+              <tr>
+                <th>Proveedor</th>
+                <th>Contacto</th>
+                <th className="text-right">Compras</th>
+                <th className="text-right">En curso</th>
+                <th>Entregas a tiempo</th>
+                <th className="text-right">Demora promedio</th>
+                <th>Última compra</th>
+              </tr>
+            </thead>
+            <tbody>
+              {proveedores.map((p) => {
+                const k = p.cumplimiento;
+                const pct = k.medidas ? Math.round((k.aTiempo / k.medidas) * 100) : null;
+                return (
+                  <tr key={p.id} className={p.activo ? "" : "opacity-60"}>
+                    <td>
+                      <Link href={`/compras/proveedores/${p.id}`} className="font-semibold text-accent hover:underline">
+                        {p.nombre}
+                      </Link>
+                      {!p.activo && <span className="badge-estado ml-2 bg-surface-muted text-foreground-muted">de baja</span>}
+                    </td>
+                    <td className="text-sm">{[p.contacto, p.telefono, p.email].filter(Boolean).join(" · ") || "—"}</td>
+                    <td className="text-right tabular-nums">{k.compras}</td>
+                    <td className="text-right tabular-nums">
+                      {k.enCurso}
+                      {k.vencidas > 0 && <span className="badge-estado badge-critico ml-1">{k.vencidas} vencida{k.vencidas > 1 ? "s" : ""}</span>}
+                    </td>
+                    <td>{pct == null ? <span className="text-foreground-muted">sin entregas medidas</span> : <span className={`badge-estado ${pct >= 90 ? "badge-ok" : pct >= 70 ? "badge-bajo" : "badge-critico"}`}>{pct}% ({k.aTiempo} de {k.medidas})</span>}</td>
+                    <td className="text-right tabular-nums">{k.demoraPromedio != null ? `${k.demoraPromedio} días` : "—"}</td>
+                    <td>{k.ultimaCompra ? fmtFecha(k.ultimaCompra) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="text-xs text-foreground-muted">El cumplimiento compara la fecha de la última entrega de cada compra con su entrega estimada.</p>
+    </section>
   );
 }
 
@@ -274,111 +401,5 @@ function Historial({ filas }: { filas: Awaited<ReturnType<typeof listarAuditoria
         ))}
       </ul>
     </details>
-  );
-}
-
-/** Lo que falta comprar para un destino, con lo que ese destino pide abajo. */
-function CeldaNecesidad({ falta, pide, fuerte }: { falta: number; pide: number; fuerte?: boolean }) {
-  if (!pide) return <td className="text-right text-foreground-muted">—</td>;
-  return (
-    <td className="text-right">
-      <div className={falta > 0 ? `font-bold ${fuerte ? "text-[var(--estado-critico-fg)]" : "text-[var(--estado-bajo-fg)]"}` : "font-semibold text-[var(--estado-ok-fg)]"}>
-        {falta > 0 ? `Faltan ${fmtPeso(falta)}` : "Cubierto"}
-      </div>
-      <div className="text-[11px] text-foreground-muted">pide {fmtPeso(pide)}</div>
-    </td>
-  );
-}
-
-async function Necesidad() {
-  const n = await calcularNecesidad();
-  const conNecesidad = n.filas.filter((f) => f.necesidadKg > 0 || f.proyectadaKg > 0);
-  return (
-    <section className="space-y-4">
-      <div className="aviso aviso-info text-sm">
-        <b>Cómo se calcula:</b> el material que piden los pedidos a producir, el que hace falta para reponer los pisos bajo el mínimo y el mínimo de la
-        propia materia prima se cubren, en ese orden, con lo disponible (depósito y pie de máquina) y lo ya comprado pendiente de entrega. Lo que
-        queda sin cubrir se muestra separado: <b>para pedidos</b> se compra sí o sí; <b>para stock mínimo de pisos</b> y <b>de materia prima</b> se
-        consulta antes con Brian y contabilidad. Las piezas se convierten a kilos con la receta y el peso por pieza.
-      </div>
-      {n.avisos.map((a) => (
-        <p key={a} className="aviso aviso-alerta text-sm">
-          {a}
-        </p>
-      ))}
-      <div className="panel overflow-x-auto p-0">
-        <table className="tabla">
-          <thead>
-            <tr>
-              <th>Material</th>
-              <th className="text-right">Disponible</th>
-              <th className="text-right">Comprado pendiente</th>
-              <th className="text-right">Para pedidos (se compra sí o sí)</th>
-              <th className="text-right">Para stock mínimo de pisos</th>
-              <th className="text-right">Para stock mínimo de MP</th>
-            </tr>
-          </thead>
-          <tbody>
-            {n.filas.map((f) => {
-              const g = {};
-              return (
-                <tr key={f.materiaPrimaId}>
-                  <td>
-                    <div className="font-semibold">{f.nombre}</div>
-                    {f.estimado && <span className="badge-estado badge-bajo mr-1">estimado</span>}
-                    {f.riesgo && <div className="text-xs font-semibold text-[var(--estado-critico-fg)]">{f.riesgo}</div>}
-                    {f.entregasEnRiesgo && (
-                      <div className="text-xs text-[var(--estado-critico-fg)]">
-                        Entregas en riesgo:{" "}
-                        {[...f.pedidos]
-                          .sort((a, b) => (a.fechaEntrega ?? "9999").localeCompare(b.fechaEntrega ?? "9999"))
-                          .slice(0, 5)
-                          .map((p) => `#${p.pedidoId} ${p.clienteNombre}${p.fechaEntrega ? ` (${fmtFecha(p.fechaEntrega)})` : ""}`)
-                          .join(" · ")}
-                        {f.pedidos.length > 5 ? ` y ${f.pedidos.length - 5} más` : ""}
-                      </div>
-                    )}
-                  </td>
-                  <td className="text-right">{fmtPeso(f.disponibleKg, g)}</td>
-                  <td className="text-right">{f.compradoPendienteKg ? fmtPeso(f.compradoPendienteKg, g) : "—"}</td>
-                  <CeldaNecesidad falta={f.paraPedidosKg} pide={f.pedidosKg} fuerte />
-                  <CeldaNecesidad falta={f.paraStockPisosKg} pide={f.stockProductoKg} />
-                  <CeldaNecesidad falta={f.paraMinimoMpKg} pide={f.objetivoMpKg} />
-                </tr>
-              );
-            })}
-            {n.filas.length === 0 && (
-              <tr>
-                <td colSpan={6} className="text-foreground-muted">
-                  No hay demanda ni mínimos cargados que generen necesidad.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <p className="text-sm text-foreground-muted">
-        {conNecesidad.length
-          ? `${conNecesidad.length} materiales con necesidad.`
-          : "Con lo planificado, los pedidos y los mínimos cargados, el material alcanza."}
-      </p>
-      {n.sinConfigurar.length > 0 && (
-        <div className="panel">
-          <h2 className="panel-titulo">No se pudieron calcular (falta configurar)</h2>
-          <p className="mb-2 text-sm text-foreground-muted">
-            Estos productos tienen demanda pero les falta la receta de carga o el peso por pieza: no se suman a la necesidad hasta configurarlos
-            (Configuración → Recetas de carga / Productos).
-          </p>
-          <ul className="grid gap-1 text-sm sm:grid-cols-2">
-            {n.sinConfigurar.slice(0, 40).map((s) => (
-              <li key={`${s.codigo}-${s.motivo}`}>
-                <span className="font-mono text-xs">{s.codigo}</span> · {s.unidades} u. · {s.motivo}
-              </li>
-            ))}
-          </ul>
-          {n.sinConfigurar.length > 40 && <p className="mt-1 text-xs text-foreground-muted">y {n.sinConfigurar.length - 40} más.</p>}
-        </div>
-      )}
-    </section>
   );
 }

@@ -15,7 +15,7 @@ import { obtenerParametros } from "@/lib/data/parametros";
 import { semaforoStock, type EstadoSemaforo } from "@/lib/data/stock";
 import { registrarCambios, ultimasModificaciones, type Actor, type Resultado } from "@/lib/data/auditoria";
 
-export type MinMaxInput = { minimo: number | null; maximo: number | null; motivo?: string | null };
+export type MinMaxInput = { minimo: number | null; maximo: number | null; avisoCompraKg?: number | null; motivo?: string | null };
 
 function validar(input: MinMaxInput, enteros: boolean): string | null {
   for (const [campo, v] of [["mínimo", input.minimo], ["máximo", input.maximo]] as const) {
@@ -37,6 +37,8 @@ export type FilaMinMax = {
   stock: number;
   minimo: number | null;
   maximo: number | null;
+  /** Sólo materia prima: margen para «Compra próximamente». */
+  avisoCompraKg?: number | null;
   estado: EstadoSemaforo;
   ultimaModificacion: { fecha: Date; usuarioNombre: string } | null;
 };
@@ -88,6 +90,7 @@ export async function listarMinMaxMateriaPrima(): Promise<FilaMinMax[]> {
         tipo: materiaPrima.tipo,
         minimo: materiaPrima.minimo,
         maximo: materiaPrima.maximo,
+        aviso: materiaPrima.avisoCompraKg,
         stock: sql<string>`coalesce(${saldo.cantidad}, 0)`,
       })
       .from(materiaPrima)
@@ -105,6 +108,7 @@ export async function listarMinMaxMateriaPrima(): Promise<FilaMinMax[]> {
     stock: Number(f.stock),
     minimo: f.minimo != null ? Number(f.minimo) : null,
     maximo: f.maximo != null ? Number(f.maximo) : null,
+    avisoCompraKg: f.aviso != null ? Number(f.aviso) : null,
     estado: semaforoStock(f.stock, f.minimo, f.maximo, parametros.semaforo_margen_bajo),
     ultimaModificacion: ultimas.get(String(f.id)) ?? null,
   }));
@@ -134,10 +138,11 @@ export async function actualizarMinMaxMateriaPrima(actor: Actor, mpId: number, i
   if (!puedeEditarMinMax(actor.rol)) return { error: "No tenés permiso para cambiar mínimos y máximos." };
   const error = validar(input, false);
   if (error) return { error };
+  if (input.avisoCompraKg != null && (!Number.isFinite(input.avisoCompraKg) || input.avisoCompraKg < 0)) return { error: "El margen de compra tiene que ser un número mayor o igual a cero." };
 
   return db.transaction(async (tx) => {
     const [actual] = await tx
-      .select({ minimo: materiaPrima.minimo, maximo: materiaPrima.maximo })
+      .select({ minimo: materiaPrima.minimo, maximo: materiaPrima.maximo, aviso: materiaPrima.avisoCompraKg })
       .from(materiaPrima)
       .where(eq(materiaPrima.id, mpId));
     if (!actual) return { error: "Materia prima no encontrada." };
@@ -146,11 +151,13 @@ export async function actualizarMinMaxMateriaPrima(actor: Actor, mpId: number, i
       .set({
         minimo: input.minimo != null ? String(input.minimo) : null,
         maximo: input.maximo != null ? String(input.maximo) : null,
+        ...(input.avisoCompraKg !== undefined ? { avisoCompraKg: input.avisoCompraKg != null ? String(input.avisoCompraKg) : null } : {}),
       })
       .where(eq(materiaPrima.id, mpId));
     await registrarCambios(tx, actor.id, [
       { entidad: "materia_prima", entidadId: mpId, campo: "minimo", anterior: actual.minimo, nuevo: input.minimo, motivo: input.motivo },
       { entidad: "materia_prima", entidadId: mpId, campo: "maximo", anterior: actual.maximo, nuevo: input.maximo, motivo: input.motivo },
+      ...(input.avisoCompraKg !== undefined ? [{ entidad: "materia_prima", entidadId: mpId, campo: "margen de compra", anterior: actual.aviso, nuevo: input.avisoCompraKg, motivo: input.motivo }] : []),
     ]);
     return {};
   });

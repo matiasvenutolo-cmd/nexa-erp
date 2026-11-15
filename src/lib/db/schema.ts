@@ -362,6 +362,9 @@ export const materiaPrima = pgTable("materia_prima", {
   proveedor: text("proveedor"),
   minimo: numeric("minimo", { precision: 12, scale: 3 }),
   maximo: numeric("maximo", { precision: 12, scale: 3 }),
+  /** Margen para «Compra próximamente» (kg libres por encima de los pedidos
+   *  sin planificar). Vacío = se usa el mínimo. Se carga en el Panel admin. */
+  avisoCompraKg: numeric("aviso_compra_kg", { precision: 12, scale: 3 }),
   activo: boolean("activo").notNull().default(true),
   observaciones: text("observaciones"),
 });
@@ -1530,6 +1533,26 @@ export const asignacionOperario = pgTable(
 /** SOLICITADA: Materia prima la pidió y Compras todavía no la activó. */
 export const estadoCompraEnum = pgEnum("estado_compra", ["SOLICITADA", "PEDIDO", "COMPRADO", "PARCIAL", "DEMORA", "FALTANTE", "ENTREGADA", "CANCELADA"]);
 
+/**
+ * Proveedores de materia prima y master (pedido de Compras, nov. 2026): ficha
+ * con sus datos para elegirlo al ejecutar una compra y ver su historial y el
+ * cumplimiento de las fechas de entrega. No confundir con `proveedorMaster`,
+ * que es parte de la identidad del producto (la inicial del código).
+ */
+export const proveedor = pgTable("proveedor", {
+  id: serial("id").primaryKey(),
+  nombre: text("nombre").notNull().unique(),
+  cuit: text("cuit"),
+  contacto: text("contacto"),
+  telefono: text("telefono"),
+  email: text("email"),
+  direccion: text("direccion"),
+  condicionPago: text("condicion_pago"),
+  observaciones: text("observaciones"),
+  activo: boolean("activo").notNull().default(true),
+  creadoEn: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const compraMp = pgTable(
   "compra_mp",
   {
@@ -1537,7 +1560,13 @@ export const compraMp = pgTable(
     materiaPrimaId: integer("materia_prima_id")
       .notNull()
       .references(() => materiaPrima.id),
+    /** Nombre del proveedor (texto histórico; con `proveedorId` es su copia). */
     proveedor: text("proveedor"),
+    proveedorId: integer("proveedor_id").references(() => proveedor.id),
+    /** Montos de la compra: precio por kg y total, en pesos o dólares. */
+    precioKg: numeric("precio_kg", { precision: 14, scale: 4 }),
+    montoTotal: numeric("monto_total", { precision: 16, scale: 2 }),
+    moneda: text("moneda").notNull().default("ARS"),
     cantidadKg: numeric("cantidad_kg", { precision: 14, scale: 3 }).notNull(),
     fechaPedido: date("fecha_pedido").notNull(),
     fechaEntregaEstimada: date("fecha_entrega_estimada"),

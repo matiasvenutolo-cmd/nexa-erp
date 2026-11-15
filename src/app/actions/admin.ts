@@ -65,9 +65,10 @@ export async function guardarMinMaxMateriaPrimaAction(fd: FormData) {
   const r = await actualizarMinMaxMateriaPrima(usuario, Number(fd.get("id")), {
     minimo: numero(fd, "minimo"),
     maximo: numero(fd, "maximo"),
+    avisoCompraKg: fd.has("avisoCompraKg") ? numero(fd, "avisoCompraKg") : undefined,
     motivo: texto(fd, "motivo"),
   });
-  volver(fd, r, "Mínimo y máximo guardados.");
+  volver(fd, r, "Mínimo, máximo y margen guardados.");
 }
 
 export async function guardarParametroAction(fd: FormData) {

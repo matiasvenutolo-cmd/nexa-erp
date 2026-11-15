@@ -49,7 +49,9 @@ export default async function AdminStockPage({
 
       <p className="text-sm text-foreground-muted">
         El semáforo se calcula solo con estos valores. Dejá el máximo vacío si no se controla.
-        {vista === "mp" ? " Materia prima en kg." : " Productos en unidades."}
+        {vista === "mp"
+          ? " Materia prima en kg. Margen de compra: cuántos kg libres tienen que quedar, además de los pedidos sin planificar, para que el material no pase a «Compra próximamente» (vacío = el mínimo)."
+          : " Productos en unidades."}
       </p>
 
       <div className="overflow-hidden rounded-lg border border-border bg-surface">
@@ -62,6 +64,7 @@ export default async function AdminStockPage({
                 <th className={`${TH} text-right`}>Stock</th>
                 <th className={TH}>Mínimo</th>
                 <th className={TH}>Máximo</th>
+                {vista === "mp" && <th className={TH}>Margen de compra</th>}
                 <th className={TH}>Estado</th>
                 <th className={TH}>Última modificación</th>
                 <th className={TH} />
@@ -73,7 +76,7 @@ export default async function AdminStockPage({
               ))}
               {visibles.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-foreground-muted">
+                  <td colSpan={vista === "mp" ? 9 : 8} className="px-4 py-8 text-center text-foreground-muted">
                     No hay resultados.
                   </td>
                 </tr>
@@ -111,6 +114,11 @@ function Fila({
       <td className={TD}>
         <input form={formId} name="maximo" type="number" min={0} step={step} defaultValue={f.maximo ?? ""} className="input min-w-[7rem]" />
       </td>
+      {f.avisoCompraKg !== undefined && (
+        <td className={TD}>
+          <input form={formId} name="avisoCompraKg" type="number" min={0} step="any" defaultValue={f.avisoCompraKg ?? ""} placeholder={f.minimo != null ? String(f.minimo) : ""} className="input min-w-[7rem]" />
+        </td>
+      )}
       <td className={TD}>
         <Semaforo estado={f.estado} />
       </td>

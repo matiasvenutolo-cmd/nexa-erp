@@ -37,7 +37,8 @@ import { compararRecetasConDosificacion, crearDosificacion, resolverDosificacion
 import { guardarReceta, listarPresentaciones } from "@/lib/data/recetas";
 import { identificarCodigoRetiro, variantesCodigoMp } from "@/lib/data/maquina";
 import { esLecturaRepetida, limpiarCodigo } from "@/components/lector-codigo";
-import { actualizarCompra, calcularNecesidad, crearCompra, listarCompras } from "@/lib/data/compras";
+import { actualizarCompra, crearCompra, listarCompras } from "@/lib/data/compras";
+import { situacionCompraMp } from "@/lib/data/necesidad-mp";
 import { ingresarMateriaPrima } from "@/lib/data/materia-prima";
 import { actualizarIntervencion, listarIntervenciones, programarIntervencion } from "@/lib/data/matrices";
 import { confirmarMolienda, descartesPendientes, entregarMolienda, recibirDescarte } from "@/lib/data/molino";
@@ -274,19 +275,14 @@ describe("Compras", () => {
     expect(c).toMatchObject({ estado: "PARCIAL", recibidoKg: 20, pendienteKg: 30 });
   });
 
-  it("la necesidad cruza recetas, stock y compras; avisa riesgo y lo no configurado", async () => {
+  it("la situación de compra de Materia prima cruza planificación, stock y compras; avisa el faltante en proveedor", async () => {
     await actualizarCompra(s.usuarios.COMPRAS, compraId, { estado: "FALTANTE", motivo: "Berma sin stock" });
-    const n = await calcularNecesidad();
-    const fm = n.filas.find((f) => f.materiaPrimaId === master.id)!;
-    expect(fm.compradoPendienteKg).toBe(30);
-    expect(fm.objetivoMpKg).toBe(50);
-    expect(fm.riesgo).toMatch(/tono parecido/);
-    // El negro de rejilla está bajo su mínimo (1.500) y tiene receta: aporta material.
-    expect(fm.stockProductoKg).toBeGreaterThan(0);
-    expect(fm.estimado).toBe(true);
-    expect(fm.proyectadaKg).toBeCloseTo(Math.max(0, fm.pedidosKg + fm.stockProductoKg + fm.objetivoMpKg - fm.disponibleKg - 30), 3);
-    // Sin receta: se informa aparte, no se inventa.
-    expect(n.sinConfigurar.some((x) => x.codigo === "004A-PR-BL" || x.codigo === "008B-PR-RO")).toBe(true);
+    const fm = (await situacionCompraMp()).get(master.id)!;
+    expect(fm.enCompraKg).toBe(30);
+    expect(fm.margenKg).toBe(50); // sin margen cargado: el mínimo del material
+    expect(fm.riesgo).toMatch(/faltante en proveedor/);
+    // Molienda y sobrante salen de la planta: no tienen situación de compra.
+    expect((await situacionCompraMp()).has(molienda.id)).toBe(false);
     const hist = await listarAuditoria({ entidad: "compra_mp", entidadId: compraId });
     expect(hist.some((h) => h.campo === "estado" && h.motivo === "Berma sin stock")).toBe(true);
   });
@@ -401,11 +397,11 @@ describe("Auditoría final: cambios estructurales y permisos del servidor", () =
     expect(seccion("/admin/recetas")("GERENCIA_CONSULTA")).toBe(false);
   });
 
-  it("la necesidad indica qué pedidos y fechas dependen del material que falta", async () => {
-    const n = await calcularNecesidad();
-    const f = n.filas.find((x) => x.materiaPrimaId === master.id)!;
-    expect(Array.isArray(f.pedidos)).toBe(true);
-    // Sólo hay riesgo para las entregas si lo disponible no cubre los pedidos.
-    for (const x of n.filas) expect(x.entregasEnRiesgo).toBe(x.pedidos.length > 0 && x.disponibleKg < x.pedidosKg);
+  it("el estado de compra de cada material es coherente con lo libre, los pedidos sin planificar y el margen", async () => {
+    for (const x of (await situacionCompraMp()).values()) {
+      expect(x.libreKg).toBeCloseTo(x.depositoKg - Math.max(0, x.comprometidoKg - x.pieKg), 3);
+      const esperado = x.libreKg < -0.0005 ? "URGENTE" : x.libreKg < x.pedidosSinPlanificarKg + x.margenKg - 0.0005 ? "PROXIMAMENTE" : "OK";
+      expect(x.estado).toBe(esperado);
+    }
   });
 });

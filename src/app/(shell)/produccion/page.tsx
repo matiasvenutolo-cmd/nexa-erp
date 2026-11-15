@@ -412,9 +412,9 @@ async function Compras({ tandas }: { tandas: Awaited<ReturnType<typeof listarTan
         <h2 className="panel-titulo">Material para la planificación vs. disponible</h2>
         <p className="mb-3 text-sm text-foreground-muted">
           Calculado con la receta de cada tanda y el peso por pieza. Disponible = depósito + pie de máquina. Las tandas postergadas no cuentan.
-          La necesidad completa (pedidos sin planificar, stock bajo el mínimo y compras en curso) está en{" "}
-          <Link href="/compras" className="font-semibold text-accent underline">
-            Compras
+          Qué hay que comprar (con los pedidos sin planificar, el margen de cada material y lo que ya está en compra) lo ve Materia prima en su{" "}
+          <Link href="/materia-prima?alertas=1" className="font-semibold text-accent underline">
+            tabla de stock
           </Link>
           .
         </p>
