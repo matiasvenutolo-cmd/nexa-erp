@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>NEXA · Compras y materia prima</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --azul:#002CB5; --profundo:#00009F; --oscuro:#12132C; --naranja:#FF6100; --gris:#CBD6DE;
+  --tinta:#1d2033; --suave:#5b6178; --linea:#e3e8ef; --fondo:#f4f6fa; --azulsoft:#eaf0ff; --narsoft:#fff1e8;
+}
+@page{ size:A4; margin:0 }
+*{ box-sizing:border-box; margin:0; padding:0 }
+html,body{ background:#d9dde5 }
+body{ font-family:"Open Sans",sans-serif; color:var(--tinta); font-size:9.4pt; line-height:1.5; -webkit-print-color-adjust:exact; print-color-adjust:exact }
+.page{ width:210mm; height:297mm; position:relative; overflow:hidden; background:#fff; margin:0 auto 8mm; page-break-after:always; padding:20mm 16mm 18mm }
+@media print{ .page{ margin:0 } html,body{ background:#fff } }
+h1,h2,h3,h4,.num,.display{ font-family:"Outfit",sans-serif }
+b,strong{ font-weight:700; color:var(--oscuro) }
+
+/* encabezado y pie corrido */
+.run{ position:absolute; top:9mm; left:16mm; right:16mm; display:flex; justify-content:space-between; align-items:center; font-size:7.6pt; color:var(--suave); letter-spacing:.04em; text-transform:uppercase }
+.run .marca{ display:flex; align-items:center; gap:2.5mm; font-weight:700; color:var(--profundo) }
+.run .marca i{ display:block; width:6mm; height:1.2mm; background:var(--naranja); border-radius:1mm }
+.folio{ position:absolute; bottom:8mm; right:16mm; font-family:"Outfit"; font-weight:700; font-size:9pt; color:var(--profundo) }
+.folio::before{ content:""; display:inline-block; width:8mm; height:.5mm; background:var(--gris); vertical-align:middle; margin-right:3mm }
+
+/* apertura de sección */
+.abre{ display:flex; gap:6mm; align-items:flex-end; margin-bottom:6mm }
+.abre .num{ font-size:62pt; font-weight:800; line-height:.8; color:#fff; -webkit-text-stroke:1.4pt var(--azul); letter-spacing:-.02em }
+.abre h2{ font-size:25pt; font-weight:700; color:var(--oscuro); line-height:1.05 }
+.abre p{ color:var(--suave); font-size:10.5pt; margin-top:1.5mm; max-width:140mm }
+.abre .barra{ width:16mm; height:1.6mm; background:var(--naranja); border-radius:2mm; margin-bottom:2.5mm }
+h3{ font-size:13.5pt; font-weight:700; color:var(--profundo); margin:0 0 2mm; display:flex; align-items:center; gap:2.5mm }
+h3 .tag{ font-family:"Open Sans"; font-size:7pt; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--naranja); background:var(--narsoft); padding:.6mm 2mm; border-radius:10mm }
+p+p{ margin-top:2mm }
+.lede{ font-size:10.2pt; color:var(--suave) }
+
+/* listas */
+ul.ok{ list-style:none; display:grid; gap:1.8mm }
+ul.ok li{ position:relative; padding-left:5.5mm }
+ul.ok li::before{ content:""; position:absolute; left:0; top:1.6mm; width:2.6mm; height:2.6mm; border-radius:50%; background:var(--azulsoft); border:.7mm solid var(--azul) }
+
+/* marcos */
+.browser{ border-radius:3mm; overflow:hidden; background:#fff; border:.35mm solid #cfd6e2; border-bottom-width:1.1mm; position:relative }
+.browser .bar{ height:6.5mm; background:#eef1f6; display:flex; align-items:center; gap:1.4mm; padding:0 3mm; border-bottom:.25mm solid var(--linea) }
+.browser .bar i{ width:2.1mm; height:2.1mm; border-radius:50%; background:#d3d8e2 }
+.browser .bar i:nth-child(1){ background:#ff6159 } .browser .bar i:nth-child(2){ background:#ffbd2e } .browser .bar i:nth-child(3){ background:#28c941 }
+.browser .bar span{ margin-left:3mm; flex:1; height:3.6mm; border-radius:2mm; background:#fff; font-size:6.4pt; color:var(--suave); display:flex; align-items:center; padding-left:2.5mm; line-height:1 }
+.browser .shot{ position:relative }
+.browser img, .phone img, .plain img{ display:block; width:100% }
+.phone{ border-radius:8mm; background:var(--oscuro); padding:2.2mm; position:relative }
+.phone .scr{ border-radius:6mm; overflow:hidden; position:relative; background:#fff }
+.phone .scr::before{ content:""; position:absolute; top:1.4mm; left:50%; transform:translateX(-50%); width:16mm; height:3.2mm; border-radius:3mm; background:var(--oscuro); z-index:2 }
+.plain{ border-radius:3mm; overflow:hidden; border:.35mm solid #cfd6e2; position:relative }
+
+/* marcadores */
+.pin{ position:absolute; transform:translate(-50%,-50%); width:6.4mm; height:6.4mm; border-radius:50%; background:var(--naranja); color:#fff; font:700 9pt "Outfit"; display:flex; align-items:center; justify-content:center; border:.7mm solid #fff; z-index:3 }
+.leyenda{ list-style:none; display:grid; gap:2.6mm }
+.leyenda li{ display:grid; grid-template-columns:7mm 1fr; gap:2.5mm; align-items:start }
+.leyenda li .n{ width:6.4mm; height:6.4mm; border-radius:50%; background:var(--naranja); color:#fff; font:700 9pt "Outfit"; display:flex; align-items:center; justify-content:center }
+.leyenda li b{ display:block }
+.cap{ font-size:7.8pt; color:var(--suave); margin-top:2.4mm; font-style:italic }
+
+/* bloques */
+.row{ display:grid; gap:7mm }
+.c2{ grid-template-columns:1fr 1fr } .c3{ grid-template-columns:repeat(3,1fr) } .c4{ grid-template-columns:repeat(4,1fr) }
+.card{ background:var(--fondo); border-radius:3mm; padding:4mm 4.5mm }
+.card h4{ font-size:10.5pt; color:var(--oscuro); margin-bottom:1mm }
+.nota{ background:var(--azulsoft); border-left:1.2mm solid var(--azul); border-radius:0 3mm 3mm 0; padding:3mm 4.5mm; font-size:9pt }
+.nota.nar{ background:var(--narsoft); border-color:var(--naranja) }
+.sep{ height:7mm }
+.stat{ background:#fff; border:.3mm solid var(--linea); border-radius:3mm; padding:3mm 3.5mm }
+.stat .v{ font:800 18pt "Outfit"; color:var(--azul); line-height:1 }
+.stat .v small{ font-size:8.5pt; font-weight:600; color:var(--suave); margin-left:1mm }
+.stat .k{ font-size:7.8pt; color:var(--suave); margin-top:1.2mm; line-height:1.3 }
+.stat .s{ white-space:nowrap; display:inline-block; margin-top:1.6mm; font-size:7.2pt; font-weight:700; color:var(--naranja); background:var(--narsoft); border-radius:5mm; padding:.4mm 2mm }
+
+/* flujo */
+.flujo{ display:flex; align-items:stretch; gap:0 }
+.flujo .paso{ flex:1; background:#fff; border:.3mm solid var(--linea); border-radius:3mm; padding:3mm; font-size:8.4pt; position:relative }
+.flujo .paso .t{ font:700 7pt "Open Sans"; letter-spacing:.06em; text-transform:uppercase; color:var(--naranja); margin-bottom:.8mm }
+.flujo .fl{ width:7mm; display:flex; align-items:center; justify-content:center; color:var(--azul); font:700 14pt "Outfit" }
+
+/* portada */
+.portada{ padding:0; background:#fff }
+.portada .azul{ position:absolute; inset:0; background:linear-gradient(140deg,var(--azul) 0%,var(--profundo) 55%,#06065e 100%); clip-path:polygon(100% 30%,100% 100%,0 100%,0 74%) }
+.portada .grid{ position:absolute; left:0; top:0; width:210mm; height:297mm; clip-path:polygon(100% 30%,100% 100%,0 100%,0 74%) }
+.portada .filo{ position:absolute; inset:0; background:var(--naranja); clip-path:polygon(100% 30%,100% 31.4%,0 75.4%,0 74%) }
+.portada .logo{ position:absolute; top:16mm; left:16mm; width:40mm }
+.portada .tit{ position:absolute; top:52mm; left:16mm; width:150mm }
+.portada .kick{ font:700 8pt "Open Sans"; letter-spacing:.14em; text-transform:uppercase; color:var(--naranja) }
+.portada h1{ font-size:42pt; line-height:.98; font-weight:800; color:var(--oscuro); margin-top:4mm; letter-spacing:-.01em }
+.portada h1 span{ color:var(--azul) }
+.portada .sub{ font-size:11.5pt; color:var(--suave); margin-top:5mm; max-width:100mm }
+.portada .dev{ position:absolute }
+.portada .pie{ position:absolute; left:16mm; right:16mm; bottom:12mm; display:flex; justify-content:space-between; color:#fff; font-size:8pt; letter-spacing:.05em }
+.portada .pie b{ color:#fff }
+.portada .chips{ position:absolute; left:16mm; bottom:24mm; display:flex; gap:3mm }
+.portada .chips div{ background:#1a24b4; border:.3mm solid #4b56d6; color:#fff; border-radius:3mm; padding:2.5mm 4mm; font-size:7.6pt; line-height:1.25 }
+.portada .chips div b{ display:block; color:#fff; font:800 17pt "Outfit"; line-height:1 }
+
+/* índice */
+.indice{ display:grid; grid-template-columns:1fr 1fr; gap:3.5mm }
+.indice a{ text-decoration:none; color:inherit; display:grid; grid-template-columns:13mm 1fr; gap:3mm; padding:4mm; border-radius:3mm; background:var(--fondo); align-items:start }
+.indice .ico{ width:13mm; height:13mm; border-radius:3mm; background:#fff; display:flex; align-items:center; justify-content:center; border:.3mm solid var(--linea) }
+.indice .ico svg{ width:6.5mm; height:6.5mm; stroke:var(--azul); fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round }
+.indice h4{ font-size:11pt; color:var(--oscuro); display:flex; justify-content:space-between }
+.indice h4 small{ font:700 8pt "Outfit"; color:var(--naranja) }
+.indice p{ font-size:8.4pt; color:var(--suave); line-height:1.4; margin-top:.8mm }
+
+/* etiqueta */
+.anat{ display:flex; justify-content:center; gap:2.5mm; align-items:flex-start; margin:2mm 0 0 }
+.anat .seg{ text-align:center }
+.anat .seg .cod{ font:800 23pt "Outfit"; letter-spacing:.02em; padding:1.5mm 3.5mm; border-radius:2.5mm; line-height:1.1 }
+.anat .guion{ font:800 23pt "Outfit"; color:var(--gris); padding-top:1.5mm }
+.anat .seg .lbl{ margin-top:2.5mm; font-size:8pt; line-height:1.3; color:var(--suave); max-width:46mm }
+.anat .seg .lbl b{ display:block; font-size:9pt }
+.s1 .cod{ background:var(--azulsoft); color:var(--azul) } .s2 .cod{ background:var(--narsoft); color:#d14f00 } .s3 .cod{ background:#e9f8ef; color:#16794a }
+
+/* preguntas */
+.qs{ display:grid; grid-template-columns:1fr 1fr; gap:4mm }
+.q{ border:.3mm solid var(--linea); border-radius:3mm; padding:3.6mm 4mm 3.2mm; position:relative; break-inside:avoid; display:flex; flex-direction:column }
+.q .qn{ position:absolute; top:-.1mm; left:-.1mm; background:var(--profundo); color:#fff; font:800 9pt "Outfit"; border-radius:3mm 0 3mm 0; padding:1mm 2.6mm }
+.q .qt{ font-weight:600; color:var(--oscuro); margin:3.4mm 0 2mm; font-size:9pt; line-height:1.42 }
+.q .hoy{ font-size:7.9pt; color:var(--suave); background:var(--fondo); border-radius:2mm; padding:1.6mm 2.4mm; line-height:1.35 }
+.q .hoy b{ color:var(--azul); font-size:7pt; letter-spacing:.06em; text-transform:uppercase; margin-right:1mm }
+.q .resp{ margin-top:auto; padding-top:2.6mm }
+.q .op{ display:flex; gap:4mm; flex-wrap:wrap; font-size:8.4pt }
+.q .op span::before{ content:""; display:inline-block; width:3mm; height:3mm; border:.35mm solid var(--suave); border-radius:.6mm; margin-right:1.4mm; vertical-align:-.5mm }
+.q .ln{ border-bottom:.3mm dashed #b9c2d0; height:6.5mm }
+.grupo{ font:700 7.6pt "Open Sans"; letter-spacing:.1em; text-transform:uppercase; color:var(--naranja); margin:0 0 3mm; display:flex; align-items:center; gap:3mm }
+.grupo::after{ content:""; flex:1; height:.3mm; background:var(--linea) }
+
+/* matriz de perfiles */
+table.mx{ border-collapse:separate; border-spacing:0; width:100%; font-size:7.6pt }
+table.mx th.col{ height:30mm; vertical-align:bottom; padding:0 0 1.5mm; width:7.2mm }
+table.mx th.col div{ writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; font-weight:600; color:var(--suave); margin:0 auto }
+table.mx td{ border-top:.3mm solid var(--linea); padding:1.5mm 0; text-align:center }
+table.mx td.p{ text-align:left; font-weight:700; color:var(--oscuro); padding-right:2mm; white-space:nowrap; font-size:8.2pt }
+table.mx tr:nth-child(even) td{ background:#fafbfd }
+.d{ display:inline-block; width:3.6mm; height:3.6mm; border-radius:50%; border:.35mm solid #c3cad6 }
+.d.on{ background:var(--azul); border-color:var(--azul) }
+.leg{ display:flex; gap:6mm; font-size:8pt; color:var(--suave); align-items:center }
+
+/* hoja de ruta */
+.ruta{ position:relative; padding-left:12mm }
+.ruta::before{ content:""; position:absolute; left:4mm; top:2mm; bottom:2mm; width:.6mm; background:linear-gradient(var(--azul),var(--naranja)) }
+.ruta .it{ position:relative; margin-bottom:6mm }
+.ruta .it::before{ content:""; position:absolute; left:-10.4mm; top:.6mm; width:5mm; height:5mm; border-radius:50%; background:#fff; border:1.3mm solid var(--azul) }
+.ruta .it h4{ font-size:11.5pt; color:var(--oscuro) }
+.ruta .it p{ color:var(--suave); margin-top:.6mm }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ PORTADA -->
+<section class="page portada">
+  <div class="azul"></div><svg class="grid" viewBox="0 0 210 297" preserveAspectRatio="none"><g stroke="#1131bd" stroke-width=".22"><line x1="10" y1="0" x2="10" y2="297"/><line x1="20" y1="0" x2="20" y2="297"/><line x1="30" y1="0" x2="30" y2="297"/><line x1="40" y1="0" x2="40" y2="297"/><line x1="50" y1="0" x2="50" y2="297"/><line x1="60" y1="0" x2="60" y2="297"/><line x1="70" y1="0" x2="70" y2="297"/><line x1="80" y1="0" x2="80" y2="297"/><line x1="90" y1="0" x2="90" y2="297"/><line x1="100" y1="0" x2="100" y2="297"/><line x1="110" y1="0" x2="110" y2="297"/><line x1="120" y1="0" x2="120" y2="297"/><line x1="130" y1="0" x2="130" y2="297"/><line x1="140" y1="0" x2="140" y2="297"/><line x1="150" y1="0" x2="150" y2="297"/><line x1="160" y1="0" x2="160" y2="297"/><line x1="170" y1="0" x2="170" y2="297"/><line x1="180" y1="0" x2="180" y2="297"/><line x1="190" y1="0" x2="190" y2="297"/><line x1="200" y1="0" x2="200" y2="297"/><line x1="0" y1="10" x2="210" y2="10"/><line x1="0" y1="20" x2="210" y2="20"/><line x1="0" y1="30" x2="210" y2="30"/><line x1="0" y1="40" x2="210" y2="40"/><line x1="0" y1="50" x2="210" y2="50"/><line x1="0" y1="60" x2="210" y2="60"/><line x1="0" y1="70" x2="210" y2="70"/><line x1="0" y1="80" x2="210" y2="80"/><line x1="0" y1="90" x2="210" y2="90"/><line x1="0" y1="100" x2="210" y2="100"/><line x1="0" y1="110" x2="210" y2="110"/><line x1="0" y1="120" x2="210" y2="120"/><line x1="0" y1="130" x2="210" y2="130"/><line x1="0" y1="140" x2="210" y2="140"/><line x1="0" y1="150" x2="210" y2="150"/><line x1="0" y1="160" x2="210" y2="160"/><line x1="0" y1="170" x2="210" y2="170"/><line x1="0" y1="180" x2="210" y2="180"/><line x1="0" y1="190" x2="210" y2="190"/><line x1="0" y1="200" x2="210" y2="200"/><line x1="0" y1="210" x2="210" y2="210"/><line x1="0" y1="220" x2="210" y2="220"/><line x1="0" y1="230" x2="210" y2="230"/><line x1="0" y1="240" x2="210" y2="240"/><line x1="0" y1="250" x2="210" y2="250"/><line x1="0" y1="260" x2="210" y2="260"/><line x1="0" y1="270" x2="210" y2="270"/><line x1="0" y1="280" x2="210" y2="280"/><line x1="0" y1="290" x2="210" y2="290"/></g></svg><div class="filo"></div>
+  <img class="logo" src="img/logo.png" alt="NEXA">
+  <div class="tit">
+    <div class="kick">Sistema de producción y stock · noviembre 2026</div>
+    <h1>Compras<br>y materia <span>prima</span></h1>
+    <p class="sub">Materia prima decide qué comprar mirando su stock. Compras ejecuta cada pedido con su proveedor y sus montos, y sigue la entrega hasta el depósito.</p>
+  </div>
+  <div class="dev browser" style="left:24mm; top:150mm; width:120mm; transform:rotate(-3deg)">
+    <div class="bar"><i></i><i></i><i></i><span>Materia prima → Stock general</span></div>
+    <div class="shot"><img src="img/c-mp.png" style="height:70mm; object-fit:cover; object-position:top left"></div>
+  </div>
+  <div class="dev browser" style="left:96mm; top:182mm; width:100mm; transform:rotate(2.5deg)">
+    <div class="bar"><i></i><i></i><i></i><span>Compras → Proveedores → Berma</span></div>
+    <div class="shot"><img src="img/c-ficha.png" style="height:56mm; object-fit:cover; object-position:top left"></div>
+  </div>
+  <div class="chips">
+    <div><b>2</b>áreas que cambian</div>
+    <div><b>3</b>estados de compra</div>
+    <div><b>7</b>preguntas abiertas</div>
+  </div>
+  <div class="pie"><span><b>NEXA Soluciones</b> · Pisos encastrables</span><span>Documento para revisión con la empresa</span></div>
+</section>
+
+<!-- ============================================================ RESUMEN -->
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Compras y materia prima</div><span>Resumen</span></div>
+  <div class="abre"><div><div class="barra"></div><h2>Quién hace qué</h2><p>Compras ya no decide qué comprar: ejecuta lo que le pide Materia prima. La necesidad de material pasó a la tabla de stock de Materia prima.</p></div></div>
+  <div class="row c2" style="gap:5mm; margin-bottom:8mm">
+    <div class="card" style="background:var(--azulsoft)"><h4>Materia prima decide</h4>
+      <ul class="ok"><li>Ve en su tabla de stock lo comprometido a producción y el estado de cada material: <b>Compra urgente</b>, <b>Compra próximamente</b> u <b>OK</b>.</li><li>Pide a Compras desde la misma fila, con la cantidad sugerida.</li><li>Recibe la mercadería con el ingreso de proveedor, imputado a la compra.</li></ul></div>
+    <div class="card" style="background:var(--narsoft)"><h4>Compras ejecuta</h4>
+      <ul class="ok"><li>Recibe los pedidos de Materia prima, el más urgente primero.</li><li>Ejecuta cada uno eligiendo el <b>proveedor</b> y cargando <b>precio, total y moneda</b>, orden de compra y entrega estimada.</li><li>Sigue el estado de cada compra y el cumplimiento de cada proveedor.</li></ul></div>
+  </div>
+  <h3>El recorrido de una compra</h3>
+  <div class="flujo" style="margin:3mm 0 8mm">
+    <div class="paso"><div class="t">Materia prima</div>Ve un material en <b>Compra urgente</b> o <b>próximamente</b>.</div>
+    <div class="fl">→</div>
+    <div class="paso"><div class="t">Pedido</div>«Pedir a Compras» con la cantidad sugerida. Compras recibe el aviso.</div>
+    <div class="fl">→</div>
+    <div class="paso"><div class="t">Compras</div>Ejecuta con proveedor, montos, OC y entrega estimada.</div>
+    <div class="fl">→</div>
+    <div class="paso"><div class="t">Ingreso</div>Materia prima registra el ingreso imputado: la compra pasa a entregada.</div>
+    <div class="fl">→</div>
+    <div class="paso"><div class="t">Proveedor</div>La entrega suma al historial y al cumplimiento de fechas.</div>
+  </div>
+  <h3>Qué se sacó</h3>
+  <div class="row c3" style="gap:4mm">
+    <div class="stat"><div class="k" style="margin:0 0 1mm; font-weight:700; color:var(--naranja)">Necesidad en Compras</div>La pestaña de necesidad de materia prima pasó a la tabla de stock de Materia prima.</div>
+    <div class="stat"><div class="k" style="margin:0 0 1mm; font-weight:700; color:var(--naranja)">Compras sueltas</div>Compras ya no registra compras por su cuenta: todas nacen de un pedido de Materia prima.</div>
+    <div class="stat"><div class="k" style="margin:0 0 1mm; font-weight:700; color:var(--naranja)">Dos solapas iguales</div>«Compras en curso» y «Todas las compras» quedaron en una sola: Estado de compras, con filtro.</div>
+  </div>
+  <div class="folio">2</div>
+</section>
+
+<!-- ============================================================ 01 MATERIA PRIMA -->
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Compras y materia prima</div><span>01 · Materia prima</span></div>
+  <div class="abre"><div class="num">01</div><div><div class="barra"></div><h2>Materia prima:<br>qué hay que comprar</h2></div></div>
+  <p class="lede" style="margin-bottom:5mm">La tabla de stock general muestra, para cada material, lo que ya está comprometido a producción y si hay que comprar. Primero lo urgente, después lo próximo y al final lo que está bien.</p>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Materia prima → Stock general</span></div>
+    <div class="shot"><img src="img/c-mp.png">
+      <span class="pin" style="left:65%;top:3%">1</span>
+      <span class="pin" style="left:44%;top:20%">2</span>
+      <span class="pin" style="left:77%;top:17%">3</span>
+      <span class="pin" style="left:80%;top:43.5%">4</span>
+      <span class="pin" style="left:79%;top:80%">5</span>
+    </div></div>
+  <div class="sep" style="height:5mm"></div>
+  <ol class="leyenda row c2" style="gap:3.5mm 8mm">
+    <li><span class="n">1</span><div><b>Sólo para comprar</b>Filtra los materiales en urgente o próximamente.</div></li>
+    <li><span class="n">2</span><div><b>Comprometido a producción</b>Lo que todavía necesitan las tandas planificadas y en curso. Se cubre primero con lo que ya está a pie de máquina.</div></li>
+    <li><span class="n">3</span><div><b>Compra urgente</b>Con cuánto falta para lo planificado y lo que ya está en compra.</div></li>
+    <li><span class="n">4</span><div><b>Compra próximamente</b>Con los pedidos todavía sin planificar que piden ese material.</div></li>
+    <li><span class="n">5</span><div><b>Problemas con la compra</b>Faltante en proveedor o demora, con el número de compra.</div></li>
+  </ol>
+  <div class="folio">3</div>
+</section>
+
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Compras y materia prima</div><span>01 · Materia prima</span></div>
+  <h3>Cómo se decide el estado</h3>
+  <div class="row c3" style="gap:4mm; margin:2mm 0 8mm">
+    <div class="card" style="background:var(--estado-critico-bg, #fde8e8)"><h4 style="color:#b42318">Compra urgente</h4>El stock general <b>no alcanza</b> para lo que falta llevar a las tandas planificadas y en curso.<div style="font:700 9pt Outfit; color:#b42318; margin-top:2.5mm">Stock general &lt; comprometido − pie de máquina</div></div>
+    <div class="card" style="background:var(--narsoft)"><h4 style="color:#b4521a">Compra próximamente</h4>Alcanza para lo planificado, pero lo que queda <b>no cubre los próximos pedidos</b> más el margen del material.<div style="font:700 9pt Outfit; color:#b4521a; margin-top:2.5mm">Libre &lt; pedidos sin planificar + margen</div></div>
+    <div class="card" style="background:#e9f8ef"><h4 style="color:#16794a">OK</h4>Alcanza para lo planificado y para los pedidos que vienen, con el margen cubierto.<div style="font:700 9pt Outfit; color:#16794a; margin-top:2.5mm">Todo lo demás</div></div>
+  </div>
+  <div class="row" style="grid-template-columns:1fr 70mm; gap:8mm; align-items:start; margin-bottom:9mm">
+    <div>
+      <h3>Pedir a Compras, con la cantidad sugerida</h3>
+      <ul class="ok">
+        <li>Desde la misma fila, «Pedir a Compras» abre el pedido con <b>los kg que hacen falta para volver a OK</b>, descontando lo que ya está pedido o en compra.</li>
+        <li>Si ya hay suficiente en camino, lo avisa en vez de sugerir otra compra.</li>
+        <li>Se puede cambiar la cantidad y agregar una aclaración. Compras recibe el aviso.</li>
+      </ul>
+    </div>
+    <div class="plain"><img src="img/c-pedir2.png"></div>
+  </div>
+  <h3>Margen de compra por material <span class="tag">panel admin</span></h3>
+  <p style="margin-bottom:4mm">Configuración → Mínimos y máximos → Materia prima. Cuántos kg libres tienen que quedar, además de los pedidos sin planificar, para que el material no pase a «Compra próximamente». Si se deja vacío, se usa el mínimo.</p>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Configuración → Mínimos y máximos → Materia prima</span></div>
+    <div class="shot"><img src="img/c-admin.png" style="height:74mm; object-fit:cover; object-position:top left"><span class="pin" style="left:67%;top:31%">1</span></div></div>
+  <div class="folio">4</div>
+</section>
+
+<!-- ============================================================ 02 COMPRAS -->
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Compras y materia prima</div><span>02 · Compras</span></div>
+  <div class="abre"><div class="num">02</div><div><div class="barra"></div><h2>Compras: ejecutar<br>y seguir</h2></div></div>
+  <p class="lede" style="margin-bottom:5mm">Tres pestañas: <b>Pedidos para comprar</b>, <b>Estado de compras</b> y <b>Proveedores</b>.</p>
+  <h3>Pedidos para comprar</h3>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Compras → Pedidos para comprar</span></div>
+    <div class="shot"><img src="img/c-pedido.png">
+      <span class="pin" style="left:84%;top:22%">1</span>
+      <span class="pin" style="left:12%;top:38%">2</span>
+      <span class="pin" style="left:40%;top:56%">3</span>
+      <span class="pin" style="left:29%;top:95%">4</span>
+    </div></div>
+  <div class="sep" style="height:5mm"></div>
+  <ol class="leyenda row c2" style="gap:3.5mm 8mm">
+    <li><span class="n">1</span><div><b>Urgencia</b>El estado del material en Materia prima: los urgentes aparecen primero.</div></li>
+    <li><span class="n">2</span><div><b>Proveedor</b>Obligatorio, elegido de la ficha de proveedores.</div></li>
+    <li><span class="n">3</span><div><b>Montos</b>Precio por kg o total (el otro se calcula con la cantidad), en pesos o dólares.</div></li>
+    <li><span class="n">4</span><div><b>Ejecutar compra</b>Queda como pedido o comprado, con OC y entrega estimada. También se puede descartar con motivo.</div></li>
+  </ol>
+  <div class="folio">5</div>
+</section>
+
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Compras y materia prima</div><span>02 · Compras</span></div>
+  <h3>Estado de compras <span class="tag">una sola lista</span></h3>
+  <p style="margin-bottom:4mm">Reemplaza a «Compras en curso» y «Todas las compras». Se filtra por estado y por proveedor; cada compra muestra proveedor, montos, entregas y su historial, y se corrige con motivo.</p>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Compras → Estado de compras → En curso</span></div>
+    <div class="shot"><img src="img/c-estado.png">
+      <span class="pin" style="left:43%;top:12%">1</span>
+      <span class="pin" style="left:72.5%;top:12%">2</span>
+      <span class="pin" style="left:31%;top:40.5%">3</span>
+      <span class="pin" style="left:61%;top:46%">4</span>
+    </div></div>
+  <div class="sep" style="height:5mm"></div>
+  <ol class="leyenda row c2" style="gap:3.5mm 8mm">
+    <li><span class="n">1</span><div><b>En curso · Ejecutadas · Canceladas · Todas</b>Con la cantidad de cada una.</div></li>
+    <li><span class="n">2</span><div><b>Por proveedor</b>Para ver todo lo de un proveedor.</div></li>
+    <li><span class="n">3</span><div><b>Entrega</b>A tiempo, días tarde o vencida y todavía sin llegar.</div></li>
+    <li><span class="n">4</span><div><b>Montos editables</b>Si cambia el precio o aparece un flete, queda en el historial.</div></li>
+  </ol>
+  <div class="sep" style="height:6mm"></div>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Compras → Estado de compras → Ejecutadas</span></div><div class="shot"><img src="img/c-ejecutadas.png"></div></div>
+  <div class="cap">Las ejecutadas: compras entregadas, con proveedor, fechas y total.</div>
+  <div class="folio">6</div>
+</section>
+
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Compras y materia prima</div><span>02 · Compras</span></div>
+  <h3>Proveedores <span class="tag">nuevo</span></h3>
+  <p style="margin-bottom:4mm">Ficha de cada proveedor (CUIT, contacto, teléfono, email, dirección, condición de pago) con su historial de compras y el cumplimiento de las fechas de entrega.</p>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Compras → Proveedores</span></div>
+    <div class="shot"><img src="img/c-prov.png">
+      <span class="pin" style="left:26%;top:14%">1</span>
+      <span class="pin" style="left:60.5%;top:55%">2</span>
+      <span class="pin" style="left:72%;top:70%">3</span>
+    </div></div>
+  <div class="sep" style="height:5mm"></div>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Compras → Proveedores → Berma</span></div>
+    <div class="shot"><img src="img/c-ficha.png">
+      <span class="pin" style="left:47%;top:16%">3</span>
+      <span class="pin" style="left:72%;top:16%">4</span>
+      <span class="pin" style="left:65%;top:48.5%">5</span>
+    </div></div>
+  <div class="sep" style="height:5mm"></div>
+  <ol class="leyenda row c3" style="gap:3mm 6mm">
+    <li><span class="n">1</span><div><b>Cargar un proveedor</b>Y editar su ficha o darlo de baja.</div></li>
+    <li><span class="n">2</span><div><b>Vencidas</b>Compras en curso con la fecha pasada.</div></li>
+    <li><span class="n">3</span><div><b>Entregas a tiempo</b>Última entrega contra la fecha estimada.</div></li>
+    <li><span class="n">4</span><div><b>Demora promedio</b>De las que llegaron tarde.</div></li>
+    <li><span class="n">5</span><div><b>Por compra</b>A tiempo o cuántos días tarde.</div></li>
+  </ol>
+  <div class="folio">7</div>
+</section>
+
+<!-- ============================================================ 03 PREGUNTAS -->
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Compras y materia prima</div><span>03 · Preguntas pendientes</span></div>
+  <div class="abre"><div class="num">03</div><div><div class="barra"></div><h2>Preguntas<br>pendientes</h2><p>Mientras no se respondan, el sistema funciona como dice «Hoy».</p></div></div>
+  <div class="qs">
+    <div class="q"><span class="qn">1</span><div class="qt">«Compra urgente cuando ya no alcanza para la producción en marcha»: ¿cuenta lo planificado o sólo lo que se está produciendo?</div><div class="hoy"><b>Hoy</b>Cuentan las tandas planificadas y las que están en curso.</div><div class="resp"><div class="op"><span>Planificadas y en curso</span><span>Sólo en curso</span></div></div></div>
+    <div class="q"><span class="qn">2</span><div class="qt">«Compra próximamente»: ¿cuenta también reponer el stock mínimo de pisos terminados?</div><div class="hoy"><b>Hoy</b>Pedidos sin planificar + margen del material (vacío = su mínimo).</div><div class="resp"><div class="op"><span>Así está bien</span><span>Sumar stock mínimo de pisos</span></div></div></div>
+    <div class="q"><span class="qn">3</span><div class="qt">Compras ya no puede registrar una compra sin pedido de Materia prima. ¿Hace falta para alguna urgencia?</div><div class="hoy"><b>Hoy</b>Toda compra nace de un pedido de Materia prima.</div><div class="resp"><div class="op"><span>Así está bien</span><span>Permitir compras sueltas</span></div></div></div>
+    <div class="q"><span class="qn">4</span><div class="qt">Montos: ¿se cargan con o sin IVA? ¿Alcanzan pesos y dólares?</div><div class="hoy"><b>Hoy</b>Precio por kg y total, sin aclarar IVA; pesos o dólares.</div><div class="resp"><div class="op"><span>Con IVA</span><span>Sin IVA</span></div><div class="ln"></div></div></div>
+    <div class="q"><span class="qn">5</span><div class="qt">Cumplimiento: si Compras corrige la entrega estimada, ¿se mide contra la nueva fecha o contra la primera que dio el proveedor?</div><div class="hoy"><b>Hoy</b>Contra la fecha vigente (la última cargada).</div><div class="resp"><div class="op"><span>La vigente</span><span>La primera</span></div></div></div>
+    <div class="q"><span class="qn">6</span><div class="qt">Un material ya pedido sigue en «Compra próximamente» hasta que llega. ¿Prefieren un estado aparte, «En compra»?</div><div class="hoy"><b>Hoy</b>Sigue en su estado, con «En compra: X kg» y la fecha de llegada.</div><div class="resp"><div class="op"><span>Así está bien</span><span>Estado «En compra»</span></div></div></div>
+    <div class="q"><span class="qn">7</span><div class="qt">En el ingreso de materia prima, ¿el proveedor también se elige de la ficha?</div><div class="hoy"><b>Hoy</b>Se escribe a mano en el ingreso.</div><div class="resp"><div class="op"><span>Elegirlo de la ficha</span><span>Dejarlo así</span></div></div></div>
+  </div>
+  <div style="position:absolute; left:0; right:0; bottom:0; height:46mm; background:linear-gradient(140deg,var(--azul),var(--profundo)); clip-path:polygon(0 30%,100% 0,100% 100%,0 100%)"></div>
+  <div style="position:absolute; left:16mm; right:16mm; bottom:13mm; display:flex; align-items:flex-end; justify-content:space-between; color:#fff">
+    <div><div style="font:800 18pt Outfit; line-height:1.05">Ya está en el sistema.</div><div style="font-size:8.6pt; color:#c9d3ff; margin-top:1.5mm; max-width:110mm">Con estas respuestas se ajustan los estados de compra y la ficha de proveedores.</div></div>
+    <div style="display:flex; gap:2.5mm">
+      <div style="width:16mm; height:16mm; border-radius:2mm; overflow:hidden; background:#fff; transform:rotate(-6deg)"><img src="img/piso-rejilla.png" style="width:100%"></div>
+      <div style="width:16mm; height:16mm; border-radius:2mm; overflow:hidden; background:#fff; transform:rotate(3deg)"><img src="img/piso-trama.png" style="width:100%"></div>
+      <div style="width:16mm; height:16mm; border-radius:2mm; overflow:hidden; background:#fff; transform:rotate(-2deg)"><img src="img/piso-moneda.png" style="width:100%"></div>
+    </div>
+  </div>
+  <div class="folio" style="color:#fff">8</div>
+</section>
+</body>
+</html>
