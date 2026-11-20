@@ -22,6 +22,7 @@ import {
   tandaPedido,
 } from "@/lib/db/schema";
 import { claveColor, pareceMulticolor, resolverColorLibre } from "@/lib/catalogo-normalizacion";
+import { etiquetaTipo } from "@/lib/etiquetas";
 import { getDepositoNexaId } from "@/lib/data/depositos";
 import { ROLES_ESTRUCTURA, puedeCambiarPrioridad, puedeCrearPedido } from "@/lib/auth/permisos";
 import { anularDespachoActivoEnTx } from "@/lib/data/despachos";
@@ -91,6 +92,8 @@ export type SituacionPedido = {
   pendienteConProducto: number;
   /** Lo que el stock libre cubre hoy, por prioridad (sin tomar lo asignado a otros pedidos). */
   cubierto: number;
+  /** De qué falta producir (reunión 20/11/2026: «dice falta producir 118 pero no te dice de qué»). */
+  faltaDetalle: { producto: string; cantidad: number }[];
 };
 
 /** Qué se puede armar de un pedido: todo, una parte (con aviso) o nada. */
@@ -175,8 +178,14 @@ export async function situacionPedidos(pedidoIds: number[]): Promise<Map<number,
         pedidoId: pedidoLinea.pedidoId,
         productoId: pedidoLinea.productoId,
         pendiente: sql<number>`${pedidoLinea.unidadesPedidas} - ${pedidoLinea.unidadesDespachadas}`.mapWith(Number),
+        codigo: producto.codigo,
+        familia: producto.familia,
+        tipo: producto.tipo,
+        colorNombre: color.nombre,
       })
       .from(pedidoLinea)
+      .leftJoin(producto, eq(pedidoLinea.productoId, producto.id))
+      .leftJoin(color, eq(producto.colorId, color.id))
       .where(and(inArray(pedidoLinea.pedidoId, pedidoIds), sql`${pedidoLinea.unidadesPedidas} > ${pedidoLinea.unidadesDespachadas}`)),
     db
       .select({ pedidoId: despacho.pedidoId })
@@ -186,12 +195,14 @@ export async function situacionPedidos(pedidoIds: number[]): Promise<Map<number,
   ]);
   const enCurso = new Set(enCursoFilas.map((d) => d.pedidoId));
   for (const l of lineas) {
-    const s = res.get(l.pedidoId) ?? { pendiente: 0, sinProducto: 0, faltaProducir: 0, despachoEnCurso: enCurso.has(l.pedidoId), pendienteConProducto: 0, cubierto: 0 };
+    const s = res.get(l.pedidoId) ?? { pendiente: 0, sinProducto: 0, faltaProducir: 0, despachoEnCurso: enCurso.has(l.pedidoId), pendienteConProducto: 0, cubierto: 0, faltaDetalle: [] };
     s.pendiente += l.pendiente;
     if (l.productoId == null) s.sinProducto += 1;
     else {
       const c = cobertura.get(l.lineaId);
-      s.faltaProducir += c?.faltaProducir ?? l.pendiente;
+      const falta = c?.faltaProducir ?? l.pendiente;
+      s.faltaProducir += falta;
+      if (falta > 0) s.faltaDetalle.push({ producto: `${etiquetaTipo(l.familia ?? "", l.tipo ?? "")} ${l.colorNombre ?? ""} (${(l.codigo ?? "").split("-")[0]})`.replace(/\s+/g, " ").trim(), cantidad: falta });
       s.cubierto += c?.cubierto ?? 0;
       s.pendienteConProducto += l.pendiente;
     }

@@ -70,6 +70,22 @@ export const ESQUEMA_LABEL: Record<Esquema, string> = {
 
 const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
+/** Turnos que trabaja la planta en un esquema. */
+export const turnosDelEsquema = (esquema: Esquema): Turno[] => VENTANAS[esquema].map((v) => v.turno);
+
+const NOMBRE_TURNO: Record<Turno, string> = { MANANA: "mañana", TARDE: "tarde", NOCHE: "noche" };
+
+/**
+ * Reunión 20/11/2026: si el día tiene esquema simple (7 a 16) no se puede
+ * planificar en el turno noche. Sin esquema cargado no se valida: todavía no
+ * se sabe cómo se trabaja ese día.
+ */
+export function turnoFueraDeEsquema(fecha: string, turno: Turno | null, esquema: Esquema | null | undefined): string | null {
+  if (!turno || !esquema || turnosDelEsquema(esquema).includes(turno)) return null;
+  const dia = fecha.split("-").reverse().slice(0, 2).join("/");
+  return `El ${dia} tiene esquema ${ESQUEMA_LABEL[esquema].toLowerCase()}: no hay turno ${NOMBRE_TURNO[turno]}. Elegí otro turno o cambiá el esquema en Turnos y operarios.`;
+}
+
 export function horarioDe(esquema: Esquema, turno: Turno): string | null {
   const v = VENTANAS[esquema].find((x) => x.turno === turno);
   return v ? `${hhmm(v.desde)} a ${hhmm(v.hasta)}` : null;

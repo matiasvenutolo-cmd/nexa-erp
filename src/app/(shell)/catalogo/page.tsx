@@ -113,9 +113,7 @@ export default async function CatalogoPage({
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">
-                      <th className="px-4 py-2.5">Código / descripción</th>
-                      <th className="px-4 py-2.5">Tipo</th>
-                      <th className="px-4 py-2.5">Color</th>
+                      <th className="px-4 py-2.5">Producto</th>
                       <th className="px-4 py-2.5 text-right">Stock</th>
                       <th className="px-4 py-2.5 text-right">Mínimo</th>
                       <th className="px-4 py-2.5 text-right">Máximo</th>
@@ -127,21 +125,21 @@ export default async function CatalogoPage({
                     {filas.map((p) => (
                       <tr key={p.id} className="border-b border-border last:border-0">
                         <td className="px-4 py-2.5">
-                          <Link href={`/catalogo/${p.id}?existencias=1`} className="font-mono text-xs font-semibold text-accent hover:underline">
-                            {p.codigo}
+                          {/* Reunión 20/11/2026: el código como va en la etiqueta (001B), el nombre
+                              («Rejilla Amarillo») y el color a la vista. */}
+                          <Link href={`/catalogo/${p.id}?existencias=1`} className="flex items-center gap-2 hover:underline">
+                            <span className="h-5 w-5 shrink-0 rounded border border-[rgba(29,43,58,0.2)]" style={{ background: p.colorHex ?? "transparent" }} title={p.colorNombre} />
+                            <span className="font-mono text-sm font-bold text-accent">{p.codigo.split("-")[0]}</span>
+                            <span className="font-semibold text-foreground">
+                              {etiquetaTipo(p.familia, p.tipo)} {p.colorNombre}
+                            </span>
+                            {p.colorEspecial && <span className="badge-estado badge-bajo">especial</span>}
                           </Link>
-                          <div className="font-mono text-xs text-foreground-muted">
-                            {p.codigoBarras && p.codigoBarras !== p.codigo && (
-                              <span title="Código de barras de la lista oficial"> · {p.codigoBarras}</span>
-                            )}
+                          <div className="text-xs text-foreground-muted">
+                            {p.descripcion} · <span className="font-mono">{p.codigo}</span>
                           </div>
-                          <div className="text-xs text-foreground-muted">{p.descripcion}</div>
                         </td>
-                        <td className="px-4 py-2.5">{etiquetaTipo(p.familia, p.tipo)}</td>
-                        <td className="px-4 py-2.5 font-medium text-foreground">
-                          {p.colorNombre}
-                          {p.colorEspecial && <span className="ml-1 badge-estado badge-bajo">especial</span>}
-                        </td>
+
                         <td className="px-4 py-2.5 text-right font-medium">{fmtNumero(p.stock, 0)}</td>
                         <td className="px-4 py-2.5 text-right text-foreground-muted">{fmtNumero(p.minimo, 0)}</td>
                         <td className="px-4 py-2.5 text-right text-foreground-muted">{fmtNumero(p.maximo, 0)}</td>

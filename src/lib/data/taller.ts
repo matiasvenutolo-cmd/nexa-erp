@@ -763,10 +763,26 @@ export async function registrarReimpresion(actor: Actor, cajaId: number, motivo:
   return {};
 }
 
+/** Turnos que pasaron cajas a stock y el Encargado todavía no revisó. */
+export async function turnosSinRevisar(): Promise<number> {
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)`.mapWith(Number) })
+    .from(turnoProduccion)
+    .where(and(eq(turnoProduccion.estado, "CERRADO"), isNull(turnoProduccion.revisadoEn), sql`exists (select 1 from caja where caja.turno_id = ${turnoProduccion.id})`));
+  return n;
+}
+
 export async function relevosRecientes(limite = 30) {
   const revisor = alias(usuario, "revisor");
   const turnos = await db
-    .select({ t: turnoProduccion, usuarioNombre: usuario.nombre, productoCodigo: producto.codigo, revisadoPorNombre: revisor.nombre })
+    .select({
+      t: turnoProduccion,
+      usuarioNombre: usuario.nombre,
+      productoCodigo: producto.codigo,
+      revisadoPorNombre: revisor.nombre,
+      // Cajas que el turno pasó a stock: sólo esos turnos se revisan (reunión 20/11/2026).
+      cajas: sql<number>`(select count(*) from caja where caja.turno_id = ${turnoProduccion.id})`.mapWith(Number),
+    })
     .from(turnoProduccion)
     .leftJoin(revisor, eq(turnoProduccion.revisadoPorId, revisor.id))
     .innerJoin(usuario, eq(turnoProduccion.operarioId, usuario.id))
@@ -775,7 +791,16 @@ export async function relevosRecientes(limite = 30) {
     .orderBy(desc(turnoProduccion.inicio))
     .limit(limite);
   const novedades = await db
-    .select({ n: novedadMaquina, usuarioNombre: usuario.nombre })
+    .select({
+      n: novedadMaquina,
+      usuarioNombre: usuario.nombre,
+      // Fin de una pausa: la reanudación siguiente de esa producción (reunión
+      // 20/11/2026: «no te dice cuánto duró la pausa»).
+      finPausa: sql<string | null>`case when ${novedadMaquina.motivo} like 'Pausa:%' then (
+        select min(ep.fecha) from evento_produccion ep
+        where ep.ciclo_id = ${novedadMaquina.cicloId} and ep.tipo = 'REANUDACION' and ep.fecha >= ${novedadMaquina.fecha}
+      ) end`,
+    })
     .from(novedadMaquina)
     .innerJoin(usuario, eq(novedadMaquina.usuarioId, usuario.id))
     .orderBy(desc(novedadMaquina.fecha))

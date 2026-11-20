@@ -115,7 +115,9 @@ describe("Cantidades físicas", () => {
     expect(kgDe(0.5, 25)).toBe(12.5);
     expect(fmtCantidadBolsas(1.5)).toBe("1½");
     expect(fmtCantidadBolsas(0.5)).toBe("½");
-    expect(fmtPeso(1.2, { gramos: true })).toBe("1.200 g");
+    // Reunión 20/11/2026: desde 1 kg, siempre en kilos («1.200 g» se leía como 1,2 kg).
+    expect(fmtPeso(1.2, { gramos: true })).toBe("1,2 kg");
+    expect(fmtPeso(0.375, { gramos: true })).toBe("375 g");
     expect(fmtPeso(0.046)).toBe("46 g");
   });
 

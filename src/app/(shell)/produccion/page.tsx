@@ -3,13 +3,13 @@ import { Smartphone } from "lucide-react";
 import { listarCiclos, productosParaCiclo } from "@/lib/data/produccion";
 import { gruposParaPlanificar, listarTandas, necesidadDeCompra, etiquetaTurno } from "@/lib/data/planificacion";
 import { recetasDe } from "@/lib/data/recetas";
-import { MOTIVO_LIMPIEZA, MOTIVO_PEDIDO_MATERIAL, pedidosDeMaterialPendientes, relevosRecientes, vistaTaller } from "@/lib/data/taller";
+import { MOTIVO_LIMPIEZA, MOTIVO_PEDIDO_MATERIAL, pedidosDeMaterialPendientes, relevosRecientes, turnosSinRevisar, vistaTaller } from "@/lib/data/taller";
 import { PedidosDeMaterial } from "@/components/pedidos-material";
 import { getUsuarioActual } from "@/lib/session";
 import { puedeCancelarProduccion, puedePlanificar, puedeAsignarTurnos } from "@/lib/auth/permisos";
 import { FormAccion } from "@/components/form-accion";
 import { cancelarProduccionAction, revisarTurnoAction } from "@/app/actions/taller";
-import { fmtFecha, fmtFechaHora, fmtNumero } from "@/lib/format";
+import { fmtFecha, fmtFechaHora, fmtHora, fmtNumero } from "@/lib/format";
 import { fmtPeso } from "@/lib/presentaciones";
 import { etiquetaInyectora } from "@/lib/inyectoras";
 import { FormStock, TarjetaGrupo, TarjetaTanda } from "./plan-componentes";
@@ -110,7 +110,7 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
   const usuario = await getUsuarioActual();
   const planifica = puedePlanificar(usuario.rol);
 
-  const [tandas, grupos, pedidosMaterial] = await Promise.all([listarTandas(), gruposParaPlanificar(), pedidosDeMaterialPendientes()]);
+  const [tandas, grupos, pedidosMaterial, sinRevisar] = await Promise.all([listarTandas(), gruposParaPlanificar(), pedidosDeMaterialPendientes(), turnosSinRevisar()]);
   const enCurso = tandas.filter((t) => t.estado === "EN_CURSO").length;
   const alertas = grupos.filter((g) => g.alerta && g.alerta.nivel !== "semana").length + tandas.filter((t) => t.alerta && t.alerta.nivel !== "semana").length;
   const porPlanificar = grupos.reduce((t, g) => t + g.aPlanificar, 0);
@@ -152,6 +152,8 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
             className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm font-semibold ${vista === v.id ? "border-accent text-brand-azul" : "border-transparent text-foreground-muted hover:text-foreground"}`}
           >
             {v.label}
+            {/* Reunión 20/11/2026: cuántos turnos con cajas a stock falta revisar. */}
+            {v.id === "relevos" && sinRevisar > 0 && planifica && <span className="ml-1.5 rounded-full bg-accent px-1.5 py-0.5 text-[11px] font-bold text-white">{sinRevisar}</span>}
           </Link>
         ))}
       </nav>
@@ -315,7 +317,7 @@ async function Relevos({ revisa }: { revisa: boolean }) {
             </tr>
           </thead>
           <tbody>
-            {turnos.map(({ t, usuarioNombre, productoCodigo, revisadoPorNombre }) => (
+            {turnos.map(({ t, usuarioNombre, productoCodigo, revisadoPorNombre, cajas }) => (
               <tr key={t.id}>
                 <td>{fmtFechaHora(t.inicio)}</td>
                 <td>
@@ -337,8 +339,8 @@ async function Relevos({ revisa }: { revisa: boolean }) {
                     <span className="badge-estado badge-ok" title={fmtFechaHora(t.revisadoEn)}>
                       ✓ {revisadoPorNombre}
                     </span>
-                  ) : t.estado === "CERRADO" && revisa ? (
-                    <FormAccion accion={revisarTurnoAction} ocultos={{ turnoId: t.id }} boton="Revisado / OK" claseBoton="btn btn-outline btn-sm" className="flex" />
+                  ) : t.estado === "CERRADO" && revisa && cajas > 0 ? (
+                    <FormAccion accion={revisarTurnoAction} ocultos={{ turnoId: t.id }} boton={`Revisado / OK (${cajas} ${cajas === 1 ? "caja" : "cajas"})`} claseBoton="btn btn-outline btn-sm" className="flex" />
                   ) : (
                     "—"
                   )}
@@ -362,10 +364,11 @@ async function Relevos({ revisa }: { revisa: boolean }) {
             <p className="text-sm text-foreground-muted">Sin novedades.</p>
           ) : (
             <ul className="space-y-2 text-sm">
-              {novedades.map(({ n, usuarioNombre }) => (
+              {novedades.map(({ n, usuarioNombre, finPausa }) => (
                 <li key={n.id} className="border-b border-border pb-2 last:border-0">
                   <span className="badge-estado badge-bajo mr-2">{etiquetaNovedad(n)}</span>
                   <b>{n.motivo}</b> · Iny. {n.inyectora}
+                  {n.motivo.startsWith("Pausa:") && <div className="text-xs font-semibold">{finPausa ? `Duró ${duracion(n.fecha, new Date(finPausa))} (hasta las ${fmtHora(new Date(finPausa))})` : "Sigue en pausa"}</div>}
                   {n.detalle && <div className="text-xs text-foreground-muted">{n.detalle}</div>}
                   <div className="text-xs text-foreground-muted">
                     {fmtFechaHora(n.fecha)} · {usuarioNombre}
@@ -395,6 +398,12 @@ async function Relevos({ revisa }: { revisa: boolean }) {
       </div>
     </div>
   );
+}
+
+/** «12 min», «1 h 05 min». */
+function duracion(desde: Date, hasta: Date): string {
+  const min = Math.max(0, Math.round((hasta.getTime() - new Date(desde).getTime()) / 60000));
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")} min`;
 }
 
 const TIPO_NOVEDAD = { NO_CARGA: "No se cargó", CARGA_DISTINTA: "Carga distinta", DIFERENCIA_RELEVO: "Diferencia en el relevo", INTERRUPCION: "Interrupción" } as const;

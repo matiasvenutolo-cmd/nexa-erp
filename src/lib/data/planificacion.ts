@@ -43,7 +43,8 @@ import { recetasDe, type Receta } from "@/lib/data/recetas";
 import { INYECTORA_BALDOSAS, resolverInyectora } from "@/lib/inyectoras";
 import { obtenerRetirosMaquina } from "@/lib/data/maquina";
 import { hoyISO } from "@/lib/format";
-import { HORAS_TURNO, yaPaso } from "@/lib/turnos";
+import { HORAS_TURNO, turnoFueraDeEsquema, yaPaso } from "@/lib/turnos";
+import { esquemasEntre } from "@/lib/data/turnos";
 import { listarIntervenciones } from "@/lib/data/matrices";
 import { crearAviso } from "@/lib/data/avisos";
 import { aGramos } from "@/lib/presentaciones";
@@ -577,6 +578,12 @@ export type NuevaTandaInput = {
  * planificar (faltante después del stock, menos lo que ya está en otras
  * tandas): así un pedido no se planifica dos veces.
  */
+/** El turno tiene que existir en el esquema del día (si el día tiene esquema). */
+async function validarEsquema(fecha: string | null, turno: Turno | null): Promise<string | null> {
+  if (!fecha || !turno) return null;
+  return turnoFueraDeEsquema(fecha, turno, (await esquemasEntre(fecha, fecha)).get(fecha));
+}
+
 export async function crearTanda(actor: Actor, input: NuevaTandaInput): Promise<Resultado & { id?: number }> {
   if (!puedePlanificar(actor.rol)) return { error: "No tenés permiso para planificar la producción." };
   const stockExtra = input.cantidadStock ?? 0;
@@ -585,6 +592,8 @@ export async function crearTanda(actor: Actor, input: NuevaTandaInput): Promise<
   if (lineas.some((l) => !Number.isInteger(l.cantidad))) return { error: "Las cantidades van en unidades enteras." };
   if (lineas.length === 0 && stockExtra === 0) return { error: "Elegí al menos un pedido o una cantidad para stock." };
   if (input.fecha && yaPaso(input.fecha, input.turno ?? null)) return { error: "Ese día o turno ya pasó: elegí uno de hoy en adelante." };
+  const fueraDeEsquema = await validarEsquema(input.fecha ?? null, input.turno ?? null);
+  if (fueraDeEsquema) return { error: fueraDeEsquema };
   const [prod] = await db.select({ id: producto.id, esAccesorio: producto.esAccesorio, activo: producto.activo }).from(producto).where(eq(producto.id, input.productoId));
   if (!prod) return { error: "Producto no encontrado." };
   let inyectora: string | null = null;
@@ -703,6 +712,10 @@ export async function actualizarTanda(
   const turnoNuevo = input.turno !== undefined ? input.turno : t.turno;
   if (fechaNueva && (fechaNueva !== t.fecha || turnoNuevo !== t.turno) && yaPaso(fechaNueva, turnoNuevo)) {
     return { error: "Ese día o turno ya pasó: elegí uno de hoy en adelante." };
+  }
+  if (fechaNueva && (fechaNueva !== t.fecha || turnoNuevo !== t.turno)) {
+    const fueraDeEsquema = await validarEsquema(fechaNueva, turnoNuevo);
+    if (fueraDeEsquema) return { error: fueraDeEsquema };
   }
   const cantidadStock = input.cantidadStock ?? t.cantidadStock;
   if (!Number.isInteger(cantidadStock) || cantidadStock < 0) return { error: "La cantidad para stock tiene que ser un número entero (0 o más)." };

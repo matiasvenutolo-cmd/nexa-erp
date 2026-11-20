@@ -3,6 +3,7 @@
 import { useOptimistic, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { dividirYMoverAction, moverTandaAction, moverTandaCalendarioAction } from "@/app/actions/planificacion";
+import { ESQUEMA_LABEL, turnoFueraDeEsquema, turnosDelEsquema, type Esquema } from "@/lib/turnos";
 import { yaPaso } from "@/lib/turnos";
 
 export type TarjetaCal = {
@@ -72,6 +73,9 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
     const t = lista.find((x) => x.id === id);
     if (!t || t.enCurso) return;
     if (fecha && yaPaso(fecha, turno)) return setError("Ese día o turno ya pasó: elegí uno de hoy en adelante.");
+    // Reunión 20/11/2026: el turno tiene que existir en el esquema del día.
+    const fuera = fecha ? turnoFueraDeEsquema(fecha, turno, esquemas[fecha] as Esquema | undefined) : null;
+    if (fuera) return setError(fuera);
     const inyectora = maquina ?? t.inyectora;
     if (t.fecha === fecha && t.turno === turno && maquinaDe({ ...t, inyectora }) === maquinaDe(t)) return;
     // Cada producto en su máquina: baldosas en la 8; accesorios fuera de la 8.
@@ -113,8 +117,10 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
 
   const casilla = (fecha: string | null, turno: TarjetaCal["turno"], maquina: string | null) => {
     const clave = `${fecha ?? "-"}|${turno ?? "-"}|${maquina ?? "-"}`;
-    // Los días y turnos que ya pasaron no reciben tandas (reunión 10/11/2026).
-    const pasado = fecha != null && yaPaso(fecha, turno);
+    // Los días y turnos que ya pasaron no reciben tandas (reunión 10/11/2026),
+    // ni los turnos que el esquema del día no trabaja (reunión 20/11/2026).
+    const sinTurno = fecha != null && turno != null && esquemas[fecha] != null && !turnosDelEsquema(esquemas[fecha] as Esquema).includes(turno);
+    const pasado = (fecha != null && yaPaso(fecha, turno)) || sinTurno;
     // Horas usadas: tandas + mantenimientos con duración (el cambio de matriz
     // de la planificación ya está en el set-up de la tanda).
     const horas =
@@ -122,6 +128,7 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
         ? 0
         : lista.filter((t) => t.fecha === fecha && t.turno === turno && maquinaDe(t) === maquina).reduce((h, t) => h + (t.duracionHoras ?? 0), 0) +
           trabajos.filter((w) => w.tandaId == null && w.fecha === fecha && w.turno === turno && (w.inyectora ?? maquinas[0]) === maquina).reduce((h, w) => h + (w.duracionHoras ?? 0), 0);
+    const trabajosDe = fecha == null ? [] : trabajos.filter((w) => w.fecha === fecha && w.turno === turno && (w.inyectora ?? maquinas[0]) === maquina);
     const enCasilla = lista.filter((t) => (fecha == null ? t.fecha == null || t.turno == null : t.fecha === fecha && t.turno === turno && maquinaDe(t) === maquina));
     return (
       <div
@@ -141,22 +148,25 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
         className={`min-h-24 space-y-1.5 rounded-lg border p-1.5 transition-colors ${pasado ? "border-transparent bg-[repeating-linear-gradient(45deg,rgba(29,43,58,0.04),rgba(29,43,58,0.04)_6px,transparent_6px,transparent_12px)]" : sobre === clave ? "border-accent bg-[rgba(238,125,48,0.08)]" : "border-dashed border-border bg-surface-muted/60"}`}
         aria-label={fecha ? `${fmtDia(fecha)} · turno ${TURNOS.find((x) => x.valor === turno)?.etiqueta} · inyectora ${maquina}` : "Sin día asignado"}
       >
+        {sinTurno && enCasilla.length === 0 && <div className="pt-6 text-center text-[10px] text-foreground-muted">sin turno</div>}
+        {sinTurno && enCasilla.length > 0 && <div className="text-[10px] font-semibold text-[var(--estado-critico-fg)]">Este día no tiene turno {TURNOS.find((x) => x.valor === turno)?.etiqueta.toLowerCase()}: mové la tanda.</div>}
         {horas > 0 && (
           <div className={`text-right text-[10px] font-semibold ${horas > HORAS_TURNO + 1e-9 ? "text-[var(--estado-critico-fg)]" : "text-foreground-muted"}`}>
             {fmtHoras(horas)} de {HORAS_TURNO} h
           </div>
         )}
-        {fecha != null &&
-          trabajos
-            .filter((w) => w.fecha === fecha && w.turno === turno && (w.inyectora ?? maquinas[0]) === maquina)
-            .map((w) => (
-              <div key={`w${w.id}`} className="rounded-md border border-[var(--estado-bajo-fg)] bg-[var(--estado-bajo-bg)] px-1.5 py-1 text-[11px] font-semibold text-[var(--estado-bajo-fg)]" title="Programado por Matrices">
-                🔧 {w.texto}
-                {w.duracionHoras ? ` · ${fmtHoras(w.duracionHoras)}` : ""}
-              </div>
-            ))}
+        {/* El cambio de matriz de una tanda va justo antes de ella, entre las dos
+            producciones (reunión 20/11/2026); los demás trabajos, arriba. */}
+        {trabajosDe.filter((w) => w.tandaId == null || !enCasilla.some((t) => t.id === w.tandaId)).map((w) => (
+          <Trabajo key={`w${w.id}`} w={w} />
+        ))}
         {enCasilla.map((t, i) => (
-          <Tarjeta key={t.id} t={t} dias={dias} editable={editable} onMover={soltar} onOrdenar={fecha != null && enCasilla.length > 1 ? { arriba: i > 0, abajo: i < enCasilla.length - 1, ordenar } : null} />
+          <div key={t.id} className="space-y-1.5">
+            {trabajosDe.filter((w) => w.tandaId === t.id).map((w) => (
+              <Trabajo key={`w${w.id}`} w={w} />
+            ))}
+            <Tarjeta t={t} dias={dias} editable={editable} onMover={soltar} onOrdenar={fecha != null && enCasilla.length > 1 ? { arriba: i > 0, abajo: i < enCasilla.length - 1, ordenar } : null} />
+          </div>
         ))}
       </div>
     );
@@ -183,7 +193,7 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
           {dias.map((d) => (
             <div key={d} className="text-center text-xs font-bold uppercase tracking-wide text-foreground-muted" style={{ gridColumn: `span ${maquinas.length}` }}>
               {fmtDia(d)}
-              {esquemas[d] && <div className="text-[10px] font-semibold normal-case text-brand-azul">esquema {esquemas[d].toLowerCase()}</div>}
+              {esquemas[d] && <div className="text-[10px] font-semibold normal-case text-brand-azul">{ESQUEMA_LABEL[esquemas[d] as Esquema].toLowerCase()}</div>}
               {trabajos
                 .filter((w) => w.fecha === d && w.turno == null)
                 .map((w) => (
@@ -214,6 +224,15 @@ export function CalendarioPlan({ dias, tarjetas, editable, trabajos = [], esquem
         <div className="mb-1 text-xs font-bold uppercase tracking-wide text-foreground-muted">Sin día o turno asignado (arrastrá desde o hacia acá)</div>
         {casilla(null, null, null)}
       </div>
+    </div>
+  );
+}
+
+function Trabajo({ w }: { w: TrabajoCal }) {
+  return (
+    <div className="rounded-md border border-[var(--estado-bajo-fg)] bg-[var(--estado-bajo-bg)] px-1.5 py-1 text-[11px] font-semibold text-[var(--estado-bajo-fg)]" title="Programado por Matrices">
+      🔧 {w.texto}
+      {w.duracionHoras ? ` · ${fmtHoras(w.duracionHoras)}` : ""}
     </div>
   );
 }

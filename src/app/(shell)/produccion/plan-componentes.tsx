@@ -166,7 +166,9 @@ export function TarjetaTanda({ t, posicion, puedePlanificar }: { t: TandaVista; 
         </summary>
         {t.pedidos.length > 0 ? (
           editable ? (
-            <FormAccion accion={quitarPedidosAction} ocultos={{ id: t.id }} boton="Quitar los marcados (vuelven a planificar)" claseBoton="btn btn-outline btn-sm" className="mt-2 space-y-2">
+            <FormAccion accion={quitarPedidosAction} ocultos={{ id: t.id }} boton="Sacar de esta tanda los pedidos tildados" claseBoton="btn btn-outline btn-sm" className="mt-2 space-y-2">
+              {/* Reunión 20/11/2026: el botón «Quitar los marcados» no se entendía. */}
+              <p className="text-xs text-foreground-muted">Si un pedido no va en esta tanda, tildalo y sacalo: vuelve a «Por planificar» para ponerlo en otra.</p>
               <ListaPedidos t={t} conCheck />
               <input name="motivo" placeholder="Motivo (ej. se entregan la semana próxima)" className="input" />
             </FormAccion>

@@ -78,7 +78,7 @@ export default async function DetallePedidoPage({
   const conProducto = lineas.filter((l) => l.productoId != null && l.pendiente > 0);
   const pendCon = conProducto.reduce((t, l) => t + l.pendiente, 0);
   const cubiertoPedido = conProducto.reduce((t, l) => t + (cobertura.get(l.lineaId)?.cubierto ?? 0), 0);
-  const armable = disponibilidadArmado({ pendiente: pendCon, sinProducto: 0, faltaProducir: pendCon - cubiertoPedido, despachoEnCurso: false, pendienteConProducto: pendCon, cubierto: cubiertoPedido });
+  const armable = disponibilidadArmado({ pendiente: pendCon, sinProducto: 0, faltaProducir: pendCon - cubiertoPedido, despachoEnCurso: false, pendienteConProducto: pendCon, cubierto: cubiertoPedido, faltaDetalle: [] });
   const hayPendienteDespachable = lineas.some((l) => l.productoId != null && l.pendiente > 0);
   const lineaPorId = new Map(pedido.lineas.map((l) => [l.id, l]));
   const posicionEnCola = new Map(cola.map((f, i) => [f.productoId, { posicion: i + 1, total: cola.length }]));

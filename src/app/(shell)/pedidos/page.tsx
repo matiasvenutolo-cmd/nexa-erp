@@ -232,6 +232,14 @@ function Situacion({ s, estado }: { s: SituacionPedido | undefined; estado: stri
       <span key="f" style={{ whiteSpace: "normal" }} className="badge-estado badge-critico">
         Falta producir {fmtNumero(s.faltaProducir, 0)}
       </span>,
+      // De qué (reunión 20/11/2026).
+      <ul key="fd" className="w-full text-xs text-foreground-muted">
+        {s.faltaDetalle.map((d) => (
+          <li key={d.producto}>
+            {fmtNumero(d.cantidad, 0)} {d.producto}
+          </li>
+        ))}
+      </ul>,
     );
   if (partes.length === 0)
     partes.push(

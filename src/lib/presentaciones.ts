@@ -33,7 +33,10 @@ export function fmtCantidadBolsas(cantidad: number): string {
 export const BOLSAS_MAX_POR_CARGA = 4;
 
 export function fmtPeso(kg: number, opciones: { gramos?: boolean } = {}): string {
-  if (opciones.gramos || Math.abs(kg) < 1) {
+  // Reunión 20/11/2026: «1.875 g» se leía como 1,875 kg. Desde 1 kg se muestra
+  // siempre en kilos; `gramos` sólo cambia algo por debajo del kilo.
+  void opciones.gramos;
+  if (Math.abs(kg) < 1) {
     return `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 0 }).format(aGramos(kg))} g`;
   }
   return `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Math.round(kg * 1000) / 1000)} kg`;
