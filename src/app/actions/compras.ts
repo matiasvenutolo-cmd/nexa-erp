@@ -26,8 +26,10 @@ const moneda = (fd: FormData): Moneda => ((MONEDAS as readonly string[]).include
 
 export async function solicitarCompraAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
   const u = await getUsuarioActual();
-  const kg = parseCantidadAR(String(fd.get("cantidadKg") ?? ""));
-  if (kg == null) return { error: "No se entiende la cantidad: escribí, por ejemplo, 1.500 o 25,5." };
+  const cantidad = parseCantidadAR(String(fd.get("cantidad") ?? fd.get("cantidadKg") ?? ""));
+  if (cantidad == null) return { error: "No se entiende la cantidad: escribí, por ejemplo, 1.500 o 25,5." };
+  // Se pide en kg o en gramos (reunión 20/11/2026); la compra se guarda en kg.
+  const kg = fd.get("unidad") === "g" ? Math.round(cantidad) / 1000 : cantidad;
   const r = await solicitarCompra(u, { materiaPrimaId: Number(fd.get("materiaPrimaId")), cantidadKg: kg, observaciones: txt(fd, "observaciones") });
   if (r.error) return { error: r.error };
   revalidar();

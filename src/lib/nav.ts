@@ -50,8 +50,9 @@ export type ItemNav = { href: string; label: string; seccion?: SeccionNav };
 /** Roles que reciben avisos: ventas (pedido listo o modificado), supervisión y
  *  gerencia (reclamos, errores informados), el Encargado (pedido modificado) y
  *  Compras (pedidos de Materia prima) y Matrices (cambios de matriz que pide
- *  la planificación). */
-export const ROLES_CON_AVISOS: readonly Rol[] = ["ADMINISTRACION", "SUPERVISOR", "GERENCIA", "ENCARGADO", "COMPRAS", "MATRICES"];
+ *  la planificación). Materia prima recibe los cambios de sus compras
+ *  (reunión 20/11/2026). */
+export const ROLES_CON_AVISOS: readonly Rol[] = ["ADMINISTRACION", "SUPERVISOR", "GERENCIA", "ENCARGADO", "COMPRAS", "MATRICES", "MATERIA_PRIMA"];
 
 /** Roles que trabajan en la planta y no necesitan el tablero ni los pedidos. */
 const SOLO_SU_PANTALLA: readonly Rol[] = ["OPERARIO", "MATERIA_PRIMA", "MATRICES", "MOLINO", "COMPRAS"];

@@ -43,6 +43,7 @@ export async function ingresoMpAction(_prev: EstadoForm, fd: FormData): Promise<
     archivoUrl: txt(fd, "archivoUrl"),
     ubicacion: txt(fd, "ubicacion"),
     compraId: Number(fd.get("compraId")) || null,
+    motivoSinCompra: txt(fd, "motivoSinCompra"),
   });
   if (r.error) return { error: r.error };
   revalidar();

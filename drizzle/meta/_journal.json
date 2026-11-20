@@ -120,6 +120,13 @@
       "when": 1794756100119,
       "tag": "0016_compras_proveedores",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795208869247,
+      "tag": "0017_aviso_compra_mp",
+      "breakpoints": true
     }
   ]
 }

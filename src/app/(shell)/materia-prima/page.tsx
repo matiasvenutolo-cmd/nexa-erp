@@ -232,7 +232,15 @@ async function Stock({ stock, sp, pide }: { stock: Stock; sp: { tipo?: string; t
                             <FormAccion accion={solicitarCompraAction} ocultos={{ materiaPrimaId: m.id }} boton="Enviar pedido a Compras" claseBoton="btn btn-primary btn-sm" className="space-y-2">
                               {s && s.sugeridoKg > 0 && <p className="text-xs text-foreground-muted">Para volver a OK hacen falta unos {fmtPeso(s.sugeridoKg)}{s.enCompraKg > 0 ? " (ya descontado lo que está en compra)" : ""}.</p>}
                               {s && s.enCompraKg > 0 && s.sugeridoKg === 0 && <p className="text-xs text-foreground-muted">Ya hay {fmtPeso(s.enCompraKg)} pedidos o en compra.</p>}
-                              <input name="cantidadKg" required inputMode="decimal" defaultValue={s && s.sugeridoKg > 0 ? String(s.sugeridoKg) : ""} placeholder="Kg (ej. 1.500)" className="input" />
+                              {/* Reunión 20/11/2026: en kg o en gramos. La sugerencia va con coma decimal
+                                  («1,195»): con punto se leía como miles. */}
+                              <div className="flex gap-2">
+                                <input name="cantidad" required inputMode="decimal" defaultValue={s && s.sugeridoKg > 0 ? String(s.sugeridoKg).replace(".", ",") : ""} placeholder="Cantidad (ej. 1.500)" className="input min-w-0 flex-1" />
+                                <select name="unidad" defaultValue="kg" className="input w-20" aria-label="Unidad">
+                                  <option value="kg">kg</option>
+                                  <option value="g">g</option>
+                                </select>
+                              </div>
                               <input name="observaciones" placeholder="Aclaración (opcional)" className="input" />
                             </FormAccion>
                           </div>

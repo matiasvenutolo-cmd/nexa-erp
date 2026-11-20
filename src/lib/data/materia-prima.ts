@@ -15,7 +15,7 @@
  * El stock de materia prima importado del Excel no tiene lote: se puede
  * retirar igual, y en la trazabilidad figura como "stock sin lote".
  */
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { partidaNexaSql } from "@/lib/data/partida-sql";
 import { db } from "@/lib/db/client";
 import { compararCodigoMp, ordenTipoMp } from "@/lib/codigos-mp";
@@ -61,13 +61,27 @@ export type IngresoMpInput = {
   conCertificado: boolean;
   archivoUrl?: string | null;
   ubicacion?: string | null;
-  /** Compra a la que corresponde esta entrega (opcional). */
+  /** Compra a la que corresponde esta entrega. Si el material tiene compras
+   *  abiertas, es obligatoria salvo que se explique por qué no corresponde a
+   *  ninguna (reunión 20/11/2026). */
   compraId?: number | null;
+  motivoSinCompra?: string | null;
 };
 
 export async function ingresarMateriaPrima(actor: Actor, input: IngresoMpInput): Promise<Resultado & { loteId?: number; certificado?: number }> {
   if (!puedeIngresarMateriaPrima(actor.rol)) return { error: "No tenés permiso para ingresar materia prima." };
   if (!Number.isFinite(input.cantidadKg) || input.cantidadKg <= 0) return { error: "La cantidad tiene que ser mayor que cero." };
+  // El ingreso va atado a su compra: así la compra pasa sola a entregada y el
+  // proveedor sale de la compra (reunión 20/11/2026).
+  if (input.compraId) {
+    const [c] = await db.select({ proveedor: compraMp.proveedor }).from(compraMp).where(eq(compraMp.id, input.compraId));
+    if (c?.proveedor && !input.proveedor.trim()) input = { ...input, proveedor: c.proveedor };
+  } else {
+    const abiertas = await db.select({ id: compraMp.id }).from(compraMp).where(and(eq(compraMp.materiaPrimaId, input.materiaPrimaId), inArray(compraMp.estado, ABIERTAS)));
+    if (abiertas.length && !input.motivoSinCompra?.trim()) {
+      return { error: `Este material tiene ${abiertas.length === 1 ? "una compra abierta" : "compras abiertas"} (${abiertas.map((a) => `#${a.id}`).join(", ")}): elegí a cuál corresponde el ingreso, o explicá por qué no corresponde a ninguna.` };
+    }
+  }
   if (!input.proveedor.trim()) return { error: "Falta el proveedor." };
   if (!input.fechaRecepcion) return { error: "Falta la fecha de recepción." };
   const bloques = separarCodigoLote(input.codigoBarra);
@@ -132,7 +146,7 @@ export async function ingresarMateriaPrima(actor: Actor, input: IngresoMpInput):
       cantidad: String(input.cantidadKg),
       origen: "INGRESO_MP",
       origenId: lote.id,
-      motivo: `Ingreso lote ${bloques.lote}${numeroCertificado ? ` · certificado N° ${numeroCertificado}` : ""} · ${input.proveedor.trim()}`,
+      motivo: `Ingreso lote ${bloques.lote}${numeroCertificado ? ` · certificado N° ${numeroCertificado}` : ""} · ${input.proveedor.trim()}${input.compraId ? ` · compra #${input.compraId}` : input.motivoSinCompra?.trim() ? ` · sin compra: ${input.motivoSinCompra.trim()}` : ""}`,
       usuarioId: actor.id,
     });
     await tx

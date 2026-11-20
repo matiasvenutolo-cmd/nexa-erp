@@ -37,28 +37,7 @@ export function SelectProveedor({ proveedores, valor, requerido = true }: { prov
   );
 }
 
-/** Precio por kg, total y moneda: se carga uno de los dos montos y el otro se calcula. */
-export function CamposMonto({ precioKg, montoTotal, moneda }: { precioKg?: number | null; montoTotal?: number | null; moneda?: Moneda }) {
-  return (
-    <>
-      <label className="campo">
-        <span>Precio por kg</span>
-        <input name="precioKg" inputMode="decimal" defaultValue={aInput(precioKg ?? null)} placeholder="Ej.: 1.850,50" className="input" />
-      </label>
-      <label className="campo">
-        <span>Monto total</span>
-        <input name="montoTotal" inputMode="decimal" defaultValue={aInput(montoTotal ?? null)} placeholder="o el total" className="input" />
-      </label>
-      <label className="campo">
-        <span>Moneda</span>
-        <select name="moneda" defaultValue={moneda ?? "ARS"} className="input">
-          <option value="ARS">Pesos</option>
-          <option value="USD">Dólares</option>
-        </select>
-      </label>
-    </>
-  );
-}
+export { CamposMonto } from "./campos-monto";
 
 /** Cómo cumplió la fecha de entrega una compra. */
 export function Cumplio({ c }: { c: FilaCompra }) {

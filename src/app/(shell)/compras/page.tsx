@@ -289,6 +289,8 @@ async function Estado({
                             </option>
                           ))}
                         </select>
+                        {/* Reunión 20/11/2026: la entrega la registra Materia prima con el ingreso. */}
+                        <span className="campo-ayuda">«Entregada» y «parcialmente entregada» se ponen solas cuando Materia prima registra el ingreso de esta compra.</span>
                       </label>
                       <label className="campo">
                         <span>Proveedor</span>

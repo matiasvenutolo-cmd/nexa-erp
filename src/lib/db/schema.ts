@@ -150,7 +150,7 @@ export const estadoDespachoEnum = pgEnum("estado_despacho", ["ARMANDO", "CONTROL
 
 export const estadoReclamoEnum = pgEnum("estado_reclamo", ["ABIERTO", "EN_ANALISIS", "CERRADO"]);
 
-export const tipoAvisoEnum = pgEnum("tipo_aviso", ["PEDIDO_LISTO", "RECLAMO_NUEVO", "INFORME_RECLAMO", "ERROR_INFORMADO", "PEDIDO_MODIFICADO", "PEDIDO_MATERIA_PRIMA", "CAMBIO_MATRIZ"]);
+export const tipoAvisoEnum = pgEnum("tipo_aviso", ["PEDIDO_LISTO", "RECLAMO_NUEVO", "INFORME_RECLAMO", "ERROR_INFORMADO", "PEDIDO_MODIFICADO", "PEDIDO_MATERIA_PRIMA", "CAMBIO_MATRIZ", "COMPRA_MP"]);
 
 /** Retiro de materia prima a pie de máquina: abierto mientras quede material
  *  sin cargar, devolver o justificar (puede durar varios turnos). */

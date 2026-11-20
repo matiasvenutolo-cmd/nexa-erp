@@ -232,6 +232,14 @@ export async function solicitarCompra(actor: Actor, input: { materiaPrimaId: num
   });
 }
 
+/** Nombre de la materia prima, para los avisos. */
+async function nombreMp(ex: Pick<typeof db, "select">, id: number): Promise<string> {
+  const [m] = await ex.select({ nombre: materiaPrima.nombre }).from(materiaPrima).where(eq(materiaPrima.id, id));
+  return m?.nombre ?? "materia prima";
+}
+const kgTxt = (kg: number | string) => `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(kg))} kg`;
+const diaTxt = (f: string | null) => (f ? f.split("-").reverse().join("/") : null);
+
 async function proveedorActivo(id: number): Promise<{ id: number; nombre: string } | { error: string }> {
   const [p] = await db.select({ id: proveedorT.id, nombre: proveedorT.nombre, activo: proveedorT.activo }).from(proveedorT).where(eq(proveedorT.id, id));
   if (!p) return { error: "Proveedor no encontrado." };
@@ -296,6 +304,13 @@ export async function ejecutarCompra(actor: Actor, id: number, input: EjecutarCo
       { entidad: "compra_mp", entidadId: id, campo: "fecha_entrega_estimada", anterior: c.fechaEntregaEstimada, nuevo: valores.fechaEntregaEstimada },
       { entidad: "compra_mp", entidadId: id, campo: "numero_oc", anterior: c.numeroOc, nuevo: valores.numeroOc },
     ]);
+    // Reunión 20/11/2026: Materia prima se entera de lo que pasa con su pedido.
+    await crearAviso(tx, {
+      tipo: "COMPRA_MP",
+      destinoRol: "MATERIA_PRIMA",
+      mensaje: `Compras ${estado === "COMPRADO" ? "compró" : "pidió"} ${kgTxt(valores.cantidadKg)} de ${await nombreMp(tx, c.materiaPrimaId)} a ${prov.nombre}${valores.fechaEntregaEstimada ? `: llega el ${diaTxt(valores.fechaEntregaEstimada)}` : " (sin fecha de entrega todavía)"} · compra #${id}.`,
+      creadoPorId: actor.id,
+    });
     return {};
   });
 }
@@ -366,6 +381,21 @@ export async function actualizarCompra(
       { entidad: "compra_mp", entidadId: id, campo: "cantidad_kg", anterior: c.cantidadKg, nuevo: cantidad, motivo: cambios.motivo },
       { entidad: "compra_mp", entidadId: id, campo: "observaciones", anterior: c.observaciones, nuevo: valores.observaciones, motivo: cambios.motivo },
     ]);
+    // Cambio de estado o de fecha de llegada: le avisa a Materia prima (reunión 20/11/2026).
+    const cambioEstado = estado !== c.estado;
+    const cambioFecha = valores.fechaEntregaEstimada !== c.fechaEntregaEstimada;
+    if (cambioEstado || cambioFecha) {
+      const partes = [
+        cambioEstado ? `ahora está «${ESTADO_COMPRA_LABEL[estado]}»` : null,
+        cambioFecha ? (valores.fechaEntregaEstimada ? `llega el ${diaTxt(valores.fechaEntregaEstimada)}` : "sin fecha de entrega") : null,
+      ].filter(Boolean);
+      await crearAviso(tx, {
+        tipo: "COMPRA_MP",
+        destinoRol: "MATERIA_PRIMA",
+        mensaje: `La compra #${id} de ${await nombreMp(tx, c.materiaPrimaId)} (${kgTxt(cantidad)}${valores.proveedor ? `, ${valores.proveedor}` : ""}): ${partes.join(" y ")}${cambios.motivo?.trim() ? ` (${cambios.motivo.trim()})` : ""}.`,
+        creadoPorId: actor.id,
+      });
+    }
     return {};
   });
 }
@@ -389,12 +419,26 @@ export async function imputarIngresoACompra(tx: Tx, actor: Actor, input: { compr
     { entidad: "compra_mp", entidadId: c.id, campo: "entrega", anterior: null, nuevo: `${input.kg} kg (lote ${input.loteMpId})` },
     { entidad: "compra_mp", entidadId: c.id, campo: "estado", anterior: ESTADO_COMPRA_LABEL[c.estado], nuevo: ESTADO_COMPRA_LABEL[estado] },
   ]);
+  // Compras no tiene que marcarla a mano: se entera de que llegó (reunión 20/11/2026).
+  await crearAviso(tx, {
+    tipo: "COMPRA_MP",
+    destinoRol: "COMPRAS",
+    mensaje: `Materia prima registró el ingreso de ${kgTxt(input.kg)} de ${await nombreMp(tx, c.materiaPrimaId)}${c.proveedor ? ` de ${c.proveedor}` : ""} (compra #${c.id}): quedó «${ESTADO_COMPRA_LABEL[estado]}»${estado === "PARCIAL" ? `, faltan ${kgTxt(Math.max(0, (aGramos(Number(c.cantidadKg)) - aGramos(recibido)) / 1000))}` : ""}.`,
+    creadoPorId: actor.id,
+  });
   return {};
 }
 
 /** Compras abiertas para elegir en el ingreso de proveedor. */
 export async function comprasAbiertasDe(materiaPrimaId?: number) {
-  return (await listarCompras({ abiertas: true, materiaPrimaId })).map((c) => ({ id: c.id, materiaPrimaId: c.materiaPrimaId, etiqueta: `#${c.id} · ${c.materiaPrimaNombre} · ${c.pendienteKg} kg pendientes${c.proveedor ? ` · ${c.proveedor}` : ""}` }));
+  return (await listarCompras({ abiertas: true, materiaPrimaId })).map((c) => ({
+    id: c.id,
+    materiaPrimaId: c.materiaPrimaId,
+    materiaPrimaNombre: c.materiaPrimaNombre,
+    proveedor: c.proveedor,
+    pendienteKg: c.pendienteKg,
+    etiqueta: `#${c.id} · ${c.materiaPrimaNombre} · ${kgTxt(c.pendienteKg)} pendientes${c.proveedor ? ` · ${c.proveedor}` : ""}${c.fechaEntregaEstimada ? ` · llega ${diaTxt(c.fechaEntregaEstimada)}` : ""}`,
+  }));
 }
 
 export async function pendientePorMp(): Promise<Map<number, number>> {

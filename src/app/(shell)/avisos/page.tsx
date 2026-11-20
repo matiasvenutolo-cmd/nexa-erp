@@ -14,6 +14,7 @@ const TIPO_LABEL = {
   PEDIDO_MODIFICADO: "Pedido modificado: revisarlo antes del despacho",
   PEDIDO_MATERIA_PRIMA: "Pedido de materia prima a Compras",
   CAMBIO_MATRIZ: "Cambio de matriz programado",
+  COMPRA_MP: "Compra de materia prima",
 } as const;
 
 export default async function AvisosPage({ searchParams }: { searchParams: Promise<{ todos?: string }> }) {
