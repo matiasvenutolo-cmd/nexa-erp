@@ -243,7 +243,7 @@ export default async function ProduccionDetallePage({ params, searchParams }: { 
         <div className="rounded-lg border border-border bg-surface p-4 text-sm">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-foreground-muted">Cajas ({cajas.length})</h2>
-            <Link href={`/taller/etiquetas?ciclo=${ciclo.id}`} className="btn btn-outline btn-sm">
+            <Link href={`/taller/etiquetas?ciclo=${ciclo.id}&volver=produccion-${ciclo.id}`} className="btn btn-outline btn-sm">
               Imprimir etiquetas
             </Link>
           </div>
@@ -259,7 +259,7 @@ export default async function ProduccionDetallePage({ params, searchParams }: { 
                       ↻
                     </summary>
                     <div className="absolute right-0 z-10 mt-1 w-64 rounded-xl border border-border bg-white p-3 shadow-lg">
-                      <FormAccion accion={reimprimirEtiquetaAction} ocultos={{ cajaId: c.id }} boton="Reimprimir" claseBoton="btn btn-primary btn-sm" className="space-y-2">
+                      <FormAccion accion={reimprimirEtiquetaAction} ocultos={{ cajaId: c.id, cicloId: ciclo.id }} boton="Reimprimir" claseBoton="btn btn-primary btn-sm" className="space-y-2">
                         <input name="motivo" required placeholder="Motivo (ej. se rompió la etiqueta)" className="input" />
                       </FormAccion>
                     </div>

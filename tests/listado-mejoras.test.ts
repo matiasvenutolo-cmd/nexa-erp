@@ -298,7 +298,7 @@ describe("Operario: arranca la tanda, carga desde pie de máquina, pausa y final
     expect(td).toMatchObject({ estado: "PLANIFICADA", cicloId: null });
   });
 
-  it("no se inicia una producción en una máquina con material de otra producción a pie de máquina", async () => {
+  it("no se inicia una producción si quedó a pie de máquina material de otra producción que no es de su receta", async () => {
     await registrarRetiroMaquina(s.usuarios.RETIROS_MP, { cicloId: null, inyectora: "8", lineas: [{ materiaPrimaId: masterId, loteMpId: null, cantidadKg: 1 }] });
     // Retiro sin producción asociada: no bloquea (no se sabe de qué producto es).
     const t = await crearTanda(s.usuarios.ENCARGADO, { productoId: s.productos.rejBlanco.id, lineas: [], cantidadStock: 10 });
@@ -308,7 +308,8 @@ describe("Operario: arranca la tanda, carga desde pie de máquina, pausa y final
     await cerrarCiclo(c.id, { golpesFin: 0, piezasDescartadas: 0, piezasEntregadas: 0, coladaKg: null, rebarbaKg: null, scrapKg: null, cambioCicloCausa: null, observaciones: null, cerrarPartida: false, usuarioId: s.usuarios.ENCARGADO.id });
     // La primera de la cola es otra tanda: se arranca con motivo, y aun así lo frena el material.
     const r = await iniciarTandaAsignada(s.usuarios.OPERARIO, { tandaId: t.id!, golpesInicio: 0, turno: "MANANA", motivo: "Prueba" });
-    expect(r.error).toMatch(/material de otra producción/);
+    // Reunión 20/11/2026: el mensaje dice qué material es y que lo retira Materia prima.
+    expect(r.error).toMatch(/de la producción anterior, que no es de esta receta: avisale a Materia prima/);
   });
 });
 

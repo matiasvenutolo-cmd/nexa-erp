@@ -116,7 +116,19 @@ export async function reimprimirEtiquetaAction(_p: EstadoAccion, fd: FormData): 
   const u = await getUsuarioActual();
   const r = await registrarReimpresion(u, Number(fd.get("cajaId")), txt(fd, "motivo"));
   if (r.error) return { error: r.error };
-  redirect(`/taller/etiquetas?cajas=${Number(fd.get("cajaId"))}`);
+  redirect(`/taller/etiquetas?cajas=${Number(fd.get("cajaId"))}${Number(fd.get("cicloId")) ? `&volver=produccion-${Number(fd.get("cicloId"))}` : ""}`);
+}
+
+/** Menú Etiquetas: reimprime varias cajas de una producción con un mismo motivo. */
+export async function reimprimirEtiquetasAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
+  const u = await getUsuarioActual();
+  const ids = fd.getAll("caja").map(Number).filter(Boolean);
+  if (ids.length === 0) return { error: "Tildá las cajas que querés reimprimir." };
+  for (const id of ids) {
+    const r = await registrarReimpresion(u, id, txt(fd, "motivo"));
+    if (r.error) return { error: r.error };
+  }
+  redirect(`/taller/etiquetas?cajas=${ids.join(",")}&volver=menu`);
 }
 
 export async function revisarTurnoAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
@@ -170,7 +182,8 @@ export async function cerrarTurnoAction(_p: EstadoAccion, fd: FormData): Promise
   });
   if (r.error) return { error: r.error };
   revalidar();
-  return { ok: `Turno cerrado${r.piezas != null ? `: ${r.piezas} piezas en el turno` : ""}${r.cajas ? `, ${r.cajas} cajas a stock: imprimí sus etiquetas` : ""}.` };
+  // Las etiquetas se imprimen al terminar la producción, no en cada turno (reunión 20/11/2026).
+  return { ok: `Turno cerrado${r.piezas != null ? `: ${r.piezas} piezas en el turno` : ""}${r.cajas ? `, ${r.cajas} cajas a stock` : ""}.` };
 }
 
 export async function cerrarProduccionTallerAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
@@ -187,5 +200,9 @@ export async function cerrarProduccionTallerAction(_p: EstadoAccion, fd: FormDat
   if (r.error) return { error: r.error };
   revalidar();
   revalidatePath("/catalogo");
+  revalidatePath("/etiquetas");
+  // Las etiquetas aparecen al terminar la producción (reunión 20/11/2026): si
+  // hay cajas, se pasa directo a imprimirlas. Los accesorios no llevan caja.
+  if (r.cajas) redirect(`/taller/etiquetas?ciclo=${Number(fd.get("cicloId"))}&fin=1`);
   return { ok: `Producción cerrada: ${r.piezasAStock} piezas entraron a stock.` };
 }

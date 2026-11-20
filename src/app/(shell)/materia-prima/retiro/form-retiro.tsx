@@ -17,6 +17,10 @@ export type CicloRetiro = {
   /** Receta de carga (por carga) del producto, si está definida. */
   receta: { materiaPrimaId: number; kg: number; esMaster: boolean; texto: string }[] | null;
   kgVirgenPorCarga: number | null;
+  /** Piezas de la tanda: se precargan (reunión 20/11/2026). */
+  piezasObjetivo: number | null;
+  /** Lo que falta llevar para toda la tanda, en bolsas enteras (lista «Para llevar»). */
+  sugerido: { materiaPrimaId: number; kg: number }[] | null;
 };
 type Mp = { id: number; nombre: string; tipo: string };
 type Lote = { id: number; codigoBarra: string; numeroLote: string; materiaPrimaId: number; disponible: number };
@@ -34,6 +38,7 @@ export function FormRetiroMaquina({
   responsables,
   entregan,
   inicial,
+  usuarioId,
 }: {
   ciclos: CicloRetiro[];
   materias: Mp[];
@@ -41,14 +46,25 @@ export function FormRetiroMaquina({
   responsables: Persona[];
   entregan: Persona[];
   inicial: string | null;
+  usuarioId: number;
 }) {
   const [state, action, pendiente] = useActionState<EstadoMaquina, FormData>(registrarRetiroAction, {});
   const [tok] = useState(token);
   const clave = (c: CicloRetiro) => `${c.tipo}-${c.id}`;
   const [destino, setDestino] = useState(inicial && ciclos.some((c) => clave(c) === inicial) ? inicial : "");
   const ciclo = ciclos.find((c) => clave(c) === destino) ?? null;
-  const [piezas, setPiezas] = useState("");
-  const [lineas, setLineas] = useState<Linea[]>([nueva()]);
+  // Al elegir la tanda se precargan sus piezas y lo que falta llevar, en bolsas
+  // enteras para toda la tanda (reunión 20/11/2026: antes salía una sola carga).
+  const precarga = (c: CicloRetiro | null): Linea[] => (c?.sugerido?.length ? c.sugerido.map((x) => nueva({ materiaPrimaId: String(x.materiaPrimaId), cantidadKg: String(x.kg) })) : [nueva()]);
+  const [piezas, setPiezas] = useState(ciclo?.piezasObjetivo ? String(ciclo.piezasObjetivo) : "");
+  const [lineas, setLineas] = useState<Linea[]>(() => precarga(ciclo));
+  const elegir = (valor: string) => {
+    setDestino(valor);
+    const c = ciclos.find((x) => clave(x) === valor) ?? null;
+    setPiezas(c?.piezasObjetivo ? String(c.piezasObjetivo) : "");
+    // Sólo se reemplaza lo cargado si todavía no se escribió nada a mano.
+    if (lineas.every((l) => !l.materiaPrimaId || !Number(l.cantidadKg))) setLineas(precarga(c));
+  };
 
   const upd = (key: number, patch: Partial<Linea>) => setLineas((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
   const tipoDe = (id: string) => materias.find((m) => String(m.id) === id)?.tipo;
@@ -127,7 +143,7 @@ export function FormRetiroMaquina({
 
       <section className="grid gap-3 sm:grid-cols-2">
         <Campo label="Producción">
-          <select value={destino} onChange={(e) => setDestino(e.target.value)} className="input">
+          <select value={destino} onChange={(e) => elegir(e.target.value)} className="input">
             <option value="">Sin producción (otro uso)</option>
             {(["ciclo", "tanda"] as const).map((tipo) =>
               ciclos.some((c) => c.tipo === tipo) ? (
@@ -164,7 +180,7 @@ export function FormRetiroMaquina({
             </select>
           </Campo>
         )}
-        <Campo label="Operario responsable">
+        <Campo label="Quién lo lleva a la máquina">
           <select name="operarioId" defaultValue="" className="input">
             <option value="">—</option>
             {responsables.map((u) => (
@@ -174,8 +190,8 @@ export function FormRetiroMaquina({
             ))}
           </select>
         </Campo>
-        <Campo label="Entrega (depósito)">
-          <select name="entregaId" defaultValue="" className="input">
+        <Campo label="Lo registra (Materia prima)">
+          <select name="entregaId" defaultValue={entregan.some((u) => u.id === usuarioId) ? usuarioId : ""} className="input">
             <option value="">—</option>
             {entregan.map((u) => (
               <option key={u.id} value={u.id}>
@@ -209,7 +225,7 @@ export function FormRetiroMaquina({
             )}
           </div>
         </div>
-        {ciclo?.receta && (
+        {ciclo?.receta && !ciclo.sugerido?.length && (
           <button type="button" onClick={sugerir} className="text-xs font-medium text-accent hover:underline">
             Agregar el material de la receta ({ciclo.receta.map((i) => i.texto).join(" + ")}){calculo.cargas ? ` × ${calculo.cargas} cargas` : " × 1 carga"}
           </button>

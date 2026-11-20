@@ -3,6 +3,7 @@ import { puedeContarMp } from "@/lib/data/conteo-mp";
 import { listarMoliendas } from "@/lib/data/molino";
 import { redirect } from "next/navigation";
 import { pieDeMaquina } from "@/lib/data/maquina";
+import { paraLlevarAPie } from "@/lib/data/llevar-mp";
 import { fraccionamientosRecientes, movimientosMp, stockMpPorUbicacion, MOTIVOS_AJUSTE_MP, MOTIVOS_DESCARTE_MP } from "@/lib/data/stock-mp";
 import { listarPresentaciones, presentacionesDe } from "@/lib/data/recetas";
 import { enBolsas, pedidosDeMaterialPendientes, relevosRecientes } from "@/lib/data/taller";
@@ -55,11 +56,14 @@ export default async function MateriaPrimaPage({
   if (!puedeVerMateriaPrima(usuario.rol)) redirect("/tablero");
   const sp = await searchParams;
   const vista: Vista = VISTAS.some((v) => v.id === sp.vista) ? (sp.vista as Vista) : "stock";
-  const [stock, moliendasPorConfirmar, pedidosMaterial] = await Promise.all([
+  const retira = puedeRetirarMateriaPrima(usuario.rol);
+  const [stock, moliendasPorConfirmar, pedidosMaterial, llevar] = await Promise.all([
     stockMpPorUbicacion(),
     puedeRecibirMolienda(usuario.rol) ? listarMoliendas({ estado: "ENTREGADA" }) : Promise.resolve([]),
-    puedeRetirarMateriaPrima(usuario.rol) ? pedidosDeMaterialPendientes() : Promise.resolve([]),
+    retira ? pedidosDeMaterialPendientes() : Promise.resolve([]),
+    retira ? paraLlevarAPie() : Promise.resolve([]),
   ]);
+  const paraLlevar = llevar.filter((l) => !l.completa && l.materiales.length > 0 && (l.dia === "hoy" || l.dia === "atrasada" || l.dia === "sin_dia")).length;
 
   return (
     <div>
@@ -76,7 +80,7 @@ export default async function MateriaPrimaPage({
           )}
           {puedeRetirarMateriaPrima(usuario.rol) && (
             <Link href="/materia-prima/retiro" className="btn btn-outline">
-              Retiro a pie de máquina
+              Llevar a pie de máquina{paraLlevar > 0 ? ` (${paraLlevar})` : ""}
             </Link>
           )}
           {puedeContarMp(usuario.rol) && (
@@ -88,6 +92,16 @@ export default async function MateriaPrimaPage({
       </div>
 
       <PedidosDeMaterial pedidos={pedidosMaterial} />
+
+      {paraLlevar > 0 && (
+        <p className="aviso aviso-alerta mb-4 text-sm">
+          Hay material para llevar hoy a pie de máquina ({paraLlevar} {paraLlevar === 1 ? "tanda" : "tandas"}):{" "}
+          <Link href="/materia-prima/retiro" className="font-semibold underline">
+            ver la lista
+          </Link>
+          .
+        </p>
+      )}
 
       {moliendasPorConfirmar.length > 0 && (
         <p className="aviso aviso-alerta mb-4 text-sm">
@@ -399,7 +413,14 @@ async function Pie() {
                   </Link>
                 </td>
                 <td>{etiquetaInyectora(r.inyectora)}</td>
-                <td>{r.cicloId ? `#${r.cicloId}${r.partidaNumero != null ? ` · partida ${r.partidaNumero}` : ""}` : "sin producción"}</td>
+                <td>
+                  {r.cicloId ? `#${r.cicloId}${r.partidaNumero != null ? ` · partida ${r.partidaNumero}` : ""}` : "sin producción"}
+                  {/* Reunión 20/11/2026: lo que sobró de una producción terminada pasa a la
+                      siguiente si es de su receta; si no, se devuelve desde el retiro. */}
+                  {r.cicloId != null && !r.cicloAbierto && r.totales.pie > 0 && (
+                    <div className="text-xs font-semibold text-[var(--estado-bajo-fg)]">La producción terminó: si no es de la receta de la próxima tanda, devolvelo («Devolver sin mezclar»).</div>
+                  )}
+                </td>
                 <td className="text-right tabular-nums">{fmtNumero(r.totales.retirado, 3)} kg</td>
                 <td className="text-right tabular-nums">{fmtNumero(r.totales.cargado, 3)} kg</td>
                 <td className="text-right tabular-nums">{fmtNumero(r.totales.devuelto, 3)} kg</td>

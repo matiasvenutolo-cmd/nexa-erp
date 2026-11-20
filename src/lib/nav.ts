@@ -11,6 +11,7 @@
  */
 import type { usuario } from "@/lib/db/schema";
 import {
+  puedeCancelarProduccion,
   puedeCrearPedido,
   puedeOperarTaller,
   puedeVerCompras,
@@ -82,6 +83,8 @@ export const NAV_POR_ROL: Record<Rol, ItemNav[]> = Object.fromEntries(
       gestion && { href: "/clientes", label: "Clientes", seccion: "Ventas" },
       puedeVerReclamos(r) && { href: "/reclamos", label: "Reclamos", seccion: "Ventas" },
       r !== "OPERARIO" && puedeVerProduccion(r) && { href: "/produccion", label: "Producción", seccion: "Fábrica" },
+      // Reunión 20/11/2026: las etiquetas se encuentran sin buscar la producción.
+      puedeCancelarProduccion(r) && { href: "/etiquetas", label: "Etiquetas", seccion: "Fábrica" },
       puedeVerMateriaPrima(r) && { href: "/materia-prima", label: "Materia prima", seccion: "Fábrica" },
       puedeVerTrazabilidad(r) && { href: "/trazabilidad", label: "Trazabilidad", seccion: "Fábrica" },
       puedeVerCompras(r) && { href: "/compras", label: "Compras", seccion: "Fábrica" },

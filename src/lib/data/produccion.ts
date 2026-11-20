@@ -774,6 +774,45 @@ export async function etiquetasDe(filtro: { turnoId?: number; cicloId?: number; 
   return filas;
 }
 
+/**
+ * Menú «Etiquetas» (reunión 20/11/2026): las producciones con cajas, de la más
+ * reciente a la más vieja, para imprimir o reimprimir sus etiquetas sin tener
+ * que buscar la producción. Filtra por fecha de la caja y por texto (código,
+ * descripción o color).
+ */
+export async function produccionesConCajas(filtro: { desde: string; hasta: string; texto?: string | null }) {
+  const texto = filtro.texto?.trim().toLowerCase();
+  const filas = await db
+    .select({
+      cicloId: caja.cicloId,
+      inyectora: cicloProduccion.inyectora,
+      fechaInicio: cicloProduccion.fechaInicio,
+      fechaFin: cicloProduccion.fechaFin,
+      productoCodigo: producto.codigo,
+      productoDescripcion: producto.descripcion,
+      colorNombre: color.nombre,
+      colorHex: color.hex,
+      partida: partidaNexaSql,
+      cajas: sql<number>`count(*)`.mapWith(Number),
+      piezas: sql<number>`coalesce(sum(${caja.cantidad}), 0)`.mapWith(Number),
+      ultima: sql<string>`max(${caja.fecha})`,
+    })
+    .from(caja)
+    .innerJoin(cicloProduccion, eq(caja.cicloId, cicloProduccion.id))
+    .innerJoin(producto, eq(caja.productoId, producto.id))
+    .leftJoin(color, eq(producto.colorId, color.id))
+    .innerJoin(partida, eq(caja.partidaId, partida.id))
+    .where(
+      and(
+        sql`${caja.fecha} between ${filtro.desde} and ${filtro.hasta}`,
+        texto ? sql`lower(${producto.codigo} || ' ' || ${producto.descripcion} || ' ' || coalesce(${color.nombre}, '')) like ${`%${texto}%`}` : undefined,
+      ),
+    )
+    .groupBy(caja.cicloId, cicloProduccion.id, producto.id, color.id, partida.id)
+    .orderBy(desc(sql`max(${caja.fecha})`), desc(caja.cicloId));
+  return filas.filter((f): f is typeof f & { cicloId: number } => f.cicloId != null);
+}
+
 export async function cajasDeCiclo(cicloId: number) {
   return db
     .select({ id: caja.id, codigo: sql<string>`coalesce(${caja.codigoEtiqueta}, ${caja.codigoBarra})`, cantidad: caja.cantidad, estado: caja.estado })

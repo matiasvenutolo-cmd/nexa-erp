@@ -186,11 +186,10 @@ export function TarjetaTanda({ t, posicion, puedePlanificar }: { t: TandaVista; 
             <Factory size={15} /> Ver la producción
           </Link>
         )}
-        {/* La tanda la arranca el operario desde su pantalla: acá se le lleva el material. */}
-        {puedePlanificar && t.estado === "PLANIFICADA" && t.inyectora && (
-          <Link href={`/materia-prima/retiro?tanda=${t.id}`} className="btn btn-primary btn-sm">
-            Llevar material
-          </Link>
+        {/* Reunión 20/11/2026: el material lo lleva Materia prima con su lista
+            «Para llevar a pie de máquina»; el Encargado no hace el retiro. */}
+        {t.estado === "PLANIFICADA" && t.inyectora && (
+          <span className="self-center text-xs text-foreground-muted">El material lo lleva Materia prima (le aparece en «Para llevar a pie de máquina»).</span>
         )}
         {puedePlanificar && t.estado === "EN_CURSO" && t.cicloId && (
           <Link href={`/materia-prima/retiro?ciclo=${t.cicloId}`} className="btn btn-outline btn-sm">

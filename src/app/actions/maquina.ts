@@ -68,7 +68,11 @@ export async function registrarRetiroAction(_prev: EstadoMaquina, fd: FormData):
   // Desde una producción se vuelve a la producción (bug de la demo: el "volver"
   // llevaba a Materia prima).
   if (cicloId) redirect(`/produccion/${cicloId}?ok=${encodeURIComponent(`Retiro ${numeroRetiro(r.id!)} registrado: el material quedó a pie de máquina.`)}`);
-  redirect(`/materia-prima/retiros/${r.id}`);
+  // Reunión 20/11/2026: ya no se pasa a la pantalla de conciliación del retiro
+  // («no sabés qué hacer»): se vuelve a la lista de lo que hay que llevar.
+  revalidatePath("/materia-prima/retiro");
+  revalidatePath("/taller");
+  redirect(`/materia-prima/retiro?ok=${encodeURIComponent(`Listo: el material quedó a pie de máquina (retiro ${numeroRetiro(r.id!)}). El operario lo ve en su pantalla.`)}`);
 }
 
 export async function cargarTolvaAction(_prev: EstadoMaquina, fd: FormData): Promise<EstadoMaquina> {

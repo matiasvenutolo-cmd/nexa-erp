@@ -9,13 +9,14 @@ import { BotonImprimir } from "./imprimir";
  * Etiquetas de cajas (reunión 10/11/2026): una por caja, con el formato de la
  * etiqueta nueva — código y nombre del producto, fecha, partida, color en
  * grande, cantidad y código de barras (001B-6000172-00022). Se imprimen al
- * cerrar el turno o terminar la producción. Imprimir no mueve el stock: las
- * cajas entraron al cerrar, así que una reimpresión no suma cajas.
+ * terminar la producción (reunión 20/11/2026: ya no al cerrar cada turno) o
+ * desde el menú «Etiquetas». Imprimir no mueve el stock: las cajas entraron al
+ * cerrar, así que una reimpresión no suma cajas.
  *
  * Tamaño: 100 × 60 mm, una por hoja (la impresora de planta todavía no está
  * definida; se ajusta acá).
  */
-export default async function EtiquetasPage({ searchParams }: { searchParams: Promise<{ turno?: string; ciclo?: string; ultimas?: string; cajas?: string }> }) {
+export default async function EtiquetasPage({ searchParams }: { searchParams: Promise<{ turno?: string; ciclo?: string; ultimas?: string; cajas?: string; volver?: string; fin?: string }> }) {
   const sp = await searchParams;
   const etiquetas = await etiquetasDe({
     turnoId: Number(sp.turno) || undefined,
@@ -23,6 +24,8 @@ export default async function EtiquetasPage({ searchParams }: { searchParams: Pr
     ultimas: sp.ultimas === "1",
     cajaIds: sp.cajas ? sp.cajas.split(",").map(Number).filter(Boolean) : undefined,
   });
+  // Se vuelve a la pantalla de la que se vino: el menú Etiquetas, la producción o la del operario.
+  const volver = sp.volver === "menu" ? "/etiquetas" : sp.volver?.startsWith("produccion-") ? `/produccion/${Number(sp.volver.slice(11))}` : "/taller";
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <style>{`
@@ -34,6 +37,11 @@ export default async function EtiquetasPage({ searchParams }: { searchParams: Pr
           .etiqueta { width: 100mm; height: 60mm; border: 0 !important; margin: 0 !important; box-shadow: none !important; page-break-after: always; }
         }
       `}</style>
+      {sp.fin === "1" && (
+        <div className="aviso aviso-ok print:hidden">
+          <b>Producción terminada.</b> Imprimí las etiquetas y pegá una en cada caja.
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
         <div>
           <h1 className="text-xl">Etiquetas de cajas</h1>
@@ -42,7 +50,7 @@ export default async function EtiquetasPage({ searchParams }: { searchParams: Pr
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/taller" className="btn btn-outline">
+          <Link href={volver} className="btn btn-outline">
             Volver
           </Link>
           {etiquetas.length > 0 && <BotonImprimir />}

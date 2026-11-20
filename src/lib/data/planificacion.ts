@@ -1005,15 +1005,17 @@ export async function iniciarProduccionDeTanda(
   if (!t.inyectora) return { error: operario ? "La tanda todavía no tiene máquina asignada: la asigna el Encargado." : "Asigná una inyectora a la tanda antes de iniciar la producción." };
   if (operario && t.fecha && t.fecha > hoyISO()) return { error: `La tanda está planificada para el ${t.fecha.split("-").reverse().join("/")}.` };
   if (input.golpesInicio == null) return { error: "Anotá los golpes que marca la máquina al iniciar." };
-  // Máquina con material de otra producción a pie de máquina: primero se
-  // devuelve o se registra (no se mezcla con la tanda nueva).
-  // El material llevado por adelantado para otra tanda de la cola (sin
-  // producción todavía) no bloquea: es de la que sigue.
-  const otros = (await obtenerRetirosMaquina({ estado: "ABIERTO", inyectora: t.inyectora })).filter(
-    (rt) => rt.totales.pie > 0 && rt.cicloId != null && rt.productoPrevistoId != null && rt.productoPrevistoId !== t.productoId,
-  );
-  if (otros.length) {
-    return { error: `En la inyectora ${t.inyectora} queda material de otra producción a pie de máquina (${otros.map((o) => o.numero).join(", ")}): devolvelo o conciliá el retiro antes de iniciar.` };
+  // Material que quedó a pie de máquina de una producción anterior (reunión
+  // 20/11/2026: el operario no puede conciliar retiros y quedaba bloqueado).
+  // Si es material de la receta de esta tanda, pasa a esta producción al
+  // arrancar; si no (ej. master de otro color), lo devuelve Materia prima y
+  // el operario no puede arrancar hasta entonces. El material llevado por
+  // adelantado para otra tanda de la cola no cuenta: es de la que sigue.
+  const resto = await restoDeOtraProduccion(t.inyectora, t.productoId);
+  if (resto.ajeno.length) {
+    return {
+      error: `En la inyectora ${t.inyectora} quedó ${resto.ajeno.map((m) => m.nombre).join(" y ")} de la producción anterior, que no es de esta receta: avisale a Materia prima para que lo devuelva al depósito (Materia prima → Stock a pie de máquina).`,
+    };
   }
   if (input.golpesInicio != null && (!Number.isInteger(input.golpesInicio) || input.golpesInicio < 0)) {
     return { error: "Los golpes de inicio tienen que ser un número entero." };
@@ -1063,8 +1065,41 @@ export async function iniciarProduccionDeTanda(
       .update(retiroMaquina)
       .set({ cicloId: creado.id })
       .where(and(eq(retiroMaquina.estado, "ABIERTO"), isNull(retiroMaquina.cicloId), eq(retiroMaquina.inyectora, t.inyectora!), eq(retiroMaquina.productoPrevistoId, t.productoId)));
+    // Lo que quedó de la producción anterior y es de esta receta, también.
+    if (resto.retiros.length) {
+      await tx.update(retiroMaquina).set({ cicloId: creado.id, productoPrevistoId: t.productoId }).where(inArray(retiroMaquina.id, resto.retiros.map((r) => r.id)));
+      await tx.insert(eventoProduccion).values({
+        cicloId: creado.id,
+        tipo: "INICIO",
+        motivo: `Material que quedó de la producción anterior (${resto.retiros.map((r) => r.numero).join(", ")}): ${resto.usable.map((m) => m.nombre).join(", ")} pasó a esta producción`,
+        usuarioId: actor.id,
+      });
+    }
   });
   return { cicloId: creado.id };
+}
+
+/**
+ * Material a pie de máquina de una producción que no es la de este producto
+ * (terminó o se canceló sin usarlo todo). `usable`: materiales que están en la
+ * receta del producto; `ajeno`: los que no (hay que devolverlos al depósito).
+ */
+export async function restoDeOtraProduccion(inyectora: string, productoId: number) {
+  const retiros = (await obtenerRetirosMaquina({ estado: "ABIERTO", inyectora })).filter(
+    (rt) => rt.totales.pie > 0 && rt.cicloId != null && rt.productoPrevistoId != null && rt.productoPrevistoId !== productoId,
+  );
+  const r = (await recetasDe([productoId])).get(productoId) ?? {};
+  const deLaReceta = new Set([...(r.REGIMEN?.items ?? []), ...(r.ARRANQUE?.items ?? [])].map((i) => i.materiaPrimaId));
+  const porMp = new Map<number, { materiaPrimaId: number; nombre: string; kg: number }>();
+  for (const rt of retiros)
+    for (const l of rt.lineas) {
+      if (l.anulado || l.saldo.pie <= 1e-6) continue;
+      const a = porMp.get(l.materiaPrimaId) ?? { materiaPrimaId: l.materiaPrimaId, nombre: l.materiaPrimaNombre, kg: 0 };
+      a.kg = (aGramos(a.kg) + aGramos(l.saldo.pie)) / 1000;
+      porMp.set(l.materiaPrimaId, a);
+    }
+  const todos = [...porMp.values()];
+  return { retiros, usable: todos.filter((m) => deLaReceta.has(m.materiaPrimaId)), ajeno: todos.filter((m) => !deLaReceta.has(m.materiaPrimaId)) };
 }
 
 /** Necesidad de compra: material que pide la planificación activa y no alcanza. */

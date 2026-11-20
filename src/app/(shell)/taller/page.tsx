@@ -230,9 +230,11 @@ function FormArrancar({ t, golpes, ot, quien, conMotivo, boton }: { t: Vista["as
 /** Sin producción en curso: la primera tanda de la cola, para arrancarla. */
 function EnCola({ v, iny, golpes, ot, quien }: { v: Vista; iny: string; golpes: number | null; ot: OpcionesTurno; quien: Quien }) {
   const t = v.asignadas[0];
+  // Las etiquetas de toda la producción que terminó (reunión 20/11/2026), por si
+  // no se imprimieron al terminar.
   const imprimir = v.ultimaTerminada && (
-    <Link href={`/taller/etiquetas?ciclo=${v.ultimaTerminada.cicloId}&ultimas=1`} className="btn btn-primary btn-block">
-      Imprimir las etiquetas de la producción que terminó
+    <Link href={`/taller/etiquetas?ciclo=${v.ultimaTerminada.cicloId}`} className="btn btn-primary btn-block">
+      Imprimir las etiquetas de la producción que terminó ({v.ultimaTerminada.cajas} {v.ultimaTerminada.cajas === 1 ? "caja" : "cajas"})
     </Link>
   );
   if (!t) {
@@ -266,8 +268,15 @@ function EnCola({ v, iny, golpes, ot, quien }: { v: Vista; iny: string; golpes: 
         <div className="rounded-xl bg-surface-muted p-3 text-sm">
           {t.enPie.length > 0 ? (
             <Materiales titulo="✓ El material ya está a pie de máquina" lista={t.enPie} />
-          ) : (
+          ) : t.restoAnterior.length === 0 ? (
             <p className="font-semibold text-[var(--estado-bajo-fg)]">Todavía no llevaron el material a pie de máquina.</p>
+          ) : null}
+          {t.restoAnterior.length > 0 && <Materiales titulo="Quedó de la producción anterior (se usa en esta)" lista={t.restoAnterior} />}
+          {t.restoAjeno.length > 0 && (
+            <p className="aviso aviso-alerta mt-2">
+              Quedó {t.restoAjeno.map((m) => `${m.nombre} (${m.bolsas ?? fmtPeso(m.kg, { gramos: m.esMaster })})`).join(" y ")} de la producción anterior y no es de esta receta: avisale a
+              Materia prima para que lo retire.
+            </p>
           )}
           {t.receta ? (
             <div className="mt-3">
@@ -361,11 +370,6 @@ function Relevo({ p, pie, ot, quien }: { p: Prod; pie: Mat; ot: OpcionesTurno; q
           {u.observaciones && <div>Indicaciones: {u.observaciones}</div>}
         </div>
       )}
-      {u && p.cajasUltimoTurno > 0 && (
-        <Link href={`/taller/etiquetas?turno=${u.id}`} className="btn btn-outline btn-block">
-          Imprimir las etiquetas del turno anterior ({p.cajasUltimoTurno} {p.cajasUltimoTurno === 1 ? "caja" : "cajas"})
-        </Link>
-      )}
       <Materiales titulo="A pie de máquina (contá las bolsas)" lista={pie} vacio="No queda material a pie de máquina." />
       {p.hayCargas && p.tolvaEstimadaKg != null && (
         <p className="text-sm text-foreground-muted">
@@ -396,14 +400,20 @@ async function Pausada({ p }: { p: Prod }) {
   );
 }
 
-/** La carga de la receta: un toque si alcanza; si no, pedir material o cargar lo que hay. */
-function Carga({ p, pie, principal, secundarias = true }: { p: Prod; pie: Mat; principal: string; secundarias?: boolean }) {
+/**
+ * La carga de la receta: un toque si alcanza; si no, pedir material o cargar
+ * lo que hay. Con la producción andando (`enProduccion`) la carga es una
+ * acción secundaria: no compite con «Terminar producción» (reunión 20/11/2026)
+ * y «Cargué distinto» está siempre, para cambiar las cantidades.
+ */
+function Carga({ p, pie, principal, enProduccion = false }: { p: Prod; pie: Mat; principal: string; enProduccion?: boolean }) {
   const receta = p.usarArranque && p.recetaArranque ? p.recetaArranque : p.receta;
   const tipo = p.usarArranque && p.recetaArranque ? "ARRANQUE" : "REGIMEN";
   if (!receta) return <p className="aviso aviso-alerta">Este producto no tiene receta de carga. Avisale al Encargado para que la defina.</p>;
   const ok = alcanza(receta, pie);
   const hayAlgo = pie.some((m) => m.kg > 0);
-  const pedir = <FormAccion accion={pedirMaterialAction} ocultos={{ cicloId: p.cicloId }} boton="Pedir material" claseBoton={ok ? "btn btn-outline btn-block" : "btn btn-azul btn-lg btn-block"} className="space-y-2" />;
+  const pedirFuerte = !ok && !enProduccion;
+  const pedir = <FormAccion accion={pedirMaterialAction} ocultos={{ cicloId: p.cicloId }} boton="Pedir material" claseBoton={pedirFuerte ? "btn btn-azul btn-lg btn-block" : "btn btn-outline btn-block"} className="space-y-2" />;
   const distinto = (
     <FormAccion accion={cargarRecetaAction} ocultos={{ cicloId: p.cicloId, tipo }} boton="Registrar lo que cargué" claseBoton="btn btn-azul btn-block" className="space-y-3">
       <CargaDistinta items={itemsDe(receta, pie)} motivos={MOTIVOS_EXCEPCION_CARGA} />
@@ -417,15 +427,23 @@ function Carga({ p, pie, principal, secundarias = true }: { p: Prod; pie: Mat; p
       </div>
       {ok ? (
         <>
-          <FormAccion accion={cargarRecetaAction} ocultos={{ cicloId: p.cicloId, tipo }} boton={principal} claseBoton="btn btn-azul btn-lg btn-block" className="space-y-2" />
-          {secundarias && (
+          <FormAccion accion={cargarRecetaAction} ocultos={{ cicloId: p.cicloId, tipo }} boton={principal} claseBoton={enProduccion ? "btn btn-azul btn-block" : "btn btn-azul btn-lg btn-block"} className="space-y-2" />
           <Opciones
             opciones={[
               { id: "distinto", label: "Cargué distinto", contenido: distinto },
               { id: "pedir", label: "Pedir material", contenido: pedir },
             ]}
           />
-          )}
+        </>
+      ) : enProduccion ? (
+        <>
+          <p className="text-sm text-foreground-muted">A pie de máquina no queda para otra carga completa. Si hace falta seguir cargando, pedí material.</p>
+          <Opciones
+            opciones={[
+              ...(hayAlgo ? [{ id: "distinto", label: "Cargué lo que había", contenido: distinto }] : []),
+              { id: "pedir", label: "Pedir material", contenido: pedir },
+            ]}
+          />
         </>
       ) : (
         <>
@@ -491,13 +509,10 @@ function Produciendo({ v, p }: { v: Vista; p: Prod }) {
           )}
         </p>
         {p.ultimaCarga && <p className="text-sm font-semibold text-[var(--estado-ok-fg)]">✓ Última carga registrada a las {fmtHora(p.ultimaCarga)}.</p>}
-        <Materiales titulo="A pie de máquina" lista={v.pie} vacio="No queda material a pie de máquina." />
         <DespuesSigue t={v.asignadas[0]} />
       </section>
-      <section className="panel space-y-3">
-        {/* En producción, la carga es una acción más: sus opciones aparecen sólo si no alcanza. */}
-        <Carga p={p} pie={v.pie} principal="Cargué otra vez" secundarias={false} />
-      </section>
+      {/* Reunión 20/11/2026: terminar va primero; la carga de la tolva, abajo y sin
+          botones que parezcan obligatorios. */}
       <section className="panel">
         <Opciones
           opciones={[
@@ -538,6 +553,11 @@ function Produciendo({ v, p }: { v: Vista; p: Prod }) {
             },
           ]}
         />
+      </section>
+      <section className="panel space-y-3">
+        <h2 className="panel-titulo">¿Cargaste la tolva otra vez?</h2>
+        <Materiales titulo="A pie de máquina" lista={v.pie} vacio="No queda material a pie de máquina." />
+        <Carga p={p} pie={v.pie} principal="Cargué otra vez" enProduccion />
       </section>
     </>
   );

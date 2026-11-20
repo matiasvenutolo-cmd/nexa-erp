@@ -27,6 +27,11 @@ export function fmtCantidadBolsas(cantidad: number): string {
 
 /** Peso legible: el master siempre en gramos; el resto en kg sin decimales
  *  innecesarios. 1.500 kg se escribe con punto de miles, nunca "1,5". */
+/** Bolsas de material (sin contar el master) que entran en el mezclador por
+ *  carga: «es máximo 4, cuando hay un pedido grande son de a cuatro»
+ *  (reunión 20/11/2026). */
+export const BOLSAS_MAX_POR_CARGA = 4;
+
 export function fmtPeso(kg: number, opciones: { gramos?: boolean } = {}): string {
   if (opciones.gramos || Math.abs(kg) < 1) {
     return `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 0 }).format(aGramos(kg))} g`;

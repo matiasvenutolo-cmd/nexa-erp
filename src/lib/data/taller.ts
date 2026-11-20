@@ -46,7 +46,7 @@ import { registrarSobrante } from "@/lib/data/maquina";
 import { nombreCortoMp } from "@/lib/codigos-mp";
 import { hoyISO } from "@/lib/format";
 import { INYECTORAS } from "@/lib/inyectoras";
-import { aGramos, enBolsas, fmtPeso, fmtPresentacion, kgDe } from "@/lib/presentaciones";
+import { BOLSAS_MAX_POR_CARGA, aGramos, enBolsas, fmtPeso, fmtPresentacion, kgDe } from "@/lib/presentaciones";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const EPS = 1e-6;
@@ -176,12 +176,24 @@ export async function vistaTaller(inyectora: string) {
   const proxima = asignadas[0] ?? null;
   const recetasAsignadas = await recetasDe(asignadas.map((a) => a.productoId));
   const hoy = hoyISO();
-  const asignadasConReceta = asignadas.map((a) => ({
-    ...a,
-    receta: recetasAsignadas.get(a.productoId)?.REGIMEN ?? null,
-    sePuedeArrancar: !a.fecha || a.fecha <= hoy,
-    enPie: armarPie(retiros.filter((r) => r.cicloId == null && r.productoPrevistoId === a.productoId), presentaciones),
-  }));
+  const asignadasConReceta = asignadas.map((a) => {
+    const rs = recetasAsignadas.get(a.productoId) ?? {};
+    const deLaReceta = new Set([...(rs.REGIMEN?.items ?? []), ...(rs.ARRANQUE?.items ?? [])].map((i) => i.materiaPrimaId));
+    // Lo que quedó de una producción anterior (reunión 20/11/2026): lo de la
+    // receta pasa a esta tanda al arrancar; lo demás lo devuelve Materia prima.
+    const resto = armarPie(
+      retiros.filter((r) => r.cicloId != null && r.productoPrevistoId != null && r.productoPrevistoId !== a.productoId),
+      presentaciones,
+    );
+    return {
+      ...a,
+      receta: rs.REGIMEN ?? null,
+      sePuedeArrancar: !a.fecha || a.fecha <= hoy,
+      enPie: armarPie(retiros.filter((r) => r.cicloId == null && r.productoPrevistoId === a.productoId), presentaciones),
+      restoAnterior: resto.filter((m) => deLaReceta.has(m.materiaPrimaId)),
+      restoAjeno: resto.filter((m) => !deLaReceta.has(m.materiaPrimaId)),
+    };
+  });
   // Última producción terminada en la máquina (últimas 12 h): para imprimir sus etiquetas.
   const [terminada] = prod
     ? []
@@ -245,10 +257,6 @@ export async function vistaTaller(inyectora: string) {
     if (a) a.kg = Math.max(0, (aGramos(a.kg) - aGramos(Math.abs(sb.total))) / 1000);
   }
   const cargasDelTurno = abierto ? cargasTolva.filter((x) => x.turnoId === abierto.t.id) : [];
-  // Cajas que cerró el último turno (para imprimir sus etiquetas).
-  const [{ cajasUltimoTurno }] = ultimo
-    ? await db.select({ cajasUltimoTurno: sql<number>`count(*)`.mapWith(Number) }).from(caja).where(eq(caja.turnoId, ultimo.t.id))
-    : [{ cajasUltimoTurno: 0 }];
   const ppg = c.piezasPorGolpe ?? 1;
   const kgPorUnidad = prod.kgPorUnidad != null ? Number(prod.kgPorUnidad) : null;
   const falta = objetivo != null ? Math.max(0, objetivo - producido) : null;
@@ -289,7 +297,6 @@ export async function vistaTaller(inyectora: string) {
       // La limpieza del inyector no cuenta como carga de la receta.
       hayCargas: cargasTolva.some((x) => !x.motivo?.startsWith(MOTIVO_LIMPIEZA)),
       cambioDeProducto: anteriorProducto !== c.productoId,
-      cajasUltimoTurno,
       ultimaCarga: cargasTolva.reduce<Date | null>((m, x) => (!m || x.fecha > m ? x.fecha : m), null),
       tolvaEstimadaKg,
       descartePiezas: kgPorUnidad ? Math.round(Number(c.descarteKg ?? 0) / kgPorUnidad) : 0,
@@ -453,12 +460,14 @@ export async function cargarReceta(actor: Actor, input: CargarRecetaInput): Prom
   let excepcion = false;
   if (input.ajustes && input.ajustes.length) {
     const pres = await db.select().from(presentacionMp).where(inArray(presentacionMp.id, input.ajustes.map((a) => a.presentacionId)));
-    const mps = await db.select({ id: materiaPrima.id, nombre: materiaPrima.nombre }).from(materiaPrima).where(inArray(materiaPrima.id, input.ajustes.map((a) => a.materiaPrimaId)));
+    const mps = await db.select({ id: materiaPrima.id, nombre: materiaPrima.nombre, tipo: materiaPrima.tipo }).from(materiaPrima).where(inArray(materiaPrima.id, input.ajustes.map((a) => a.materiaPrimaId)));
     for (const a of input.ajustes) {
       if (!Number.isFinite(a.cantidad) || a.cantidad < 0 || Math.abs(a.cantidad * 2 - Math.round(a.cantidad * 2)) > 1e-9) {
         return { error: "Las cantidades van en bolsas enteras o medias." };
       }
     }
+    const bolsas = input.ajustes.filter((a) => mps.find((m) => m.id === a.materiaPrimaId)?.tipo !== "MASTER").reduce((t, a) => t + a.cantidad, 0);
+    if (bolsas > BOLSAS_MAX_POR_CARGA + 1e-9) return { error: `En cada carga entran hasta ${BOLSAS_MAX_POR_CARGA} bolsas en el mezclador (sin contar el master).` };
     const nuevos = input.ajustes
       .filter((a) => a.cantidad > 0)
       .map((a) => {
@@ -666,7 +675,7 @@ export async function cerrarProduccionTaller(
     /** Material mezclado que se baja de la tolva al terminar (va al depósito con su código). */
     sobrante?: { materiaPrimaDestinoId: number; kg: number } | null;
   },
-): Promise<Resultado & { piezasAStock?: number }> {
+): Promise<Resultado & { piezasAStock?: number; cajas?: number }> {
   if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
   const [c0] = await db.select().from(cicloProduccion).where(eq(cicloProduccion.id, input.cicloId));
   if (!c0 || c0.fechaFin) return { error: "La producción ya está cerrada." };
@@ -718,7 +727,8 @@ export async function cerrarProduccionTaller(
     usuarioId: actor.id,
   });
   if (r.error) return r;
-  return { piezasAStock: aStock };
+  const [{ cajas }] = await db.select({ cajas: sql<number>`count(*)`.mapWith(Number) }).from(caja).where(eq(caja.cicloId, c.id));
+  return { piezasAStock: aStock, cajas };
 }
 
 /** El turno abierto de una producción, si hay. */

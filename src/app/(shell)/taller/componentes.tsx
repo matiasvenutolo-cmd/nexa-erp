@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Minus, Plus } from "lucide-react";
-import { fmtCantidadBolsas, fmtPeso, fmtPresentacion, kgDe } from "@/lib/presentaciones";
+import { BOLSAS_MAX_POR_CARGA, fmtCantidadBolsas, fmtPeso, fmtPresentacion, kgDe } from "@/lib/presentaciones";
 
 export type ItemCarga = { materiaPrimaId: number; presentacionId: number; nombre: string; presentacion: string; kgPres: number; cantidad: number; esMaster: boolean; enPie: number };
 
@@ -25,7 +25,10 @@ export function CargaDistinta({ items, motivos }: { items: ItemCarga[]; motivos:
   // Lo máximo que se puede cargar de cada renglón: lo que hay a pie de máquina, en medias bolsas.
   const maximo = items.map((i) => (i.kgPres > 0 ? Math.floor((i.enPie / i.kgPres) * 2 + 1e-6) / 2 : 0));
   const [cant, setCant] = useState(() => items.map((i, k) => Math.min(i.cantidad, maximo[k])));
-  const cambiar = (k: number, d: number) => setCant((c) => c.map((v, j) => (j === k ? Math.min(maximo[k], Math.max(0, Math.round((v + d) * 2) / 2)) : v)));
+  // El mezclador lleva hasta 4 bolsas por carga, sin contar el master (reunión 20/11/2026).
+  const bolsas = items.reduce((t, i, k) => t + (i.esMaster ? 0 : cant[k]), 0);
+  const tope = (k: number) => (items[k].esMaster ? maximo[k] : Math.min(maximo[k], cant[k] + Math.max(0, BOLSAS_MAX_POR_CARGA - bolsas)));
+  const cambiar = (k: number, d: number) => setCant((c) => c.map((v, j) => (j === k ? Math.min(tope(k), Math.max(0, Math.round((v + d) * 2) / 2)) : v)));
   return (
     <div className="space-y-3">
       <input type="hidden" name="ajustes" value={JSON.stringify(items.map((i, k) => ({ materiaPrimaId: i.materiaPrimaId, presentacionId: i.presentacionId, cantidad: cant[k] })))} />
@@ -44,7 +47,7 @@ export function CargaDistinta({ items, motivos }: { items: ItemCarga[]; motivos:
                   <Minus size={18} />
                 </button>
                 <span className="w-12 text-center font-[family-name:var(--font-display)] text-xl font-bold">{fmtCantidadBolsas(cant[k])}</span>
-                <button type="button" className="btn btn-outline btn-paso" onClick={() => cambiar(k, 0.5)} disabled={cant[k] >= maximo[k]} aria-label="Media bolsa más">
+                <button type="button" className="btn btn-outline btn-paso" onClick={() => cambiar(k, 0.5)} disabled={cant[k] >= tope(k)} aria-label="Media bolsa más">
                   <Plus size={18} />
                 </button>
               </span>
@@ -53,6 +56,7 @@ export function CargaDistinta({ items, motivos }: { items: ItemCarga[]; motivos:
           </li>
         ))}
       </ul>
+      <p className="text-xs text-foreground-muted">Hasta {BOLSAS_MAX_POR_CARGA} bolsas por carga (lo que entra en el mezclador), más el master.</p>
       <label className="campo">
         <span>¿Por qué cargaste distinto?</span>
         <select name="motivo" required defaultValue="" className="input">
