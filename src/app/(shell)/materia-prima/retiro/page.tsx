@@ -85,7 +85,7 @@ export default async function RetiroMpPage({ searchParams }: { searchParams: Pro
   // Quién lo lleva: el de Retiros de MP (Dylan), un operario o el Encargado. Una
   // persona con varios perfiles figura una sola vez.
   const responsables = [...new Map([...retiros, ...operarios, ...encargados].map((u) => [u.id, { id: u.id, nombre: u.nombre }])).values()];
-  const pendientes = llevar.filter((l) => !l.completa);
+  const pendientes = llevar.filter((l) => !l.completa && l.materiales.length > 0);
   const grupos = (Object.keys(DIA) as (keyof typeof DIA)[]).map((d) => [d, llevar.filter((l) => l.dia === d)] as const).filter(([, ls]) => ls.length > 0);
 
   return (
@@ -153,7 +153,7 @@ function TarjetaLlevar({ l, activa }: { l: TandaALlevar; activa: boolean }) {
             {l.turno ? ` · turno ${etiquetaTurno(l.turno)}` : ""}
           </div>
           <div className="font-semibold">
-            {l.colorNombre ?? "—"} · {l.matriz} · {fmtNumero(l.piezas, 0)} piezas
+            {l.colorNombre ?? "—"} · {l.matriz} · {fmtNumero(l.piezas, 0)} {l.piezas === 1 ? "pieza" : "piezas"}
           </div>
           <div className="text-xs text-foreground-muted">{l.codigo}</div>
         </div>
