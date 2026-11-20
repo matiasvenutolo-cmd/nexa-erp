@@ -282,7 +282,11 @@ function Tarjeta({
         {t.enCurso && <span className="badge-estado badge-ok px-1.5 py-0 text-[10px]">En producción</span>}
         {t.estado === "POSTERGADA" && <span className="badge-estado badge-bajo px-1.5 py-0 text-[10px]">Postergada</span>}
         {t.prioridad && <span className="badge-estado badge-naranja px-1.5 py-0 text-[10px]">{t.prioridad}</span>}
-        {t.alerta && <span className="badge-estado badge-critico px-1.5 py-0 text-[10px]">{t.alerta}</span>}
+        {t.alerta && (
+          <span className="badge-estado badge-critico px-1.5 py-0 text-[10px]" style={{ whiteSpace: "normal" }}>
+            {t.alerta}
+          </span>
+        )}
         {!t.inyectora && <span className="badge-estado badge-bajo px-1.5 py-0 text-[10px]">Sin máquina</span>}
       </div>
       {movible && (

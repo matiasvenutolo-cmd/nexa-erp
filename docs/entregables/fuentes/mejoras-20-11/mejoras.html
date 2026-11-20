@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>NEXA · Mejoras después de la demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --azul:#002CB5; --profundo:#00009F; --oscuro:#12132C; --naranja:#FF6100; --gris:#CBD6DE;
+  --tinta:#1d2033; --suave:#5b6178; --linea:#e3e8ef; --fondo:#f4f6fa; --azulsoft:#eaf0ff; --narsoft:#fff1e8;
+}
+@page{ size:A4; margin:0 }
+*{ box-sizing:border-box; margin:0; padding:0 }
+html,body{ background:#d9dde5 }
+body{ font-family:"Open Sans",sans-serif; color:var(--tinta); font-size:9.4pt; line-height:1.5; -webkit-print-color-adjust:exact; print-color-adjust:exact }
+.page{ width:210mm; height:297mm; position:relative; overflow:hidden; background:#fff; margin:0 auto 8mm; page-break-after:always; padding:20mm 16mm 18mm }
+@media print{ .page{ margin:0 } html,body{ background:#fff } }
+h1,h2,h3,h4,.num,.display{ font-family:"Outfit",sans-serif }
+b,strong{ font-weight:700; color:var(--oscuro) }
+
+/* encabezado y pie corrido */
+.run{ position:absolute; top:9mm; left:16mm; right:16mm; display:flex; justify-content:space-between; align-items:center; font-size:7.6pt; color:var(--suave); letter-spacing:.04em; text-transform:uppercase }
+.run .marca{ display:flex; align-items:center; gap:2.5mm; font-weight:700; color:var(--profundo) }
+.run .marca i{ display:block; width:6mm; height:1.2mm; background:var(--naranja); border-radius:1mm }
+.folio{ position:absolute; bottom:8mm; right:16mm; font-family:"Outfit"; font-weight:700; font-size:9pt; color:var(--profundo) }
+.folio::before{ content:""; display:inline-block; width:8mm; height:.5mm; background:var(--gris); vertical-align:middle; margin-right:3mm }
+
+/* apertura de sección */
+.abre{ display:flex; gap:6mm; align-items:flex-end; margin-bottom:6mm }
+.abre .num{ font-size:62pt; font-weight:800; line-height:.8; color:#fff; -webkit-text-stroke:1.4pt var(--azul); letter-spacing:-.02em }
+.abre h2{ font-size:25pt; font-weight:700; color:var(--oscuro); line-height:1.05 }
+.abre p{ color:var(--suave); font-size:10.5pt; margin-top:1.5mm; max-width:140mm }
+.abre .barra{ width:16mm; height:1.6mm; background:var(--naranja); border-radius:2mm; margin-bottom:2.5mm }
+h3{ font-size:13.5pt; font-weight:700; color:var(--profundo); margin:0 0 2mm; display:flex; align-items:center; gap:2.5mm }
+h3 .tag{ font-family:"Open Sans"; font-size:7pt; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--naranja); background:var(--narsoft); padding:.6mm 2mm; border-radius:10mm }
+p+p{ margin-top:2mm }
+.lede{ font-size:10.2pt; color:var(--suave) }
+
+/* listas */
+ul.ok{ list-style:none; display:grid; gap:1.8mm }
+ul.ok li{ position:relative; padding-left:5.5mm }
+ul.ok li::before{ content:""; position:absolute; left:0; top:1.6mm; width:2.6mm; height:2.6mm; border-radius:50%; background:var(--azulsoft); border:.7mm solid var(--azul) }
+
+/* marcos */
+.browser{ border-radius:3mm; overflow:hidden; background:#fff; border:.35mm solid #cfd6e2; border-bottom-width:1.1mm; position:relative }
+.browser .bar{ height:6.5mm; background:#eef1f6; display:flex; align-items:center; gap:1.4mm; padding:0 3mm; border-bottom:.25mm solid var(--linea) }
+.browser .bar i{ width:2.1mm; height:2.1mm; border-radius:50%; background:#d3d8e2 }
+.browser .bar i:nth-child(1){ background:#ff6159 } .browser .bar i:nth-child(2){ background:#ffbd2e } .browser .bar i:nth-child(3){ background:#28c941 }
+.browser .bar span{ margin-left:3mm; flex:1; height:3.6mm; border-radius:2mm; background:#fff; font-size:6.4pt; color:var(--suave); display:flex; align-items:center; padding-left:2.5mm; line-height:1 }
+.browser .shot{ position:relative }
+.browser img, .phone img, .plain img{ display:block; width:100% }
+.phone{ border-radius:8mm; background:var(--oscuro); padding:2.2mm; position:relative }
+.phone .scr{ border-radius:6mm; overflow:hidden; position:relative; background:#fff }
+.phone .scr::before{ content:""; position:absolute; top:1.4mm; left:50%; transform:translateX(-50%); width:16mm; height:3.2mm; border-radius:3mm; background:var(--oscuro); z-index:2 }
+.plain{ border-radius:3mm; overflow:hidden; border:.35mm solid #cfd6e2; position:relative }
+
+/* marcadores */
+.pin{ position:absolute; transform:translate(-50%,-50%); width:6.4mm; height:6.4mm; border-radius:50%; background:var(--naranja); color:#fff; font:700 9pt "Outfit"; display:flex; align-items:center; justify-content:center; border:.7mm solid #fff; z-index:3 }
+.leyenda{ list-style:none; display:grid; gap:2.6mm }
+.leyenda li{ display:grid; grid-template-columns:7mm 1fr; gap:2.5mm; align-items:start }
+.leyenda li .n{ width:6.4mm; height:6.4mm; border-radius:50%; background:var(--naranja); color:#fff; font:700 9pt "Outfit"; display:flex; align-items:center; justify-content:center }
+.leyenda li b{ display:block }
+.cap{ font-size:7.8pt; color:var(--suave); margin-top:2.4mm; font-style:italic }
+
+/* bloques */
+.row{ display:grid; gap:7mm }
+.c2{ grid-template-columns:1fr 1fr } .c3{ grid-template-columns:repeat(3,1fr) } .c4{ grid-template-columns:repeat(4,1fr) }
+.card{ background:var(--fondo); border-radius:3mm; padding:4mm 4.5mm }
+.card h4{ font-size:10.5pt; color:var(--oscuro); margin-bottom:1mm }
+.nota{ background:var(--azulsoft); border-left:1.2mm solid var(--azul); border-radius:0 3mm 3mm 0; padding:3mm 4.5mm; font-size:9pt }
+.nota.nar{ background:var(--narsoft); border-color:var(--naranja) }
+.sep{ height:7mm }
+.stat{ background:#fff; border:.3mm solid var(--linea); border-radius:3mm; padding:3mm 3.5mm }
+.stat .v{ font:800 18pt "Outfit"; color:var(--azul); line-height:1 }
+.stat .v small{ font-size:8.5pt; font-weight:600; color:var(--suave); margin-left:1mm }
+.stat .k{ font-size:7.8pt; color:var(--suave); margin-top:1.2mm; line-height:1.3 }
+.stat .s{ white-space:nowrap; display:inline-block; margin-top:1.6mm; font-size:7.2pt; font-weight:700; color:var(--naranja); background:var(--narsoft); border-radius:5mm; padding:.4mm 2mm }
+
+/* flujo */
+.flujo{ display:flex; align-items:stretch; gap:0 }
+.flujo .paso{ flex:1; background:#fff; border:.3mm solid var(--linea); border-radius:3mm; padding:3mm; font-size:8.4pt; position:relative }
+.flujo .paso .t{ font:700 7pt "Open Sans"; letter-spacing:.06em; text-transform:uppercase; color:var(--naranja); margin-bottom:.8mm }
+.flujo .fl{ width:7mm; display:flex; align-items:center; justify-content:center; color:var(--azul); font:700 14pt "Outfit" }
+
+/* portada */
+.portada{ padding:0; background:#fff }
+.portada .azul{ position:absolute; inset:0; background:linear-gradient(140deg,var(--azul) 0%,var(--profundo) 55%,#06065e 100%); clip-path:polygon(100% 30%,100% 100%,0 100%,0 74%) }
+.portada .grid{ position:absolute; left:0; top:0; width:210mm; height:297mm; clip-path:polygon(100% 30%,100% 100%,0 100%,0 74%) }
+.portada .filo{ position:absolute; inset:0; background:var(--naranja); clip-path:polygon(100% 30%,100% 31.4%,0 75.4%,0 74%) }
+.portada .logo{ position:absolute; top:16mm; left:16mm; width:40mm }
+.portada .tit{ position:absolute; top:52mm; left:16mm; width:150mm }
+.portada .kick{ font:700 8pt "Open Sans"; letter-spacing:.14em; text-transform:uppercase; color:var(--naranja) }
+.portada h1{ font-size:42pt; line-height:.98; font-weight:800; color:var(--oscuro); margin-top:4mm; letter-spacing:-.01em }
+.portada h1 span{ color:var(--azul) }
+.portada .sub{ font-size:11.5pt; color:var(--suave); margin-top:5mm; max-width:100mm }
+.portada .dev{ position:absolute }
+.portada .pie{ position:absolute; left:16mm; right:16mm; bottom:12mm; display:flex; justify-content:space-between; color:#fff; font-size:8pt; letter-spacing:.05em }
+.portada .pie b{ color:#fff }
+.portada .chips{ position:absolute; left:16mm; bottom:24mm; display:flex; gap:3mm }
+.portada .chips div{ background:#1a24b4; border:.3mm solid #4b56d6; color:#fff; border-radius:3mm; padding:2.5mm 4mm; font-size:7.6pt; line-height:1.25 }
+.portada .chips div b{ display:block; color:#fff; font:800 17pt "Outfit"; line-height:1 }
+
+/* índice */
+.indice{ display:grid; grid-template-columns:1fr 1fr; gap:3.5mm }
+.indice a{ text-decoration:none; color:inherit; display:grid; grid-template-columns:13mm 1fr; gap:3mm; padding:4mm; border-radius:3mm; background:var(--fondo); align-items:start }
+.indice .ico{ width:13mm; height:13mm; border-radius:3mm; background:#fff; display:flex; align-items:center; justify-content:center; border:.3mm solid var(--linea) }
+.indice .ico svg{ width:6.5mm; height:6.5mm; stroke:var(--azul); fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round }
+.indice h4{ font-size:11pt; color:var(--oscuro); display:flex; justify-content:space-between }
+.indice h4 small{ font:700 8pt "Outfit"; color:var(--naranja) }
+.indice p{ font-size:8.4pt; color:var(--suave); line-height:1.4; margin-top:.8mm }
+
+/* etiqueta */
+.anat{ display:flex; justify-content:center; gap:2.5mm; align-items:flex-start; margin:2mm 0 0 }
+.anat .seg{ text-align:center }
+.anat .seg .cod{ font:800 23pt "Outfit"; letter-spacing:.02em; padding:1.5mm 3.5mm; border-radius:2.5mm; line-height:1.1 }
+.anat .guion{ font:800 23pt "Outfit"; color:var(--gris); padding-top:1.5mm }
+.anat .seg .lbl{ margin-top:2.5mm; font-size:8pt; line-height:1.3; color:var(--suave); max-width:46mm }
+.anat .seg .lbl b{ display:block; font-size:9pt }
+.s1 .cod{ background:var(--azulsoft); color:var(--azul) } .s2 .cod{ background:var(--narsoft); color:#d14f00 } .s3 .cod{ background:#e9f8ef; color:#16794a }
+
+/* preguntas */
+.qs{ display:grid; grid-template-columns:1fr 1fr; gap:4mm }
+.q{ border:.3mm solid var(--linea); border-radius:3mm; padding:3.6mm 4mm 3.2mm; position:relative; break-inside:avoid; display:flex; flex-direction:column }
+.q .qn{ position:absolute; top:-.1mm; left:-.1mm; background:var(--profundo); color:#fff; font:800 9pt "Outfit"; border-radius:3mm 0 3mm 0; padding:1mm 2.6mm }
+.q .qt{ font-weight:600; color:var(--oscuro); margin:3.4mm 0 2mm; font-size:9pt; line-height:1.42 }
+.q .hoy{ font-size:7.9pt; color:var(--suave); background:var(--fondo); border-radius:2mm; padding:1.6mm 2.4mm; line-height:1.35 }
+.q .hoy b{ color:var(--azul); font-size:7pt; letter-spacing:.06em; text-transform:uppercase; margin-right:1mm }
+.q .resp{ margin-top:auto; padding-top:2.6mm }
+.q .op{ display:flex; gap:4mm; flex-wrap:wrap; font-size:8.4pt }
+.q .op span::before{ content:""; display:inline-block; width:3mm; height:3mm; border:.35mm solid var(--suave); border-radius:.6mm; margin-right:1.4mm; vertical-align:-.5mm }
+.q .ln{ border-bottom:.3mm dashed #b9c2d0; height:6.5mm }
+.grupo{ font:700 7.6pt "Open Sans"; letter-spacing:.1em; text-transform:uppercase; color:var(--naranja); margin:0 0 3mm; display:flex; align-items:center; gap:3mm }
+.grupo::after{ content:""; flex:1; height:.3mm; background:var(--linea) }
+
+/* matriz de perfiles */
+table.mx{ border-collapse:separate; border-spacing:0; width:100%; font-size:7.6pt }
+table.mx th.col{ height:30mm; vertical-align:bottom; padding:0 0 1.5mm; width:7.2mm }
+table.mx th.col div{ writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; font-weight:600; color:var(--suave); margin:0 auto }
+table.mx td{ border-top:.3mm solid var(--linea); padding:1.5mm 0; text-align:center }
+table.mx td.p{ text-align:left; font-weight:700; color:var(--oscuro); padding-right:2mm; white-space:nowrap; font-size:8.2pt }
+table.mx tr:nth-child(even) td{ background:#fafbfd }
+.d{ display:inline-block; width:3.6mm; height:3.6mm; border-radius:50%; border:.35mm solid #c3cad6 }
+.d.on{ background:var(--azul); border-color:var(--azul) }
+.leg{ display:flex; gap:6mm; font-size:8pt; color:var(--suave); align-items:center }
+
+/* hoja de ruta */
+.ruta{ position:relative; padding-left:12mm }
+.ruta::before{ content:""; position:absolute; left:4mm; top:2mm; bottom:2mm; width:.6mm; background:linear-gradient(var(--azul),var(--naranja)) }
+.ruta .it{ position:relative; margin-bottom:6mm }
+.ruta .it::before{ content:""; position:absolute; left:-10.4mm; top:.6mm; width:5mm; height:5mm; border-radius:50%; background:#fff; border:1.3mm solid var(--azul) }
+.ruta .it h4{ font-size:11.5pt; color:var(--oscuro) }
+.ruta .it p{ color:var(--suave); margin-top:.6mm }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ PORTADA -->
+<section class="page portada">
+  <div class="azul"></div><svg class="grid" viewBox="0 0 210 297" preserveAspectRatio="none"><g stroke="#1131bd" stroke-width=".22"><line x1="10" y1="0" x2="10" y2="297"/><line x1="20" y1="0" x2="20" y2="297"/><line x1="30" y1="0" x2="30" y2="297"/><line x1="40" y1="0" x2="40" y2="297"/><line x1="50" y1="0" x2="50" y2="297"/><line x1="60" y1="0" x2="60" y2="297"/><line x1="70" y1="0" x2="70" y2="297"/><line x1="80" y1="0" x2="80" y2="297"/><line x1="90" y1="0" x2="90" y2="297"/><line x1="100" y1="0" x2="100" y2="297"/><line x1="110" y1="0" x2="110" y2="297"/><line x1="120" y1="0" x2="120" y2="297"/><line x1="130" y1="0" x2="130" y2="297"/><line x1="140" y1="0" x2="140" y2="297"/><line x1="150" y1="0" x2="150" y2="297"/><line x1="160" y1="0" x2="160" y2="297"/><line x1="170" y1="0" x2="170" y2="297"/><line x1="180" y1="0" x2="180" y2="297"/><line x1="190" y1="0" x2="190" y2="297"/><line x1="200" y1="0" x2="200" y2="297"/><line x1="0" y1="10" x2="210" y2="10"/><line x1="0" y1="20" x2="210" y2="20"/><line x1="0" y1="30" x2="210" y2="30"/><line x1="0" y1="40" x2="210" y2="40"/><line x1="0" y1="50" x2="210" y2="50"/><line x1="0" y1="60" x2="210" y2="60"/><line x1="0" y1="70" x2="210" y2="70"/><line x1="0" y1="80" x2="210" y2="80"/><line x1="0" y1="90" x2="210" y2="90"/><line x1="0" y1="100" x2="210" y2="100"/><line x1="0" y1="110" x2="210" y2="110"/><line x1="0" y1="120" x2="210" y2="120"/><line x1="0" y1="130" x2="210" y2="130"/><line x1="0" y1="140" x2="210" y2="140"/><line x1="0" y1="150" x2="210" y2="150"/><line x1="0" y1="160" x2="210" y2="160"/><line x1="0" y1="170" x2="210" y2="170"/><line x1="0" y1="180" x2="210" y2="180"/><line x1="0" y1="190" x2="210" y2="190"/><line x1="0" y1="200" x2="210" y2="200"/><line x1="0" y1="210" x2="210" y2="210"/><line x1="0" y1="220" x2="210" y2="220"/><line x1="0" y1="230" x2="210" y2="230"/><line x1="0" y1="240" x2="210" y2="240"/><line x1="0" y1="250" x2="210" y2="250"/><line x1="0" y1="260" x2="210" y2="260"/><line x1="0" y1="270" x2="210" y2="270"/><line x1="0" y1="280" x2="210" y2="280"/><line x1="0" y1="290" x2="210" y2="290"/></g></svg><div class="filo"></div>
+  <img class="logo" src="img/logo.png" alt="NEXA">
+  <div class="tit">
+    <div class="kick">Sistema de producción y stock · noviembre 2026</div>
+    <h1>Mejoras después<br>de la <span>demo</span></h1>
+    <p class="sub">Lo que se cambió a partir de la reunión del 20 de noviembre y de las pruebas previas: planta, etiquetas, materia prima, compras y planificación.</p>
+  </div>
+  <div class="dev browser" style="left:16mm; top:158mm; width:118mm; transform:rotate(-3deg)">
+    <div class="bar"><i></i><i></i><i></i><span>Materia prima → Llevar a pie de máquina</span></div>
+    <div class="shot"><img src="img/m-llevar.png" style="height:60mm; object-fit:cover; object-position:top left"></div>
+  </div>
+  <div class="dev phone" style="left:142mm; top:112mm; width:50mm; transform:rotate(4deg)">
+    <div class="scr"><img src="img/o-etiquetas.png" style="height:98mm; object-fit:cover; object-position:top"></div>
+  </div>
+  <div class="chips">
+    <div><b>5</b>áreas con cambios</div>
+    <div><b>21</b>mejoras</div>
+    <div><b>10</b>preguntas abiertas</div>
+  </div>
+  <div class="pie"><span><b>NEXA Soluciones</b> · Pisos encastrables</span><span>Documento para revisión con la empresa</span></div>
+</section>
+
+<!-- ============================================================ RESUMEN -->
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Mejoras después de la demo</div><span>Resumen</span></div>
+  <div class="abre"><div><div class="barra"></div><h2>Qué cambió y para quién</h2><p>La idea de fondo es la que se habló en la reunión: que cada uno haga sólo lo suyo y que el Encargado no tenga que coordinar a mano lo que el sistema ya sabe.</p></div></div>
+  <div class="row c2" style="gap:5mm; margin-bottom:7mm">
+    <div class="card" style="background:var(--azulsoft)"><h4>Operario</h4>
+      <ul class="ok"><li>«Terminar producción» primero; la carga de la tolva, abajo.</li><li>Puede cambiar lo que cargó en cada carga, hasta 4 bolsas.</li><li>Al terminar, las etiquetas salen solas.</li><li>Ya no queda trabado por material de la producción anterior.</li></ul></div>
+    <div class="card" style="background:var(--narsoft)"><h4>Materia prima</h4>
+      <ul class="ok"><li>Lista de lo que hay que llevar a cada máquina, en bolsas para toda la tanda.</li><li>El ingreso se registra contra su compra: proveedor y cantidad salen de ahí.</li><li>Pide a Compras en kilos o en gramos y recibe avisos de sus compras.</li></ul></div>
+    <div class="card" style="background:var(--fondo)"><h4>Compras</h4>
+      <ul class="ok"><li>Se entera cuando Materia prima registra el ingreso: la compra se cierra sola.</li><li>El total se calcula mientras se escribe el precio.</li></ul></div>
+    <div class="card" style="background:var(--fondo)"><h4>Encargado</h4>
+      <ul class="ok"><li>Ya no hace el retiro de material: lo ve Materia prima.</li><li>No puede planificar en un turno que ese día no se trabaja.</li><li>Ve cuántos turnos le falta revisar y cuánto duró cada pausa.</li></ul></div>
+  </div>
+  <h3>El recorrido de una tanda</h3>
+  <div class="flujo" style="margin:3mm 0 7mm">
+    <div class="paso"><div class="t">Encargado</div>Planifica la tanda: máquina, día y turno.</div>
+    <div class="fl">→</div>
+    <div class="paso"><div class="t">Materia prima</div>La ve en «Para llevar». Dylan lleva el material y Daniela lo registra.</div>
+    <div class="fl">→</div>
+    <div class="paso"><div class="t">Operario</div>Arranca y carga la tolva desde su celular.</div>
+    <div class="fl">→</div>
+    <div class="paso"><div class="t">Fin</div>Termina la producción: las cajas entran a stock.</div>
+    <div class="fl">→</div>
+    <div class="paso"><div class="t">Etiquetas</div>Se imprimen en el momento, una por caja.</div>
+  </div>
+  <div class="nota">Todo lo que se describe ya está funcionando en el sistema. Las capturas son de una copia de prueba con datos de ejemplo.</div>
+  <div class="folio">2</div>
+</section>
+
+<!-- ============================================================ 01 PLANTA -->
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Mejoras después de la demo</div><span>01 · Pantalla del operario</span></div>
+  <div class="abre"><div class="num">01</div><div><div class="barra"></div><h2>Pantalla<br>del operario</h2></div></div>
+  <p class="lede" style="margin-bottom:6mm">Después de cargar la tolva, la pantalla parecía pedir más material en vez de dejar terminar. Ahora lo principal está arriba.</p>
+  <div class="row" style="grid-template-columns:62mm 62mm 1fr; gap:6mm; align-items:start">
+    <div class="phone"><div class="scr"><img src="img/o-produciendo.png" style="height:128mm; object-fit:cover; object-position:top">
+      <span class="pin" style="left:88%;top:36%">1</span>
+      <span class="pin" style="left:92%;top:63%">2</span>
+      <span class="pin" style="left:88%;top:78%">3</span></div></div>
+    <div class="phone"><div class="scr"><img src="img/o-distinto.png" style="height:128mm; object-fit:cover; object-position:top">
+      <span class="pin" style="left:7%;top:38.5%">4</span>
+      <span class="pin" style="left:90%;top:52%">5</span></div></div>
+    <ol class="leyenda">
+      <li><span class="n">1</span><div><b>Cuándo terminar</b>El contador al que tiene que llegar.</div></li>
+      <li><span class="n">2</span><div><b>Terminar producción</b>Primero, junto con pausar y cerrar el turno.</div></li>
+      <li><span class="n">3</span><div><b>¿Cargaste otra vez?</b>La carga de la tolva quedó abajo. «Pedir material» ya no es el botón grande.</div></li>
+      <li><span class="n">4</span><div><b>Cargué distinto</b>Está siempre: en cada carga se pueden cambiar las cantidades.</div></li>
+      <li><span class="n">5</span><div><b>Hasta 4 bolsas</b>Lo que entra en el mezclador, sin contar el master.</div></li>
+    </ol>
+  </div>
+  <div class="sep"></div>
+  <h3>Material que quedó de la producción anterior</h3>
+  <div class="row c2" style="gap:5mm">
+    <div class="card"><h4>Si es de la receta</h4>Pasa solo a la producción nueva cuando el operario arranca. Ya no hay que conciliar nada.</div>
+    <div class="card" style="background:var(--narsoft)"><h4>Si no es de la receta</h4>Por ejemplo, master de otro color. El operario ve qué material es y que lo retira Materia prima; no puede arrancar hasta que se devuelva.</div>
+  </div>
+  <div class="folio">3</div>
+</section>
+
+<!-- ============================================================ 02 ETIQUETAS -->
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Mejoras después de la demo</div><span>02 · Etiquetas</span></div>
+  <div class="abre"><div class="num">02</div><div><div class="barra"></div><h2>Etiquetas al terminar<br>la producción</h2></div></div>
+  <div class="row" style="grid-template-columns:60mm 1fr; gap:8mm; align-items:start; margin-bottom:7mm">
+    <div class="phone"><div class="scr"><img src="img/o-etiquetas.png" style="height:100mm; object-fit:cover; object-position:top"></div></div>
+    <div>
+      <h3>Salen solas</h3>
+      <ul class="ok">
+        <li>Al tocar «Terminar producción», el operario pasa directo a <b>imprimir las etiquetas de todas las cajas</b> de esa producción.</li>
+        <li>Una por caja, con el código, el color en grande, la cantidad, la partida y el código de barras.</li>
+        <li>Ya no aparecen al cerrar cada turno: se imprimen todas juntas al final.</li>
+        <li>Si no se imprimieron en el momento, la pantalla del operario las ofrece hasta que arranque la tanda siguiente.</li>
+      </ul>
+      <div class="sep" style="height:5mm"></div>
+      <div class="nota">Imprimir no cambia el stock: las cajas ya entraron al cerrar el turno o la producción.</div>
+    </div>
+  </div>
+  <h3>Menú «Etiquetas» <span class="tag">nuevo</span></h3>
+  <p style="margin-bottom:4mm">En Fábrica, para el Encargado, Supervisión y Gerencia. Se busca por fecha y por producto o color, y se imprimen las de toda una producción o algunas cajas; la reimpresión queda registrada con su motivo.</p>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Fábrica → Etiquetas</span></div>
+    <div class="shot"><img src="img/e-menu.png" style="height:70mm; object-fit:cover; object-position:top left">
+      <span class="pin" style="left:60%;top:39%">1</span>
+      <span class="pin" style="left:15%;top:93%">2</span>
+      <span class="pin" style="left:97%;top:70%">3</span></div></div>
+  <div class="sep" style="height:4mm"></div>
+  <ol class="leyenda row c3" style="gap:3mm 6mm">
+    <li><span class="n">1</span><div><b>Buscar</b>Por fechas y por producto o color.</div></li>
+    <li><span class="n">2</span><div><b>Algunas cajas</b>Se tildan y se reimprimen con el motivo.</div></li>
+    <li><span class="n">3</span><div><b>Imprimir todas</b>Las de toda la producción.</div></li>
+  </ol>
+  <div class="folio">4</div>
+</section>
+
+<!-- ============================================================ 03 MATERIA PRIMA -->
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Mejoras después de la demo</div><span>03 · Materia prima</span></div>
+  <div class="abre"><div class="num">03</div><div><div class="barra"></div><h2>Llevar material<br>a pie de máquina</h2></div></div>
+  <p class="lede" style="margin-bottom:5mm">Lo que el Encargado planifica le aparece a Materia prima como una lista de lo que hay que llevar a cada máquina. Dylan baja el material y Daniela registra que se llevó; David ya no hace el retiro.</p>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Materia prima → Llevar a pie de máquina</span></div>
+    <div class="shot"><img src="img/m-llevar.png" style="height:68mm; object-fit:cover; object-position:top left">
+      <span class="pin" style="left:9%;top:15%">1</span>
+      <span class="pin" style="left:34%;top:40%">2</span>
+      <span class="pin" style="left:87%;top:26%">3</span>
+      <span class="pin" style="left:19.5%;top:54%">4</span></div></div>
+  <div class="sep" style="height:4mm"></div>
+  <ol class="leyenda row c2" style="gap:3mm 8mm">
+    <li><span class="n">1</span><div><b>Por día</b>Atrasadas, hoy, mañana y sin día asignado.</div></li>
+    <li><span class="n">2</span><div><b>Para toda la tanda</b>Las bolsas enteras que faltan, descontando lo que ya está junto a la máquina.</div></li>
+    <li><span class="n">3</span><div><b>Ya está</b>Cuando todo el material está a pie de máquina.</div></li>
+    <li><span class="n">4</span><div><b>Registrar que se llevó</b>Abre el registro ya completo.</div></li>
+  </ol>
+  <div class="sep" style="height:6mm"></div>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Materia prima → Registrar lo que se llevó</span></div>
+    <div class="shot"><img src="img/m-form.png" style="height:62mm; object-fit:cover; object-position:top left">
+      <span class="pin" style="left:30%;top:52%">5</span>
+      <span class="pin" style="left:80%;top:52%">6</span>
+      <span class="pin" style="left:26%;top:81%">7</span></div></div>
+  <div class="sep" style="height:4mm"></div>
+  <ol class="leyenda row c2" style="gap:3mm 8mm">
+    <li><span class="n">5</span><div><b>Quién lo lleva</b>Dylan, un operario o el Encargado.</div></li>
+    <li><span class="n">6</span><div><b>Lo registra</b>Daniela, ya elegida.</div></li>
+    <li><span class="n">7</span><div><b>Piezas y material</b>Precargados para toda la tanda, en kilos. Se puede leer el código de cada bolsa.</div></li>
+    <li><span class="n">·</span><div><b>Al registrar</b>Vuelve a la lista: ya no pasa a la pantalla de conciliación.</div></li>
+  </ol>
+  <div class="folio">5</div>
+</section>
+
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Mejoras después de la demo</div><span>03 · Materia prima</span></div>
+  <h3>El ingreso se registra contra su compra</h3>
+  <p style="margin-bottom:4mm">Antes se podía ingresar la mercadería sin decir de qué compra era: el stock subía pero la compra seguía figurando «llega el 25/11». Ahora se elige primero la compra y de ahí salen el material, el proveedor y la cantidad pendiente.</p>
+  <div class="row" style="grid-template-columns:1fr 64mm; gap:7mm; align-items:start; margin-bottom:8mm">
+    <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Materia prima → Ingreso de proveedor</span></div>
+      <div class="shot"><img src="img/m-ingreso.png">
+        <span class="pin" style="left:3%;top:10%">1</span>
+        <span class="pin" style="left:96%;top:22%">2</span>
+        <span class="pin" style="left:96%;top:34%">3</span></div></div>
+    <ol class="leyenda">
+      <li><span class="n">1</span><div><b>¿De qué compra es?</b>Las compras abiertas, con lo pendiente y cuándo llega.</div></li>
+      <li><span class="n">2</span><div><b>Proveedor</b>Sale de la compra.</div></li>
+      <li><span class="n">3</span><div><b>Cantidad</b>Propone lo pendiente. Si llega menos, la compra queda parcial.</div></li>
+      <li><span class="n">·</span><div><b>Sin compra</b>Para stock inicial o una devolución. Si el material tiene una compra abierta, se pide el motivo.</div></li>
+    </ol>
+  </div>
+  <h3>Pedido a Compras en kilos o en gramos</h3>
+  <div class="row" style="grid-template-columns:1.3fr 1fr; gap:7mm; align-items:start">
+    <div class="plain"><img src="img/m-pedir.png" style="height:62mm; object-fit:cover; object-position:right top"></div>
+    <div>
+      <ul class="ok">
+        <li>Al pedir a Compras se elige la unidad: <b>kg o g</b>. La compra se guarda en kilos.</li>
+        <li>Se corrigió la cantidad sugerida: un número como «1,195» se leía como mil ciento noventa y cinco.</li>
+        <li>Cuando hay material para llevar hoy, la pantalla de Materia prima lo avisa arriba.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="folio">6</div>
+</section>
+
+<!-- ============================================================ 04 COMPRAS -->
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Mejoras después de la demo</div><span>04 · Compras</span></div>
+  <div class="abre"><div class="num">04</div><div><div class="barra"></div><h2>Compras y Materia<br>prima, conectadas</h2></div></div>
+  <p class="lede" style="margin-bottom:5mm">Cada una se entera de lo que hace la otra, sin mails ni planillas.</p>
+  <div class="row c2" style="gap:5mm; margin-bottom:7mm">
+    <div class="card" style="background:var(--azulsoft)"><h4>Compras → Materia prima</h4>Cuando Compras ejecuta el pedido (proveedor y fecha de llegada) y cuando cambia el estado o la fecha. Materia prima tiene ahora «Avisos» en su menú.</div>
+    <div class="card" style="background:var(--narsoft)"><h4>Materia prima → Compras</h4>Cuando Materia prima registra el ingreso: la compra pasa sola a <b>entregada</b> o <b>parcial</b>, y Compras no tiene que marcarla a mano.</div>
+  </div>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Avisos de Materia prima</span></div>
+    <div class="shot"><img src="img/c-avisos.png" style="height:40mm; object-fit:cover; object-position:top left"></div></div>
+  <div class="cap">El aviso que recibe Daniela cuando Compras ejecuta su pedido.</div>
+  <div class="sep" style="height:6mm"></div>
+  <div class="row" style="grid-template-columns:78mm 1fr; gap:8mm; align-items:start">
+    <div class="plain"><img src="img/c-total.png"><span class="pin" style="left:46%;top:47%">1</span><span class="pin" style="left:93%;top:50%">2</span></div>
+    <div>
+      <h3>El total se calcula solo</h3>
+      <ol class="leyenda">
+        <li><span class="n">1</span><div><b>Precio por kg</b>Se escribe uno de los dos montos.</div></li>
+        <li><span class="n">2</span><div><b>Total</b>Aparece mientras se escribe, con la cantidad de la compra. Al revés también: con el total se calcula el precio por kg.</div></li>
+      </ol>
+      <div class="sep" style="height:5mm"></div>
+      <div class="nota">«Entregada» y «parcialmente entregada» ya no se ponen a mano: las pone el ingreso de Materia prima.</div>
+    </div>
+  </div>
+  <div class="folio">7</div>
+</section>
+
+<!-- ============================================================ 05 PLANIFICACIÓN -->
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Mejoras después de la demo</div><span>05 · Planificación y otras pantallas</span></div>
+  <div class="abre"><div class="num">05</div><div><div class="barra"></div><h2>Planificación<br>y otras pantallas</h2></div></div>
+  <h3>El calendario respeta el esquema del día</h3>
+  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Producción → Calendario por máquina y turno</span></div>
+    <div class="shot"><img src="img/p-cal.png" style="height:140mm; object-fit:cover; object-position:top left">
+      <span class="pin" style="left:73%;top:18.3%">1</span>
+      <span class="pin" style="left:52.5%;top:77%">2</span>
+      <span class="pin" style="left:64%;top:54%">3</span></div></div>
+  <div class="cap">Filas: mañana, tarde y noche. Cada día tiene una columna por inyectora.</div>
+  <div class="sep" style="height:4mm"></div>
+  <ol class="leyenda row c3" style="gap:3mm 6mm">
+    <li><span class="n">1</span><div><b>Esquema y horarios</b>El esquema de cada día, con sus horarios.</div></li>
+    <li><span class="n">2</span><div><b>Sin turno</b>Un turno que ese día no se trabaja se ve tachado y no recibe tandas.</div></li>
+    <li><span class="n">3</span><div><b>Cambio de matriz</b>Aparece entre las dos tandas, justo antes de la que lo necesita.</div></li>
+  </ol>
+  <div class="sep" style="height:5mm"></div>
+  <div class="nota nar">En la tanda, «Quitar los marcados» pasó a decir <b>«Sacar de esta tanda los pedidos tildados»</b>: los pedidos que se sacan vuelven a «Por planificar» para ponerlos en otra.</div>
+  <div class="folio">8</div>
+</section>
+
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Mejoras después de la demo</div><span>05 · Planificación y otras pantallas</span></div>
+  <h3>Relevos y novedades</h3>
+  <div class="row" style="grid-template-columns:1fr 66mm; gap:7mm; align-items:start; margin-bottom:7mm">
+    <div class="browser"><div class="bar"><i></i><i></i><i></i><span>Producción → Relevos y novedades</span></div>
+      <div class="shot"><img src="img/p-relevos.png" style="height:66mm; object-fit:cover; object-position:top left">
+        <span class="pin" style="left:46%;top:10%">1</span></div></div>
+    <div class="plain"><img src="img/p-pausa.png" style="height:72mm; object-fit:cover; object-position:top"><span class="pin" style="left:62%;top:15%">2</span></div>
+  </div>
+  <ol class="leyenda row c2" style="gap:3mm 8mm; margin-bottom:8mm">
+    <li><span class="n">1</span><div><b>Turnos por revisar</b>El número cuenta los turnos que pasaron cajas a stock y todavía no tienen el «Revisado / OK». El botón sólo aparece en esos turnos.</div></li>
+    <li><span class="n">2</span><div><b>Cuánto duró la pausa</b>Con la hora en que se reanudó, o «Sigue en pausa».</div></li>
+  </ol>
+  <div class="row c2" style="gap:7mm; align-items:start">
+    <div>
+      <h3>Pedidos: de qué falta producir</h3>
+      <div class="plain"><img src="img/v-pedidos.png" style="height:60mm; object-fit:cover; object-position:right top"></div>
+      <div class="cap">«Falta producir 88» ahora dice de qué: 40 Rejilla Rojo y 48 Rejilla Azul Claro.</div>
+    </div>
+    <div>
+      <h3>Stock de productos</h3>
+      <div class="plain"><img src="img/v-stock.png" style="height:60mm; object-fit:cover; object-position:left top"></div>
+      <div class="cap">El código como va en la etiqueta (005B), el nombre y el color.</div>
+    </div>
+  </div>
+  <div class="sep" style="height:6mm"></div>
+  <div class="nota"><b>Pesos en kilos.</b> Desde 1 kg el sistema muestra kilos: «1,875 kg» en lugar de «1.875 g», que se leía como uno coma ocho.</div>
+  <div class="folio">9</div>
+</section>
+
+<!-- ============================================================ 06 PREGUNTAS -->
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Mejoras después de la demo</div><span>06 · Preguntas pendientes</span></div>
+  <div class="abre"><div class="num">06</div><div><div class="barra"></div><h2>Preguntas<br>pendientes</h2><p>Mientras no se respondan, el sistema funciona como dice «Hoy».</p></div></div>
+  <div class="grupo">Planta y materia prima</div>
+  <div class="qs">
+    <div class="q"><span class="qn">1</span><div class="qt">Material que sobra entre producciones: ¿se usa en la tanda siguiente si es de su receta, o vuelve siempre al depósito?</div><div class="hoy"><b>Hoy</b>Si es de la receta, pasa a la tanda siguiente; si no, lo devuelve Materia prima.</div><div class="resp"><div class="op"><span>Así está bien</span><span>Siempre al depósito</span></div></div></div>
+    <div class="q"><span class="qn">2</span><div class="qt">Lista «Para llevar a pie de máquina»: ¿les sirve con atrasadas, hoy, mañana y sin día, o sólo lo del día?</div><div class="hoy"><b>Hoy</b>Atrasadas, hoy, mañana y sin día asignado.</div><div class="resp"><div class="op"><span>Así está bien</span><span>Sólo lo del día</span></div></div></div>
+    <div class="q"><span class="qn">3</span><div class="qt">Hasta 4 bolsas por carga: ¿el master cuenta aparte? ¿Alguna receta lleva más de 4 bolsas?</div><div class="hoy"><b>Hoy</b>4 bolsas de material, más el master aparte.</div><div class="resp"><div class="op"><span>Así está bien</span><span>El master también cuenta</span></div><div class="ln"></div></div></div>
+    <div class="q"><span class="qn">4</span><div class="qt">Ingreso sin compra: si el material tiene una compra abierta, se pide el motivo. ¿Hay casos en que esto moleste?</div><div class="hoy"><b>Hoy</b>Con compra abierta, el ingreso sin compra pide el motivo.</div><div class="resp"><div class="op"><span>Así está bien</span><span>Hay casos (detallar)</span></div><div class="ln"></div></div></div>
+  </div>
+  <div class="sep" style="height:5mm"></div>
+  <div class="grupo">Producción y catálogo</div>
+  <div class="qs">
+    <div class="q"><span class="qn">5</span><div class="qt">Entre las 13 y las 16 se superponen mañana y tarde en el esquema doble. ¿Los turnos se llaman distinto, o alcanza con ver los horarios?</div><div class="hoy"><b>Hoy</b>Mañana, tarde y noche, con los horarios del esquema a la vista.</div><div class="resp"><div class="op"><span>Alcanza con los horarios</span><span>Cambiar los nombres</span></div><div class="ln"></div></div></div>
+    <div class="q"><span class="qn">6</span><div class="qt">«Que le pongamos borde»: ¿qué producto hay que renombrar de esquinero a borde?</div><div class="hoy"><b>Hoy</b>Bordes y esquineros figuran como están en el catálogo.</div><div class="resp"><div class="ln"></div><div class="ln"></div></div></div>
+  </div>
+  <div class="folio">10</div>
+</section>
+
+<section class="page">
+  <div class="run"><div class="marca"><i></i>NEXA · Mejoras después de la demo</div><span>06 · Preguntas pendientes</span></div>
+  <div class="grupo">Producción y catálogo</div>
+  <div class="qs">
+    <div class="q"><span class="qn">7</span><div class="qt">Stock de productos: además del color, ¿quieren una foto de cada modelo? En ese caso, ¿pueden pasarlas?</div><div class="hoy"><b>Hoy</b>Código, nombre y un cuadrado con el color.</div><div class="resp"><div class="op"><span>Alcanza con el color</span><span>Agregar fotos</span></div></div></div>
+    <div class="q"><span class="qn">8</span><div class="qt">Lote: ¿por lote de materia prima o por inyección? Queda para definir con la certificación ISO.</div><div class="hoy"><b>Hoy</b>La partida se abre por producción.</div><div class="resp"><div class="op"><span>Por producción</span><span>Por lote de MP</span></div></div></div>
+  </div>
+  <div class="sep" style="height:5mm"></div>
+  <div class="grupo">Puesta en marcha</div>
+  <div class="qs">
+    <div class="q"><span class="qn">9</span><div class="qt">Lector de código de barras con visor para el armado lejos de la computadora: ¿lo prueban en la próxima visita?</div><div class="hoy"><b>Hoy</b>El lector va conectado a la computadora del armado.</div><div class="resp"><div class="op"><span>Probarlo</span><span>No hace falta</span></div></div></div>
+    <div class="q"><span class="qn">10</span><div class="qt">Pedidos de prueba viejos (con la entrega vencida hace días): ¿se pueden borrar para empezar a usarlo con pedidos reales?</div><div class="hoy"><b>Hoy</b>Siguen en la lista de pedidos y en «Por planificar».</div><div class="resp"><div class="op"><span>Borrarlos</span><span>Dejarlos</span></div></div></div>
+  </div>
+  <div class="sep" style="height:8mm"></div>
+  <h3>Próximo paso</h3>
+  <div class="ruta" style="margin-top:3mm">
+    <div class="it"><h4>Reunión con Daniela</h4><p>Recorrer Materia prima como se hizo con David: la lista para llevar, el ingreso contra la compra y el conteo físico.</p></div>
+    <div class="it"><h4>Prueba con un operario</h4><p>Una producción real de punta a punta, desde el celular, para ver qué le resulta difícil.</p></div>
+  </div>
+  <div style="position:absolute; left:0; right:0; bottom:0; height:46mm; background:linear-gradient(140deg,var(--azul),var(--profundo)); clip-path:polygon(0 30%,100% 0,100% 100%,0 100%)"></div>
+  <div style="position:absolute; left:16mm; right:16mm; bottom:13mm; display:flex; align-items:flex-end; justify-content:space-between; color:#fff">
+    <div><div style="font:800 18pt Outfit; line-height:1.05">Ya está en el sistema.</div><div style="font-size:8.6pt; color:#c9d3ff; margin-top:1.5mm; max-width:110mm">Con estas respuestas se ajustan los últimos detalles antes de usarlo con producción real.</div></div>
+    <div style="display:flex; gap:2.5mm">
+      <div style="width:16mm; height:16mm; border-radius:2mm; overflow:hidden; background:#fff; transform:rotate(-6deg)"><img src="img/piso-rejilla.png" style="width:100%"></div>
+      <div style="width:16mm; height:16mm; border-radius:2mm; overflow:hidden; background:#fff; transform:rotate(3deg)"><img src="img/piso-trama.png" style="width:100%"></div>
+      <div style="width:16mm; height:16mm; border-radius:2mm; overflow:hidden; background:#fff; transform:rotate(-2deg)"><img src="img/piso-moneda.png" style="width:100%"></div>
+    </div>
+  </div>
+  <div class="folio" style="color:#fff">11</div>
+</section>
+</body>
+</html>

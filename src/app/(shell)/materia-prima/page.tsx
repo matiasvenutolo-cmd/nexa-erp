@@ -234,9 +234,9 @@ async function Stock({ stock, sp, pide }: { stock: Stock; sp: { tipo?: string; t
                               {s && s.enCompraKg > 0 && s.sugeridoKg === 0 && <p className="text-xs text-foreground-muted">Ya hay {fmtPeso(s.enCompraKg)} pedidos o en compra.</p>}
                               {/* Reunión 20/11/2026: en kg o en gramos. La sugerencia va con coma decimal
                                   («1,195»): con punto se leía como miles. */}
-                              <div className="flex gap-2">
-                                <input name="cantidad" required inputMode="decimal" defaultValue={s && s.sugeridoKg > 0 ? String(s.sugeridoKg).replace(".", ",") : ""} placeholder="Cantidad (ej. 1.500)" className="input min-w-0 flex-1" />
-                                <select name="unidad" defaultValue="kg" className="input w-20" aria-label="Unidad">
+                              <div className="grid grid-cols-[1fr_5rem] gap-2">
+                                <input name="cantidad" required inputMode="decimal" defaultValue={s && s.sugeridoKg > 0 ? String(s.sugeridoKg).replace(".", ",") : ""} placeholder="Cantidad (ej. 1.500)" className="input" />
+                                <select name="unidad" defaultValue="kg" className="input" aria-label="Unidad">
                                   <option value="kg">kg</option>
                                   <option value="g">g</option>
                                 </select>
