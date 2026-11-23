@@ -53,7 +53,7 @@ describe("cola de la máquina y arranque", () => {
   it("el material se lleva antes de arrancar y pasa a la producción al arrancar", async () => {
     const ra = await registrarRetiroMaquina(s.usuarios.RETIROS_MP, { cicloId: null, tandaId: tandaA, lineas: [{ materiaPrimaId: s.materiaPrima.copo2240.id, loteMpId: null, cantidadKg: 50 }] });
     expect(ra.error).toBeUndefined();
-    const rb = await registrarRetiroMaquina(s.usuarios.ENCARGADO, { cicloId: null, tandaId: tandaB, lineas: [{ materiaPrimaId: s.materiaPrima.copo2240.id, loteMpId: null, cantidadKg: 25 }] });
+    const rb = await registrarRetiroMaquina(s.usuarios.MATERIA_PRIMA, { cicloId: null, tandaId: tandaB, lineas: [{ materiaPrimaId: s.materiaPrima.copo2240.id, loteMpId: null, cantidadKg: 25 }] });
     expect(rb.error).toBeUndefined();
     let v = await vistaTaller("8");
     expect(v.asignadas.find((t) => t.id === tandaA)!.enPie).toMatchObject([{ kg: 50 }]);

@@ -67,7 +67,8 @@ export async function registrarRetiroAction(_prev: EstadoMaquina, fd: FormData):
   revalidar(cicloId, r.id);
   // Desde una producción se vuelve a la producción (bug de la demo: el "volver"
   // llevaba a Materia prima).
-  if (cicloId) redirect(`/produccion/${cicloId}?ok=${encodeURIComponent(`Retiro ${numeroRetiro(r.id!)} registrado: el material quedó a pie de máquina.`)}`);
+  // Materia prima no entra a Producción: vuelve a su lista (cambios del 23/11/2026).
+  if (cicloId && usuario.rol !== "MATERIA_PRIMA" && usuario.rol !== "RETIROS_MP") redirect(`/produccion/${cicloId}?ok=${encodeURIComponent(`Retiro ${numeroRetiro(r.id!)} registrado: el material quedó a pie de máquina.`)}`);
   // Reunión 20/11/2026: ya no se pasa a la pantalla de conciliación del retiro
   // («no sabés qué hacer»): se vuelve a la lista de lo que hay que llevar.
   revalidatePath("/materia-prima/retiro");

@@ -60,10 +60,11 @@ export default async function MateriaPrimaPage({
   const [stock, moliendasPorConfirmar, pedidosMaterial, llevar] = await Promise.all([
     stockMpPorUbicacion(),
     puedeRecibirMolienda(usuario.rol) ? listarMoliendas({ estado: "ENTREGADA" }) : Promise.resolve([]),
-    retira ? pedidosDeMaterialPendientes() : Promise.resolve([]),
+    retira ? pedidosDeMaterialPendientes({ soloAvisados: true }) : Promise.resolve([]),
     retira ? paraLlevarAPie() : Promise.resolve([]),
   ]);
-  const paraLlevar = llevar.filter((l) => !l.completa && l.materiales.length > 0 && (l.dia === "hoy" || l.dia === "atrasada" || l.dia === "sin_dia")).length;
+  const pendientesLlevar = llevar.filter((l) => !l.completa && l.materiales.length > 0);
+  const paraLlevar = pendientesLlevar.filter((l) => l.dia === "hoy" || l.dia === "atrasada").length;
 
   return (
     <div>
@@ -74,13 +75,15 @@ export default async function MateriaPrimaPage({
         </div>
         <div className="flex flex-wrap gap-2">
           {puedeIngresarMateriaPrima(usuario.rol) && (
-            <Link href="/materia-prima/ingreso" className="btn btn-primary">
-              + Ingreso de proveedor
+            <Link href="/materia-prima/ingreso" className="btn btn-outline">
+              Registrar ingreso de MP
             </Link>
           )}
           {puedeRetirarMateriaPrima(usuario.rol) && (
-            <Link href="/materia-prima/retiro" className="btn btn-outline">
-              Llevar a pie de máquina{paraLlevar > 0 ? ` (${paraLlevar})` : ""}
+            // Cambios del 23/11/2026: si hay material para llevar, el botón se destaca con la cantidad.
+            <Link href="/materia-prima/retiro" className={pendientesLlevar.length ? "btn btn-primary" : "btn btn-outline"}>
+              Llevar a pie de máquina
+              {pendientesLlevar.length > 0 && <span className="ml-1.5 rounded-full bg-white px-2 py-0.5 text-xs font-bold text-[#b4521a]">{pendientesLlevar.length}</span>}
             </Link>
           )}
           {puedeContarMp(usuario.rol) && (
@@ -91,7 +94,7 @@ export default async function MateriaPrimaPage({
         </div>
       </div>
 
-      <PedidosDeMaterial pedidos={pedidosMaterial} />
+      <PedidosDeMaterial pedidos={pedidosMaterial} modo="materia-prima" />
 
       {paraLlevar > 0 && (
         <p className="aviso aviso-alerta mb-4 text-sm">

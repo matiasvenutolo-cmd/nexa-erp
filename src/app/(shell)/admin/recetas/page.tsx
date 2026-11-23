@@ -17,13 +17,23 @@ import { EditorReceta } from "./editor";
  * ejecuta con un toque. Receta normal y, si hace falta, una de arranque
  * reforzada para el cambio de color.
  */
-export default async function RecetasPage({ searchParams }: { searchParams: Promise<{ q?: string; producto?: string; sin?: string }> }) {
+const TIPO_LABEL: Record<string, string> = { UNICO: "Único", TRAMA: "Trama", MONEDA: "Moneda", BORDE: "Borde", ESQUINERO: "Esquinero", RAMPA: "Rampa" };
+
+export default async function RecetasPage({ searchParams }: { searchParams: Promise<{ q?: string; producto?: string; sin?: string; familia?: string; tipo?: string; color?: string }> }) {
   await exigirSeccion("/admin/recetas");
   const sp = await searchParams;
   const [productos, materiales, presentaciones] = await Promise.all([productosConReceta(), materialesParaReceta(), listarPresentaciones()]);
   const q = (sp.q ?? "").trim().toLowerCase();
+  // Cambios del 23/11/2026: filtros por tipo de producto, tipo de piso o accesorio y color.
+  const colores = [...new Set(productos.map((p) => p.colorNombre).filter((c): c is string => Boolean(c)))].sort((a, b) => a.localeCompare(b));
+  const tipos = [...new Set(productos.map((p) => p.tipo))];
   const filtrados = productos.filter(
-    (p) => (!q || `${p.codigo} ${p.descripcion} ${p.colorNombre ?? ""}`.toLowerCase().includes(q)) && (sp.sin !== "1" || !p.recetas.REGIMEN),
+    (p) =>
+      (!q || `${p.codigo} ${p.descripcion} ${p.colorNombre ?? ""}`.toLowerCase().includes(q)) &&
+      (sp.sin !== "1" || !p.recetas.REGIMEN) &&
+      (!sp.familia || p.familia === sp.familia) &&
+      (!sp.tipo || p.tipo === sp.tipo) &&
+      (!sp.color || p.colorNombre === sp.color),
   );
   const abierto = sp.producto ? Number(sp.producto) : null;
   const prodAbierto = abierto ? productos.find((p) => p.id === abierto) : undefined;
@@ -39,10 +49,44 @@ export default async function RecetasPage({ searchParams }: { searchParams: Prom
         vigente (Configuración → Master y dosificación); el Encargado decide las bolsas y puede agregar extras en la receta de arranque.
       </div>
 
+      <div className="aviso aviso-info text-sm">
+        <b>Receta de arranque (cambio de color):</b> la primera carga cuando la máquina viene de otro color. Lleva más master para que el
+        color nuevo tape enseguida al anterior. Es opcional: si un producto no la tiene, siempre se usa la receta normal. En la secuencia se
+        elige si la tanda arranca con ella.
+      </div>
+
       <form className="flex flex-wrap items-end gap-2" action="/admin/recetas">
-        <label className="campo min-w-64 flex-1">
-          <span>Buscar producto o color</span>
-          <input name="q" defaultValue={sp.q ?? ""} placeholder="Ej.: negro, rejilla, 001B" className="input" />
+        <label className="campo w-36">
+          <span>Producto</span>
+          <select name="familia" defaultValue={sp.familia ?? ""} className="input">
+            <option value="">Todos</option>
+            <option value="REJILLA">Rejilla</option>
+            <option value="CIEGO">Ciego</option>
+          </select>
+        </label>
+        <label className="campo w-40">
+          <span>Tipo de piso o accesorio</span>
+          <select name="tipo" defaultValue={sp.tipo ?? ""} className="input">
+            <option value="">Todos</option>
+            {tipos.map((t) => (
+              <option key={t} value={t}>
+                {TIPO_LABEL[t] ?? t}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="campo w-44">
+          <span>Color</span>
+          <select name="color" defaultValue={sp.color ?? ""} className="input">
+            <option value="">Todos</option>
+            {colores.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+        </label>
+        <label className="campo min-w-48 flex-1">
+          <span>Buscar</span>
+          <input name="q" defaultValue={sp.q ?? ""} placeholder="Ej.: 001B" className="input" />
         </label>
         <label className="flex items-center gap-2 pb-2 text-sm">
           <input type="checkbox" name="sin" value="1" defaultChecked={sp.sin === "1"} /> Sólo sin receta
@@ -65,7 +109,7 @@ export default async function RecetasPage({ searchParams }: { searchParams: Prom
           </thead>
           <tbody>
             {filtrados.map((p) => (
-              <FilaReceta key={p.id} p={p} abierto={abierto === p.id} materiales={materiales} presentaciones={presentaciones} q={sp.q} dosif={abierto === p.id ? dosif : null} />
+              <FilaReceta key={p.id} p={p} abierto={abierto === p.id} materiales={materiales} presentaciones={presentaciones} q={sp.q} filtros={{ familia: sp.familia, tipo: sp.tipo, color: sp.color, sin: sp.sin }} dosif={abierto === p.id ? dosif : null} />
             ))}
             {filtrados.length === 0 && (
               <tr>
@@ -130,6 +174,7 @@ function FilaReceta({
   materiales,
   presentaciones,
   q,
+  filtros = {},
   dosif,
 }: {
   p: Prod;
@@ -138,10 +183,12 @@ function FilaReceta({
   materiales: Awaited<ReturnType<typeof materialesParaReceta>>;
   presentaciones: Awaited<ReturnType<typeof listarPresentaciones>>;
   q?: string;
+  filtros?: Record<string, string | undefined>;
 }) {
   const r = p.recetas.REGIMEN;
   const a = p.recetas.ARRANQUE;
-  const qs = (extra: string) => `/admin/recetas?${new URLSearchParams({ ...(q ? { q } : {}), ...(extra ? { producto: extra } : {}) }).toString()}`;
+  const conValor = Object.fromEntries(Object.entries(filtros).filter((e): e is [string, string] => Boolean(e[1])));
+  const qs = (extra: string) => `/admin/recetas?${new URLSearchParams({ ...conValor, ...(q ? { q } : {}), ...(extra ? { producto: extra } : {}) }).toString()}`;
   const resumen = (x: typeof r) => (x ? x.items.map((i) => `${i.texto} ${i.materiaPrimaNombre}`).join(" + ") : null);
   return (
     <>

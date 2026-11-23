@@ -649,8 +649,46 @@ export async function crearTanda(actor: Actor, input: NuevaTandaInput): Promise<
     return { id: t.id };
   }).then(async (r) => {
     if (input.fecha) await sincronizarCambiosDeMatriz(actor.id, [inyectora]);
+    if (r.id) await avisarMaterialTanda(actor.id, r.id, null);
     return r;
   });
+}
+
+type EstadoTanda = Pick<typeof tanda.$inferSelect, "estado" | "fecha" | "turno" | "inyectora" | "cantidadPedidos" | "cantidadStock">;
+const asignada = (t: EstadoTanda | null) => Boolean(t && t.estado === "PLANIFICADA" && t.fecha && t.turno && t.inyectora);
+
+/**
+ * Cambios del 23/11/2026: Materia prima se entera por Avisos cuando una tanda
+ * queda con máquina, día y turno (hay que llevarle el material), y cada vez
+ * que el Encargado la cambia, la posterga o la cancela.
+ */
+async function avisarMaterialTanda(actorId: number, tandaId: number, antes: EstadoTanda | null, como?: string) {
+  const [t] = await db
+    .select({ t: tanda, codigo: producto.codigo, familia: producto.familia, tipo: producto.tipo, color: color.nombre })
+    .from(tanda)
+    .innerJoin(producto, eq(tanda.productoId, producto.id))
+    .leftJoin(color, eq(producto.colorId, color.id))
+    .where(eq(tanda.id, tandaId));
+  if (!t) return;
+  const ahora = t.t;
+  const antesOk = asignada(antes);
+  const ahoraOk = asignada(ahora);
+  if (!antesOk && !ahoraOk) return;
+  const dia = (f: string | null) => (f ? f.split("-").reverse().slice(0, 2).join("/") : "—");
+  const que = `${t.color ?? ""} ${matrizDe(t)} (${t.codigo.split("-")[0]}) · ${ahora.cantidadPedidos + ahora.cantidadStock} piezas`.trim();
+  const donde = `inyectora ${ahora.inyectora}, ${dia(ahora.fecha)} turno ${etiquetaTurno(ahora.turno).toLowerCase()}`;
+  let mensaje: string | null = null;
+  if (!antesOk && ahoraOk) mensaje = `Hay que llevar material a pie de máquina: ${que}, ${donde}. Está en «Llevar a pie de máquina».`;
+  else if (antesOk && ahoraOk) {
+    const a = antes!;
+    if (a.fecha !== ahora.fecha || a.turno !== ahora.turno || a.inyectora !== ahora.inyectora || a.cantidadPedidos + a.cantidadStock !== ahora.cantidadPedidos + ahora.cantidadStock) {
+      mensaje = `Cambió una tanda para llevar material: ${que}, ahora ${donde}.`;
+    }
+  } else {
+    const motivo = como ?? (ahora.estado === "CANCELADA" ? "se canceló" : ahora.estado === "POSTERGADA" ? "se postergó" : "quedó sin día o turno");
+    mensaje = `La tanda ${que} (${dia(antes!.fecha)}, inyectora ${antes!.inyectora}) ${motivo}: no hace falta llevar ese material. Si ya se llevó, queda a pie de máquina para cuando se reprograme.`;
+  }
+  if (mensaje) await crearAviso(db, { tipo: "MATERIAL_PIE", destinoRol: "MATERIA_PRIMA", mensaje, creadoPorId: actorId });
 }
 
 async function tandaEditable(id: number) {
@@ -743,6 +781,7 @@ export async function actualizarTanda(
     ]);
   });
   await sincronizarCambiosDeMatriz(actor.id, [t.inyectora, nuevo.inyectora]);
+  await avisarMaterialTanda(actor.id, id, t);
   return {};
 }
 
@@ -830,6 +869,9 @@ export async function dividirTanda(actor: Actor, id: number, piezas: number): Pr
     await tx.update(tanda).set({ cantidadPedidos: pedidosQuedan, cantidadStock: stockQueda, actualizadoEn: new Date() }).where(eq(tanda.id, id));
     await registrarCambios(tx, actor.id, [{ entidad: "tanda", entidadId: id, campo: "división", anterior: total, nuevo: `${piezas} quedan · ${total - piezas} pasan a la tanda ${nueva.id}`, motivo: "Para que entre en el turno" }]);
     return { nuevaId: nueva.id };
+  }).then(async (res) => {
+    await avisarMaterialTanda(actor.id, id, t);
+    return res;
   });
 }
 
@@ -847,6 +889,7 @@ export async function postergarTanda(actor: Actor, id: number, motivo: string | 
   });
   if (!reactivar) await asegurarCambioDeMatriz(actor.id, id, null);
   await sincronizarCambiosDeMatriz(actor.id, [r.t.inyectora]);
+  await avisarMaterialTanda(actor.id, id, r.t);
   return {};
 }
 
@@ -885,6 +928,7 @@ export async function cancelarTanda(actor: Actor, id: number, motivo: string | n
   });
   await asegurarCambioDeMatriz(actor.id, id, null);
   await sincronizarCambiosDeMatriz(actor.id, [r.t.inyectora]);
+  await avisarMaterialTanda(actor.id, id, r.t);
   return {};
 }
 

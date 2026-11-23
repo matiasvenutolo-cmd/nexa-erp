@@ -729,6 +729,8 @@ export type EtiquetaCaja = {
   cantidad: number;
   productoCodigo: string;
   productoDescripcion: string;
+  familia: string;
+  tipo: string;
   colorNombre: string | null;
   partida: string | null;
   fecha: string;
@@ -757,6 +759,8 @@ export async function etiquetasDe(filtro: { turnoId?: number; cicloId?: number; 
       cantidad: caja.cantidad,
       productoCodigo: producto.codigo,
       productoDescripcion: producto.descripcion,
+      familia: producto.familia,
+      tipo: producto.tipo,
       colorNombre: color.nombre,
       partida: partidaNexaSql,
       fecha: caja.fecha,

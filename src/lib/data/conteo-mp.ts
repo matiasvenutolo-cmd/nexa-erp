@@ -16,7 +16,8 @@ import { aGramos } from "@/lib/presentaciones";
 import type { usuario as usuarioT } from "@/lib/db/schema";
 
 type Rol = (typeof usuarioT.$inferSelect)["rol"];
-const ROLES_CONTEO: readonly Rol[] = ["MATERIA_PRIMA", "ENCARGADO", "SUPERVISOR", "GERENCIA"];
+// Cambios del 23/11/2026: el conteo físico es de Materia prima (el Encargado ya no).
+const ROLES_CONTEO: readonly Rol[] = ["MATERIA_PRIMA", "SUPERVISOR", "GERENCIA"];
 export const puedeContarMp = (rol: Rol) => ROLES_CONTEO.includes(rol);
 
 const depositoGeneral = getDepositoNexaId;
@@ -54,7 +55,7 @@ export type LineaConteoInput = { materiaPrimaId: number; contado: number; motivo
  * pasa a ser lo contado (un ajuste de inventario por material).
  */
 export async function registrarConteoMp(actor: Actor, input: { fecha: string; lineas: LineaConteoInput[]; observaciones?: string | null; ajustar?: boolean }): Promise<Resultado & { id?: number; diferencias?: number }> {
-  if (!puedeContarMp(actor.rol)) return { error: "El conteo físico lo carga Materia prima o el Encargado." };
+  if (!puedeContarMp(actor.rol)) return { error: "El conteo físico lo carga Materia prima." };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.fecha)) return { error: "Indicá la fecha del recuento." };
   const lineas = input.lineas.filter((l) => Number.isFinite(l.contado));
   if (lineas.length === 0) return { error: "Cargá el stock físico de al menos un material." };

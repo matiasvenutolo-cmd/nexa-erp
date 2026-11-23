@@ -272,7 +272,9 @@ export function puedeIngresarMateriaPrima(rol: Rol): boolean {
 }
 
 /** Retiro de materia prima a máquina (Dylan Romero) y quien la entrega. */
-const ROLES_RETIRO_MP: readonly Rol[] = ["RETIROS_MP", "MATERIA_PRIMA", "ENCARGADO", "SUPERVISOR", "GERENCIA"];
+/** Cambios del 23/11/2026: el Encargado ya no registra lo que se lleva a pie
+ *  de máquina; lo registra Materia prima (él da el OK al pedido del operario). */
+const ROLES_RETIRO_MP: readonly Rol[] = ["RETIROS_MP", "MATERIA_PRIMA", "SUPERVISOR", "GERENCIA"];
 
 export function puedeRetirarMateriaPrima(rol: Rol): boolean {
   return ROLES_RETIRO_MP.includes(rol);
@@ -280,7 +282,8 @@ export function puedeRetirarMateriaPrima(rol: Rol): boolean {
 
 /** Carga en tolva: quien retira el material y el operario de la máquina. */
 export function puedeCargarTolva(rol: Rol): boolean {
-  return puedeRetirarMateriaPrima(rol) || rol === "OPERARIO";
+  // El Encargado sigue pudiendo cargar la tolva y registrar el sobrante en la producción.
+  return puedeRetirarMateriaPrima(rol) || rol === "OPERARIO" || rol === "ENCARGADO";
 }
 
 /** Ajustes autorizados del depósito (diferencia de balanza, molienda,
@@ -292,7 +295,8 @@ export function puedeAjustarMateriaPrima(rol: Rol): boolean {
 }
 
 export function puedeVerMateriaPrima(rol: Rol): boolean {
-  return puedeIngresarMateriaPrima(rol) || puedeRetirarMateriaPrima(rol) || rol === "COMPRAS" || rol === CONSULTA;
+  // El Encargado sigue viendo el stock de materia prima, aunque ya no registre retiros ni conteos (23/11/2026).
+  return puedeIngresarMateriaPrima(rol) || puedeRetirarMateriaPrima(rol) || rol === "COMPRAS" || rol === "ENCARGADO" || rol === CONSULTA;
 }
 
 /** "Las vendedoras tienen que buscar el pedido y detallar qué pasó". */
@@ -329,7 +333,8 @@ export function puedeVerTrazabilidad(rol: Rol): boolean {
  *  Gerencia puede intervenir. Materia Prima y Encargado coordinan la necesidad
  *  (ven el módulo). */
 const ROLES_GESTIONAN_COMPRAS: readonly Rol[] = ["COMPRAS", "SUPERVISOR", "GERENCIA"];
-const ROLES_VEN_COMPRAS: readonly Rol[] = [...ROLES_GESTIONAN_COMPRAS, "MATERIA_PRIMA", "ENCARGADO", CONSULTA];
+// Cambios del 23/11/2026: el Encargado ya no ve Compras.
+const ROLES_VEN_COMPRAS: readonly Rol[] = [...ROLES_GESTIONAN_COMPRAS, "MATERIA_PRIMA", CONSULTA];
 
 export function puedeGestionarCompras(rol: Rol): boolean {
   return ROLES_GESTIONAN_COMPRAS.includes(rol);

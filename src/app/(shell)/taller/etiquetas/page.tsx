@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { etiquetasDe, type EtiquetaCaja } from "@/lib/data/produccion";
-import { etiquetaTurno } from "@/lib/data/planificacion";
+import { matrizDe } from "@/lib/data/planificacion";
 import { anchosCode128 } from "@/lib/code128";
-import { fmtFecha, fmtNumero } from "@/lib/format";
+import { fmtFecha } from "@/lib/format";
 import { BotonImprimir } from "./imprimir";
 
 /**
@@ -65,33 +65,52 @@ export default async function EtiquetasPage({ searchParams }: { searchParams: Pr
   );
 }
 
+/** Datos de contacto que lleva la etiqueta de NEXA (foto de la etiqueta real, 23/11/2026). */
+const CONTACTO = ["Nexa soluciones", "WhatsApp: + 54 112855-3444", "cotizame.nexa@gmail.com", "www.nexasoluciones.com.ar"];
+
+/**
+ * Formato de la etiqueta real de NEXA (cambios del 23/11/2026): logo y
+ * contacto a la izquierda; código y nombre del producto, fecha, partida,
+ * color y cantidad a la derecha; código de barras abajo. Sin turno ni
+ * operario.
+ */
 function Etiqueta({ e }: { e: EtiquetaCaja }) {
+  const codigo = e.productoCodigo.split("-")[0];
   return (
-    <article className="etiqueta flex flex-col justify-between overflow-hidden rounded-lg border border-border bg-white p-[3mm] text-black shadow-sm" style={{ width: "100mm", height: "60mm" }}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-[13pt] font-bold leading-tight">{e.productoCodigo.split("-")[0]}</div>
-          <div className="truncate text-[8pt] leading-tight">{e.productoDescripcion}</div>
-        </div>
-        <div className="text-right text-[8pt] leading-tight">
-          <div>{fmtFecha(e.fecha)}</div>
-          <div>Partida N° {e.partida}</div>
-          {e.turno && (
-            <div>
-              {etiquetaTurno(e.turno)}
-              {e.operario ? ` · ${e.operario}` : ""}
+    <article className="etiqueta relative overflow-hidden rounded-lg border border-border bg-white text-black shadow-sm" style={{ width: "100mm", height: "60mm", padding: "3mm 3.5mm" }}>
+      <div className="flex h-full flex-col">
+        <div className="flex flex-1 justify-between gap-2">
+          <div className="flex w-[52%] flex-col justify-end pb-1">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/nexa-logo.png" alt="NEXA Soluciones" style={{ width: "44mm", margin: "-3mm 0 -2mm -2mm" }} />
+            <div className="leading-[1.25]" style={{ fontSize: "5.6pt" }}>
+              {CONTACTO.map((l) => (
+                <div key={l}>{l}</div>
+              ))}
             </div>
-          )}
+          </div>
+          <div className="text-right leading-none">
+            <div className="font-bold tracking-tight" style={{ fontSize: "17pt", fontStretch: "condensed" }}>
+              {codigo}-{matrizDe({ familia: e.familia, tipo: e.tipo })}
+            </div>
+            <div className="mt-[2mm] font-bold" style={{ fontSize: "10pt" }}>
+              {fmtFecha(e.fecha)}
+            </div>
+            <div className="mt-[1mm]" style={{ fontSize: "8.5pt" }}>
+              Partida N°{(e.partida ?? "").slice(-5)}
+            </div>
+            <div className="mt-[1.5mm] font-black uppercase" style={{ fontSize: "17pt" }}>
+              {e.colorNombre ?? ""}
+            </div>
+            <div className="mt-[1mm]" style={{ fontSize: "8.5pt" }}>
+              Cantidad:{String(e.cantidad).padStart(5, "0")}
+            </div>
+          </div>
+        </div>
+        <div style={{ width: "68%" }}>
+          <CodigoDeBarras texto={e.codigo} />
         </div>
       </div>
-      <div className="flex items-end justify-between gap-2">
-        <div className="text-[22pt] font-black uppercase leading-none">{e.colorNombre ?? ""}</div>
-        <div className="text-right leading-none">
-          <div className="text-[18pt] font-bold">{fmtNumero(e.cantidad, 0)}</div>
-          <div className="text-[7pt]">piezas</div>
-        </div>
-      </div>
-      <CodigoDeBarras texto={e.codigo} />
     </article>
   );
 }
@@ -109,13 +128,13 @@ function CodigoDeBarras({ texto }: { texto: string }) {
   });
   return (
     <div>
-      <svg viewBox={`0 0 ${total} 40`} preserveAspectRatio="none" className="block h-[13mm] w-full" role="img" aria-label={`Código de barras ${texto}`}>
+      <svg viewBox={`0 0 ${total} 40`} preserveAspectRatio="none" className="block h-[11mm] w-full" role="img" aria-label={`Código de barras ${texto}`}>
         <rect width={total} height={40} fill="#fff" />
         {barras.map((b, i) => (
           <rect key={i} x={b.x} y={0} width={b.w} height={40} fill="#000" />
         ))}
       </svg>
-      <div className="text-center font-mono text-[9pt] tracking-wider">{texto}</div>
+      <div className="text-center font-mono text-[8pt] tracking-wider">{texto}</div>
     </div>
   );
 }

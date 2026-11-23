@@ -11,6 +11,8 @@ import {
   iniciarTandaAsignada,
   pausarProduccion,
   pedirMaterial,
+  avisarPedidoMaterial,
+  descartarPedidoMaterial,
   registrarLimpieza,
   registrarReimpresion,
   revisarTurno,
@@ -151,10 +153,33 @@ export async function limpiezaAction(_p: EstadoAccion, fd: FormData): Promise<Es
 
 export async function pedirMaterialAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
   const u = await getUsuarioActual();
-  const r = await pedirMaterial(u, { cicloId: Number(fd.get("cicloId")) });
+  let items = null;
+  try {
+    items = JSON.parse(String(fd.get("ajustes") ?? "[]"));
+  } catch {
+    return { error: "No se pudieron leer las cantidades." };
+  }
+  const r = await pedirMaterial(u, { cicloId: Number(fd.get("cicloId")), items });
   if (r.error) return { error: r.error };
   revalidar();
-  return { ok: r.yaPedido ? "Ya está pedido: el Encargado lo tiene a la vista." : "Listo: el Encargado y Retiros de MP ya ven el pedido." };
+  return { ok: r.yaPedido ? "Ya está pedido: el Encargado lo tiene a la vista." : "Listo: le llegó al Encargado. Cuando dé el OK, Materia prima lo lleva." };
+}
+
+/** Encargado: OK al pedido del operario (le llega a Materia prima) o descartarlo. */
+export async function avisarPedidoMaterialAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
+  const u = await getUsuarioActual();
+  const r = await avisarPedidoMaterial(u, Number(fd.get("novedadId")));
+  if (r.error) return { error: r.error };
+  revalidar();
+  return { ok: "Avisado: Materia prima lo ve para llevarlo." };
+}
+
+export async function descartarPedidoMaterialAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {
+  const u = await getUsuarioActual();
+  const r = await descartarPedidoMaterial(u, Number(fd.get("novedadId")));
+  if (r.error) return { error: r.error };
+  revalidar();
+  return { ok: "Pedido descartado." };
 }
 
 export async function novedadAction(_p: EstadoAccion, fd: FormData): Promise<EstadoAccion> {

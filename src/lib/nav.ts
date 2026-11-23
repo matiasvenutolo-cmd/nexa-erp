@@ -81,7 +81,8 @@ export const NAV_POR_ROL: Record<Rol, ItemNav[]> = Object.fromEntries(
       ROLES_CON_AVISOS.includes(r) && { href: "/avisos", label: "Avisos" },
       !planta && { href: "/pedidos", label: "Pedidos", seccion: "Ventas" },
       gestion && { href: "/catalogo", label: "Stock de productos", seccion: "Ventas" },
-      gestion && { href: "/clientes", label: "Clientes", seccion: "Ventas" },
+      // Cambios del 23/11/2026: el Encargado no necesita Clientes.
+      gestion && r !== "ENCARGADO" && { href: "/clientes", label: "Clientes", seccion: "Ventas" },
       puedeVerReclamos(r) && { href: "/reclamos", label: "Reclamos", seccion: "Ventas" },
       r !== "OPERARIO" && puedeVerProduccion(r) && { href: "/produccion", label: "Producción", seccion: "Fábrica" },
       // Reunión 20/11/2026: las etiquetas se encuentran sin buscar la producción.

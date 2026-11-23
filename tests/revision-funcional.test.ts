@@ -103,7 +103,7 @@ describe("Partida y ciclo: continuidad entre días y retiro de MP al ciclo", () 
 
     const [abierto] = await db().select().from(schema.cicloProduccion).where(eq(schema.cicloProduccion.partidaId, partidaId));
     // El retiro de MP se hace sobre el ciclo ya iniciado y toma su inyectora.
-    const retiro = await retirarMateriaPrima(s.usuarios.ENCARGADO, {
+    const retiro = await retirarMateriaPrima(s.usuarios.MATERIA_PRIMA, {
       materiaPrimaId: s.materiaPrima.copo2240.id,
       loteMpId: null,
       cantidadKg: 10,
@@ -124,7 +124,7 @@ describe("Partida y ciclo: continuidad entre días y retiro de MP al ciclo", () 
   });
 
   it("un retiro sin ciclo sólo acepta inyectoras existentes", async () => {
-    const r = await retirarMateriaPrima(s.usuarios.ENCARGADO, {
+    const r = await retirarMateriaPrima(s.usuarios.MATERIA_PRIMA, {
       materiaPrimaId: s.materiaPrima.copo2240.id,
       loteMpId: null,
       cantidadKg: 1,

@@ -106,8 +106,10 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
   const sp = await searchParams;
   // El calendario está debajo de la planificación (reunión 10/11/2026): el
   // enlace viejo «?vista=calendario» lleva ahí.
-  const vista: Vista = VISTAS.some((v) => v.id === sp.vista) ? (sp.vista as Vista) : "plan";
   const usuario = await getUsuarioActual();
+  // Cambios del 23/11/2026: el Encargado no ve compras.
+  const vistas = VISTAS.filter((v) => v.id !== "compras" || usuario.rol !== "ENCARGADO");
+  const vista: Vista = vistas.some((v) => v.id === sp.vista) ? (sp.vista as Vista) : "plan";
   const planifica = puedePlanificar(usuario.rol);
 
   const [tandas, grupos, pedidosMaterial, sinRevisar] = await Promise.all([listarTandas(), gruposParaPlanificar(), pedidosDeMaterialPendientes(), turnosSinRevisar()]);
@@ -142,10 +144,10 @@ export default async function ProduccionPage({ searchParams }: { searchParams: P
         </div>
       </div>
 
-      <PedidosDeMaterial pedidos={pedidosMaterial} />
+      {planifica && <PedidosDeMaterial pedidos={pedidosMaterial} modo="encargado" />}
 
       <nav className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
-        {VISTAS.map((v) => (
+        {vistas.map((v) => (
           <Link
             key={v.id}
             href={v.id === "plan" ? "/produccion" : `/produccion?vista=${v.id}`}
@@ -267,9 +269,6 @@ async function EnCurso({ cancela }: { cancela: boolean }) {
               </Link>
               <Link href={`/taller?iny=${v.inyectora}`} className="btn btn-outline btn-sm">
                 <Smartphone size={15} /> Ver como el operario
-              </Link>
-              <Link href={`/materia-prima/retiro?ciclo=${v.produccion.cicloId}`} className="btn btn-outline btn-sm">
-                Reponer material
               </Link>
             </div>
             {cancela && (

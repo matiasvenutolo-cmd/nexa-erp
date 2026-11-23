@@ -247,8 +247,11 @@ describe("Operario: arranca la tanda, carga desde pie de máquina, pausa y final
     // El retiro del depósito es del Encargado o de Retiros de MP, nunca del operario.
     expect((await registrarRetiroMaquina(s.usuarios.OPERARIO, { cicloId, lineas: [{ materiaPrimaId: s.materiaPrima.copo2240.id, loteMpId: null, cantidadKg: 50 }] })).error).toMatch(/permiso/);
     expect(await saldo(s.materiaPrima.copo2240.id, s.deposito.id)).toBe(dep);
-    expect((await pedirMaterial(s.usuarios.OPERARIO, { cicloId })).error).toBeUndefined();
-    expect((await pedirMaterial(s.usuarios.OPERARIO, { cicloId })).yaPedido).toBe(true);
+    // Cambios del 23/11/2026: el operario elige qué pide.
+    expect((await pedirMaterial(s.usuarios.OPERARIO, { cicloId })).error).toMatch(/Elegí qué material/);
+    const items = [{ materiaPrimaId: s.materiaPrima.copo2240.id, presentacionId: (await listarPresentaciones()).find((p) => p.nombre === "Bolsa 25 kg")!.id, cantidad: 2 }];
+    expect((await pedirMaterial(s.usuarios.OPERARIO, { cicloId, items })).error).toBeUndefined();
+    expect((await pedirMaterial(s.usuarios.OPERARIO, { cicloId, items })).yaPedido).toBe(true);
     const [pedido] = await pedidosDeMaterialPendientes();
     expect(pedido.n).toMatchObject({ cicloId, inyectora: "8", motivo: "Pedido de material" });
   });

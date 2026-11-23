@@ -50,8 +50,9 @@ describe("conteo físico semanal de materia prima", () => {
     expect((await planillaConteo(hoy)).find((f) => f.id === mp)).toMatchObject({ teorico: 100 });
   });
 
-  it("con diferencia exige justificación; sólo lo carga Materia prima o el Encargado", async () => {
-    expect((await registrarConteoMp(s.usuarios.OPERARIO, { fecha: hoy, lineas: [{ materiaPrimaId: mp, contado: 98 }] })).error).toMatch(/Materia prima o el Encargado/);
+  it("con diferencia exige justificación; sólo lo carga Materia prima (cambios 23/11: el Encargado ya no)", async () => {
+    expect((await registrarConteoMp(s.usuarios.OPERARIO, { fecha: hoy, lineas: [{ materiaPrimaId: mp, contado: 98 }] })).error).toMatch(/lo carga Materia prima/);
+    expect((await registrarConteoMp(s.usuarios.ENCARGADO, { fecha: hoy, lineas: [{ materiaPrimaId: mp, contado: 98 }] })).error).toMatch(/lo carga Materia prima/);
     expect((await registrarConteoMp(s.usuarios.MATERIA_PRIMA, { fecha: hoy, lineas: [] })).error).toMatch(/al menos un material/);
     expect((await registrarConteoMp(s.usuarios.MATERIA_PRIMA, { fecha: hoy, lineas: [{ materiaPrimaId: mp, contado: 98 }] })).error).toMatch(/Justificá/);
   });
@@ -66,9 +67,9 @@ describe("conteo físico semanal de materia prima", () => {
 
   it("ajustando, el stock queda igual a lo contado con un movimiento de inventario; un doble envío no se repite", async () => {
     const input = { fecha: hoy, lineas: [{ materiaPrimaId: mp, contado: 97.5, motivo: "Bolsa rota y derrame" }], ajustar: true };
-    const r = await registrarConteoMp(s.usuarios.ENCARGADO, input);
+    const r = await registrarConteoMp(s.usuarios.MATERIA_PRIMA, input);
     expect(r.error).toBeUndefined();
-    const otra = await registrarConteoMp(s.usuarios.ENCARGADO, input);
+    const otra = await registrarConteoMp(s.usuarios.MATERIA_PRIMA, input);
     expect(otra.id).toBe(r.id);
     expect(await saldo(mp, s.deposito.id)).toBe(97.5);
     const movs = await db().select().from(schema.movimiento).where(and(eq(schema.movimiento.origen, "INVENTARIO"), eq(schema.movimiento.origenId, r.id!)));

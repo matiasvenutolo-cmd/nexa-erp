@@ -17,18 +17,22 @@ export function RecordarMaquina({ iny }: { iny: string }) {
 }
 
 /**
- * «Cargué distinto»: la receta precargada en bolsas, con + / − (medias
- * bolsas) y sin pasar de lo que hay a pie de máquina. Pide el motivo. El
- * material sale siempre del pie de máquina (Cambios en Producción, nov. 2026).
+ * Selector de bolsas con + / − (medias bolsas), precargado con la receta
+ * (cambios del 23/11/2026):
+ * - «Cargar la tolva»: no pasa de lo que hay a pie de máquina ni de 4 bolsas
+ *   por carga (sin contar el master); si se carga distinto de la receta, pide
+ *   el motivo.
+ * - «Pedir material» (`pedido`): el operario elige qué y cuánto necesita.
  */
-export function CargaDistinta({ items, motivos }: { items: ItemCarga[]; motivos: readonly string[] }) {
-  // Lo máximo que se puede cargar de cada renglón: lo que hay a pie de máquina, en medias bolsas.
-  const maximo = items.map((i) => (i.kgPres > 0 ? Math.floor((i.enPie / i.kgPres) * 2 + 1e-6) / 2 : 0));
+export function SelectorBolsas({ items, motivos, pedido = false }: { items: ItemCarga[]; motivos?: readonly string[]; pedido?: boolean }) {
+  // Lo máximo de cada renglón: lo que hay a pie de máquina, en medias bolsas (al pedir no hay tope).
+  const maximo = items.map((i) => (pedido ? 99 : i.kgPres > 0 ? Math.floor((i.enPie / i.kgPres) * 2 + 1e-6) / 2 : 0));
   const [cant, setCant] = useState(() => items.map((i, k) => Math.min(i.cantidad, maximo[k])));
   // El mezclador lleva hasta 4 bolsas por carga, sin contar el master (reunión 20/11/2026).
   const bolsas = items.reduce((t, i, k) => t + (i.esMaster ? 0 : cant[k]), 0);
-  const tope = (k: number) => (items[k].esMaster ? maximo[k] : Math.min(maximo[k], cant[k] + Math.max(0, BOLSAS_MAX_POR_CARGA - bolsas)));
+  const tope = (k: number) => (pedido || items[k].esMaster ? maximo[k] : Math.min(maximo[k], cant[k] + Math.max(0, BOLSAS_MAX_POR_CARGA - bolsas)));
   const cambiar = (k: number, d: number) => setCant((c) => c.map((v, j) => (j === k ? Math.min(tope(k), Math.max(0, Math.round((v + d) * 2) / 2)) : v)));
+  const distinta = items.some((i, k) => Math.abs(cant[k] - i.cantidad) > 1e-9);
   return (
     <div className="space-y-3">
       <input type="hidden" name="ajustes" value={JSON.stringify(items.map((i, k) => ({ materiaPrimaId: i.materiaPrimaId, presentacionId: i.presentacionId, cantidad: cant[k] })))} />
@@ -39,7 +43,7 @@ export function CargaDistinta({ items, motivos }: { items: ItemCarga[]; motivos:
               <span className="min-w-0">
                 <span className="block font-semibold">{i.nombre}</span>
                 <span className="block text-xs text-foreground-muted">
-                  Receta: {fmtPresentacion(i.cantidad, i.presentacion)} · a pie de máquina: {fmtPeso(i.enPie, { gramos: i.esMaster })}
+                  {pedido ? `${fmtPresentacion(1, i.presentacion)}` : `Receta: ${fmtPresentacion(i.cantidad, i.presentacion)} · a pie de máquina: ${fmtPeso(i.enPie, { gramos: i.esMaster })}`}
                 </span>
               </span>
               <span className="flex items-center gap-2">
@@ -56,18 +60,20 @@ export function CargaDistinta({ items, motivos }: { items: ItemCarga[]; motivos:
           </li>
         ))}
       </ul>
-      <p className="text-xs text-foreground-muted">Hasta {BOLSAS_MAX_POR_CARGA} bolsas por carga (lo que entra en el mezclador), más el master.</p>
-      <label className="campo">
-        <span>¿Por qué cargaste distinto?</span>
-        <select name="motivo" required defaultValue="" className="input">
-          <option value="" disabled>
-            Elegí el motivo…
-          </option>
-          {motivos.map((m) => (
-            <option key={m}>{m}</option>
-          ))}
-        </select>
-      </label>
+      {!pedido && <p className="text-xs text-foreground-muted">Hasta {BOLSAS_MAX_POR_CARGA} bolsas por carga (lo que entra en el mezclador), más el master.</p>}
+      {motivos && distinta && (
+        <label className="campo">
+          <span>Es distinto de la receta: ¿por qué?</span>
+          <select name="motivo" required defaultValue="" className="input">
+            <option value="" disabled>
+              Elegí el motivo…
+            </option>
+            {motivos.map((m) => (
+              <option key={m}>{m}</option>
+            ))}
+          </select>
+        </label>
+      )}
     </div>
   );
 }

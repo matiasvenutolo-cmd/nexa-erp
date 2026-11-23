@@ -87,17 +87,6 @@ export function FormRetiroMaquina({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ciclo, lineas, piezas]);
 
-  function sugerir() {
-    if (!ciclo) return;
-    const extra: Linea[] = [];
-    const veces = calculo.cargas ?? 1;
-    for (const i of ciclo.receta ?? []) {
-      if (lineas.some((l) => l.materiaPrimaId === String(i.materiaPrimaId))) continue;
-      extra.push(nueva({ materiaPrimaId: String(i.materiaPrimaId), cantidadKg: String(Math.round(i.kg * veces * 1000) / 1000) }));
-    }
-    setLineas((xs) => [...xs.filter((x) => x.materiaPrimaId), ...extra]);
-  }
-
   /** Cada lectura agrega un renglón con el material (y el lote si es el
    *  código de la bolsa). La vía manual (elegir el material) sigue disponible. */
   async function leer(codigo: string): Promise<ResultadoLectura> {
@@ -205,33 +194,9 @@ export function FormRetiroMaquina({
         <p className="text-xs text-foreground-muted">No hay producciones en curso ni tandas en cola con máquina asignada. Se puede llevar el material antes de que el operario arranque: elegí la tanda en cola.</p>
       )}
 
-      <section className="space-y-2 rounded-md border border-border p-3">
-        <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
-          <Campo label="Piezas previstas">
-            <input name="piezasPrevistas" type="number" min={1} className="input" value={piezas} onChange={(e) => setPiezas(e.target.value)} />
-          </Campo>
-          <div className="text-xs text-foreground-muted sm:pt-6">
-            {!ciclo ? (
-              "Elegí la producción para calcular el material necesario."
-            ) : calculo.kg == null ? (
-              "El producto no tiene peso por pieza configurado (Panel Admin → Productos): no se puede calcular el material necesario."
-            ) : (
-              <>
-                {calculo.mpNecesaria != null && <>Material necesario: {fmtNumero(calculo.mpNecesaria, 2)} kg</>}
-                {calculo.cargas != null && <> · {calculo.cargas} cargas de la receta</>}
-                {!ciclo.receta && <> · sin receta de carga: no se sugiere el master</>}
-                {calculo.piezasEstimadas != null && <> · con lo cargado abajo salen ≈ {fmtNumero(calculo.piezasEstimadas, 0)} piezas</>}
-              </>
-            )}
-          </div>
-        </div>
-        {ciclo?.receta && !ciclo.sugerido?.length && (
-          <button type="button" onClick={sugerir} className="text-xs font-medium text-accent hover:underline">
-            Agregar el material de la receta ({ciclo.receta.map((i) => i.texto).join(" + ")}){calculo.cargas ? ` × ${calculo.cargas} cargas` : " × 1 carga"}
-          </button>
-        )}
-      </section>
-
+      {/* Cambios del 23/11/2026: a Materia prima no le interesan las piezas: lleva lo que pide
+          la receta para la tanda, ya precargado. Las piezas quedan registradas igual. */}
+      <input type="hidden" name="piezasPrevistas" value={piezas} />
       <section className="space-y-2">
         <LectorCodigo onLeer={leer} etiqueta="Lector de código de barras" placeholder="Código de la bolsa (27 dígitos) o del material (ej. 031, B24)" />
         <table className="w-full text-sm">

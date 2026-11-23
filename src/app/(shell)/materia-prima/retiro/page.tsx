@@ -7,6 +7,8 @@ import { etiquetaTurno } from "@/lib/data/planificacion";
 import { listarLotes, materiasPrimasActivas } from "@/lib/data/materia-prima";
 import { ciclosAbiertos } from "@/lib/data/maquina";
 import { paraLlevarAPie, type TandaALlevar } from "@/lib/data/llevar-mp";
+import { pedidosDeMaterialPendientes } from "@/lib/data/taller";
+import { PedidosDeMaterial } from "@/components/pedidos-material";
 import { recetasDe } from "@/lib/data/recetas";
 import { getUsuariosPorRol } from "@/lib/data/usuarios";
 import { getUsuarioActual } from "@/lib/session";
@@ -15,14 +17,14 @@ import { fmtFecha, fmtNumero } from "@/lib/format";
 import { etiquetaInyectora } from "@/lib/inyectoras";
 import { FormRetiroMaquina, type CicloRetiro } from "./form-retiro";
 
-const DIA = { atrasada: "Atrasadas", hoy: "Hoy", manana: "Mañana", sin_dia: "Sin día asignado" } as const;
+const DIA = { atrasada: "Atrasadas", hoy: "Hoy", manana: "Mañana", proximos: "Próximos días" } as const;
 
 /**
  * Retiro a pie de máquina (reunión 20/11/2026): arriba, lo que hay que llevar
  * a cada máquina según la secuencia del Encargado; abajo, el registro de lo
  * que se llevó (precargado con las bolsas que faltan para toda la tanda).
  */
-export default async function RetiroMpPage({ searchParams }: { searchParams: Promise<{ ciclo?: string; tanda?: string; ok?: string }> }) {
+export default async function RetiroMpPage({ searchParams }: { searchParams: Promise<{ ciclo?: string; tanda?: string; ok?: string; pedido?: string }> }) {
   const usuario = await getUsuarioActual();
   if (!puedeRetirarMateriaPrima(usuario.rol)) redirect("/materia-prima");
   const sp = await searchParams;
@@ -43,6 +45,15 @@ export default async function RetiroMpPage({ searchParams }: { searchParams: Pro
     getUsuariosPorRol("MATERIA_PRIMA"),
     paraLlevarAPie(),
   ]);
+  // Pedidos de material de las máquinas que el Encargado ya aprobó (cambios del 23/11/2026).
+  const pedidosMaq = await pedidosDeMaterialPendientes({ soloAvisados: true });
+  const pedidoElegido = pedidosMaq.find((p) => String(p.n.id) === sp.pedido)?.n ?? null;
+  const sugeridoPedido = (cicloId: number) => {
+    if (!pedidoElegido || pedidoElegido.cicloId !== cicloId || !pedidoElegido.pedido?.length) return null;
+    const porMp = new Map<number, number>();
+    for (const x of pedidoElegido.pedido) porMp.set(x.materiaPrimaId, Math.round(((porMp.get(x.materiaPrimaId) ?? 0) + x.kg) * 1000) / 1000);
+    return [...porMp].map(([materiaPrimaId, kg]) => ({ materiaPrimaId, kg }));
+  };
 
   // Por destino: producto, peso por pieza y receta de carga.
   const codigos = [...abiertos.map((c) => c.productoCodigo ?? ""), ...enCola.map((t) => t.productoCodigo)];
@@ -67,7 +78,7 @@ export default async function RetiroMpPage({ searchParams }: { searchParams: Pro
       id: c.id,
       etiqueta: `Producción #${c.id} · ${fmtFecha(c.fechaInicio)} · ${c.productoCodigo ?? "—"} · partida ${c.partidaNumero ?? "—"} · ${etiquetaInyectora(c.inyectora)}`,
       piezasObjetivo: null,
-      sugerido: null,
+      sugerido: sugeridoPedido(c.id),
       ...datos(c.productoCodigo),
     })),
     ...enCola.map((t) => {
@@ -102,6 +113,7 @@ export default async function RetiroMpPage({ searchParams }: { searchParams: Pro
       </div>
 
       {sp.ok && <p className="aviso aviso-ok">{sp.ok}</p>}
+      <PedidosDeMaterial pedidos={pedidosMaq} modo="materia-prima" />
 
       {!sp.ciclo && (
         <section className="space-y-3">
@@ -109,7 +121,7 @@ export default async function RetiroMpPage({ searchParams }: { searchParams: Pro
             Para llevar a pie de máquina {pendientes.length > 0 && <span className="badge-estado badge-naranja ml-1">{pendientes.length} pendiente{pendientes.length === 1 ? "" : "s"}</span>}
           </h2>
           {llevar.length === 0 ? (
-            <p className="panel text-sm text-foreground-muted">No hay tandas en cola con máquina asignada para hoy o mañana.</p>
+            <p className="panel text-sm text-foreground-muted">No hay tandas con máquina, día y turno asignados. Aparecen acá cuando el Encargado las programa.</p>
           ) : (
             grupos.map(([d, ls]) => (
               <div key={d} className="space-y-2">

@@ -385,7 +385,7 @@ describe("Auditoría final: cambios estructurales y permisos del servidor", () =
       ["ADMINISTRACION", "/produccion", false], ["ADMINISTRACION", "/pedidos/nuevo", true], ["ADMINISTRACION", "/compras", false],
       ["DESPACHO", "/pedidos", true], ["DESPACHO", "/produccion", false],
       ["MATERIA_PRIMA", "/molino", true], ["MATERIA_PRIMA", "/pedidos", false],
-      ["ENCARGADO", "/produccion", true], ["ENCARGADO", "/compras", true],
+      ["ENCARGADO", "/produccion", true], ["ENCARGADO", "/compras", false],
     ];
     for (const [rol, ruta, ok] of casos) expect(rutaPermitida(rol as never, ruta), `${rol} ${ruta}`).toBe(ok);
     // Las secciones de Administración las vuelve a controlar cada página (exigirSeccion).

@@ -62,7 +62,8 @@ export async function actualizarTandaAction(_p: EstadoAccion, fd: FormData): Pro
     inyectora: fd.has("inyectora") ? txt(fd, "inyectora") : undefined,
     fecha: txt(fd, "fecha"),
     turno: turno(fd),
-    cantidadStock: num(fd, "cantidadStock") ?? 0,
+    // Cambios del 23/11/2026: al asignar día y turno ya no se cambian cantidades; si no viene, no se toca.
+    cantidadStock: fd.has("cantidadStock") ? (num(fd, "cantidadStock") ?? 0) : undefined,
     usarArranque: fd.get("usarArranque") === "on",
     observaciones: txt(fd, "observaciones"),
   });

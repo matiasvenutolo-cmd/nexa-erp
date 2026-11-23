@@ -7,7 +7,6 @@ import {
   crearTandaAction,
   dividirTandaAction,
   postergarTandaAction,
-  quitarPedidosAction,
 } from "@/app/actions/planificacion";
 import { TURNOS, etiquetaTurno, type AlertaEntrega, type GrupoPlanificacion, type TandaVista } from "@/lib/data/planificacion";
 import { etiquetaPrioridad } from "@/lib/data/pedidos";
@@ -80,8 +79,11 @@ function CamposMaquina({ esAccesorio, inyectora, fecha, turno }: { esAccesorio: 
 export function TarjetaTanda({ t, posicion, puedePlanificar }: { t: TandaVista; posicion: number; puedePlanificar: boolean }) {
   const est = ESTADO_TANDA[t.estado];
   const editable = puedePlanificar && (t.estado === "PLANIFICADA" || t.estado === "POSTERGADA");
+  // Cambios del 23/11/2026: la tanda recién agregada queda al final, en gris,
+  // hasta que se le asigna día y turno; recién ahí Materia prima la ve para llevar el material.
+  const sinAsignar = t.estado === "PLANIFICADA" && (!t.fecha || !t.turno);
   return (
-    <article className={`panel ${t.estado === "POSTERGADA" ? "opacity-75" : ""}`}>
+    <article className={`panel ${t.estado === "POSTERGADA" ? "opacity-75" : ""} ${sinAsignar ? "border-dashed" : ""}`} style={sinAsignar ? { background: "#e9edf2", color: "#5b6472" } : undefined}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft font-[family-name:var(--font-display)] text-lg font-bold text-brand-azul">
@@ -95,7 +97,7 @@ export function TarjetaTanda({ t, posicion, puedePlanificar }: { t: TandaVista; 
               {t.codigo} · {t.descripcion}
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              <span className={`badge-estado ${est.clase}`}>{est.texto}</span>
+              {sinAsignar ? <span className="badge-estado badge-bajo">Falta asignar día y turno</span> : <span className={`badge-estado ${est.clase}`}>{est.texto}</span>}
               <BadgeAlerta a={t.alerta} />
               {t.usarArranque && <span className="badge-estado badge-naranja">Arranca con receta reforzada</span>}
             </div>
@@ -164,19 +166,11 @@ export function TarjetaTanda({ t, posicion, puedePlanificar }: { t: TandaVista; 
         <summary className="cursor-pointer font-semibold text-brand-azul">
           Pedidos de la tanda ({t.pedidos.length || "sólo stock"})
         </summary>
+        {/* Cambios del 23/11/2026: los pedidos se eligen al planificar la tanda; acá sólo se informan. */}
         {t.pedidos.length > 0 ? (
-          editable ? (
-            <FormAccion accion={quitarPedidosAction} ocultos={{ id: t.id }} boton="Sacar de esta tanda los pedidos tildados" claseBoton="btn btn-outline btn-sm" className="mt-2 space-y-2">
-              {/* Reunión 20/11/2026: el botón «Quitar los marcados» no se entendía. */}
-              <p className="text-xs text-foreground-muted">Si un pedido no va en esta tanda, tildalo y sacalo: vuelve a «Por planificar» para ponerlo en otra.</p>
-              <ListaPedidos t={t} conCheck />
-              <input name="motivo" placeholder="Motivo (ej. se entregan la semana próxima)" className="input" />
-            </FormAccion>
-          ) : (
-            <div className="mt-2">
-              <ListaPedidos t={t} />
-            </div>
-          )
+          <div className="mt-2">
+            <ListaPedidos t={t} />
+          </div>
         ) : (
           <p className="mt-2 text-foreground-muted">Producción para stock, sin pedidos asociados.</p>
         )}
@@ -190,26 +184,22 @@ export function TarjetaTanda({ t, posicion, puedePlanificar }: { t: TandaVista; 
         )}
         {/* Reunión 20/11/2026: el material lo lleva Materia prima con su lista
             «Para llevar a pie de máquina»; el Encargado no hace el retiro. */}
-        {t.estado === "PLANIFICADA" && t.inyectora && (
-          <span className="self-center text-xs text-foreground-muted">El material lo lleva Materia prima (le aparece en «Para llevar a pie de máquina»).</span>
-        )}
-        {puedePlanificar && t.estado === "EN_CURSO" && t.cicloId && (
-          <Link href={`/materia-prima/retiro?ciclo=${t.cicloId}`} className="btn btn-outline btn-sm">
-            Reponer material
-          </Link>
+        {t.estado === "PLANIFICADA" && (
+          <span className="self-center text-xs text-foreground-muted">
+            {sinAsignar ? "Cuando tenga día y turno, a Materia prima le llega el aviso para llevar el material." : "El material lo lleva Materia prima (le llega el aviso y lo ve en «Llevar a pie de máquina»)."}
+          </span>
         )}
         {editable && (
           <details className="w-full sm:w-auto">
-            <summary className="btn btn-outline btn-sm list-none">Asignar máquina, turno y cantidades</summary>
+            <summary className={`btn btn-sm list-none ${sinAsignar ? "btn-primary" : "btn-outline"}`}>Asignar día y turno</summary>
             <FormAccion accion={actualizarTandaAction} ocultos={{ id: t.id }} boton="Guardar" className="mt-2 flex flex-wrap items-end gap-2">
               <CamposMaquina esAccesorio={t.esAccesorio} inyectora={t.inyectora} fecha={t.fecha} turno={t.turno} />
-              <label className="campo w-36">
-                <span>Extra para stock</span>
-                <input name="cantidadStock" type="number" min={0} step={1} defaultValue={t.cantidadStock} className="input" />
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" name="usarArranque" defaultChecked={t.usarArranque} disabled={!t.recetaArranque} /> Arrancar con receta reforzada
-              </label>
+              {/* La receta reforzada sólo se ofrece si el producto tiene una cargada. */}
+              {t.recetaArranque && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="usarArranque" defaultChecked={t.usarArranque} /> Arrancar con receta reforzada (cambio de color)
+                </label>
+              )}
               <label className="campo w-full">
                 <span>Indicaciones para el operario (opcional)</span>
                 <input name="observaciones" defaultValue={t.observaciones ?? ""} className="input" />
@@ -250,12 +240,11 @@ export function TarjetaTanda({ t, posicion, puedePlanificar }: { t: TandaVista; 
   );
 }
 
-function ListaPedidos({ t, conCheck }: { t: TandaVista; conCheck?: boolean }) {
+function ListaPedidos({ t }: { t: TandaVista }) {
   return (
     <ul className="divide-y divide-border rounded-lg border border-border">
       {t.pedidos.map((p) => (
         <li key={p.pedidoLineaId} className="flex flex-wrap items-center gap-2 px-3 py-2">
-          {conCheck && <input type="checkbox" name="quitar" value={p.pedidoLineaId} aria-label={`Quitar pedido ${p.pedidoId}`} />}
           <Link href={`/pedidos/${p.pedidoId}`} className="font-semibold text-accent hover:underline">
             #{p.pedidoId}
           </Link>
@@ -330,9 +319,11 @@ export function TarjetaGrupo({ g, tieneArranque, puedePlanificar }: { g: GrupoPl
                 <input name="cantidadStock" type="number" min={0} step={1} defaultValue={0} className="input" />
               </label>
               <CamposMaquina esAccesorio={g.esAccesorio} />
-              <label className="flex items-center gap-2 pb-2 text-sm">
-                <input type="checkbox" name="usarArranque" disabled={!tieneArranque} /> Arrancar con receta reforzada
-              </label>
+              {tieneArranque && (
+                <label className="flex items-center gap-2 pb-2 text-sm">
+                  <input type="checkbox" name="usarArranque" /> Arrancar con receta reforzada (cambio de color)
+                </label>
+              )}
             </div>
           </FormAccion>
         </details>

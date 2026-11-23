@@ -35,6 +35,7 @@ import {
 } from "@/lib/db/schema";
 import { puedeCancelarProduccion, puedeOperarTaller } from "@/lib/auth/permisos";
 import { registrarCambios, type Actor, type Resultado } from "@/lib/data/auditoria";
+import { crearAviso } from "@/lib/data/avisos";
 import { ubicacionesMp } from "@/lib/data/depositos";
 import { ErrorCarga, cargarEnTolvaTx, obtenerRetirosMaquina } from "@/lib/data/maquina";
 import { cerrarCajasDelTurno, cerrarCiclo } from "@/lib/data/produccion";
@@ -910,20 +911,33 @@ export async function registrarLimpieza(actor: Actor, input: { cicloId: number; 
 export const MOTIVO_PEDIDO_MATERIAL = "Pedido de material";
 
 /**
- * «Pedir material»: el operario avisa que a pie de máquina no alcanza para la
- * carga. Le llega al Encargado y a Retiros de MP (Producción y Materia prima)
- * hasta que alguien hace un retiro para esa máquina.
+ * «Pedir material» (cambios del 23/11/2026): el operario elige qué y cuánto
+ * necesita, en bolsas. Le llega al Encargado, que da el OK (recién ahí le
+ * llega a Materia prima por Avisos) o lo descarta. Queda pendiente hasta que
+ * se lleva el material a esa máquina.
  */
-export async function pedirMaterial(actor: Actor, input: { cicloId: number }): Promise<Resultado & { yaPedido?: boolean }> {
+export async function pedirMaterial(
+  actor: Actor,
+  input: { cicloId: number; items?: { materiaPrimaId: number; presentacionId: number; cantidad: number }[] | null },
+): Promise<Resultado & { yaPedido?: boolean }> {
   if (!puedeOperarTaller(actor.rol)) return { error: "No tenés permiso para operar la máquina." };
   const r = await cicloAbierto(db, input.cicloId);
   if ("error" in r) return r;
   const { c } = r;
   const pendientes = await pedidosDeMaterialPendientes();
   if (pendientes.some((p) => p.n.cicloId === c.id)) return { yaPedido: true };
-  const v = await vistaTaller(c.inyectora);
-  const p = v.produccion;
-  const receta = p && p.usarArranque && p.recetaArranque ? p.recetaArranque : p?.receta;
+  const items = (input.items ?? []).filter((i) => i.cantidad > 0);
+  if (items.length === 0) return { error: "Elegí qué material necesitás." };
+  if (items.some((i) => !Number.isFinite(i.cantidad) || Math.abs(i.cantidad * 2 - Math.round(i.cantidad * 2)) > 1e-9)) return { error: "Las cantidades van en bolsas enteras o medias." };
+  const pres = await db.select().from(presentacionMp).where(inArray(presentacionMp.id, items.map((i) => i.presentacionId)));
+  const mps = await db.select({ id: materiaPrima.id, nombre: materiaPrima.nombre }).from(materiaPrima).where(inArray(materiaPrima.id, items.map((i) => i.materiaPrimaId)));
+  const pedido = items.map((i) => {
+    const p = pres.find((x) => x.id === i.presentacionId);
+    const kg = kgDe(i.cantidad, Number(p?.kg ?? 0));
+    return { ...i, kg, texto: `${fmtPresentacion(i.cantidad, p?.nombre ?? "")} ${nombreCortoMp(mps.find((m) => m.id === i.materiaPrimaId)?.nombre ?? "")}` };
+  });
+  if (pedido.some((x) => !(x.kg > 0))) return { error: "Presentación inexistente." };
+  const [prod] = c.productoId ? await db.select({ codigo: producto.codigo, color: color.nombre }).from(producto).leftJoin(color, eq(producto.colorId, color.id)).where(eq(producto.id, c.productoId)) : [];
   const [turno] = await db.select({ id: turnoProduccion.id }).from(turnoProduccion).where(and(eq(turnoProduccion.cicloId, c.id), eq(turnoProduccion.estado, "ABIERTO")));
   await db.insert(novedadMaquina).values({
     cicloId: c.id,
@@ -931,15 +945,16 @@ export async function pedirMaterial(actor: Actor, input: { cicloId: number }): P
     inyectora: num(c.inyectora),
     tipo: "NO_CARGA",
     motivo: MOTIVO_PEDIDO_MATERIAL,
-    detalle: `${p?.productoCodigo ?? ""} ${p?.colorNombre ?? ""}`.trim() + (receta ? ` · para una carga: ${receta.items.map((i) => `${i.texto} ${nombreCortoMp(i.materiaPrimaNombre)}`).join(" + ")}` : ""),
+    detalle: `${prod?.codigo ?? ""} ${prod?.color ?? ""}`.trim() + ` · pide: ${pedido.map((x) => x.texto).join(" + ")}`,
+    pedido,
     usuarioId: actor.id,
   });
   return {};
 }
 
-/** Pedidos de material sin atender: producción en curso y ningún retiro a esa
- *  máquina después del pedido. */
-export async function pedidosDeMaterialPendientes() {
+/** Pedidos de material sin atender: producción en curso, no descartados y
+ *  ningún retiro a esa máquina después del pedido. */
+export async function pedidosDeMaterialPendientes(opciones: { soloAvisados?: boolean } = {}) {
   return db
     .select({ n: novedadMaquina, usuarioNombre: usuario.nombre })
     .from(novedadMaquina)
@@ -949,10 +964,36 @@ export async function pedidosDeMaterialPendientes() {
       and(
         eq(novedadMaquina.motivo, MOTIVO_PEDIDO_MATERIAL),
         isNull(cicloProduccion.fechaFin),
+        isNull(novedadMaquina.descartadoEn),
+        opciones.soloAvisados ? sql`${novedadMaquina.avisadoMpEn} is not null` : undefined,
         sql`not exists (select 1 from retiro_maquina rm where rm.inyectora = ${novedadMaquina.inyectora} and rm.creado_en > ${novedadMaquina.fecha})`,
       ),
     )
     .orderBy(desc(novedadMaquina.fecha));
+}
+
+/** El Encargado da el OK al pedido del operario: le llega a Materia prima. */
+export async function avisarPedidoMaterial(actor: Actor, novedadId: number): Promise<Resultado> {
+  if (!puedeCancelarProduccion(actor.rol)) return { error: "El OK al pedido de material lo da el Encargado." };
+  const [n] = await db.select().from(novedadMaquina).where(eq(novedadMaquina.id, novedadId));
+  if (!n || n.motivo !== MOTIVO_PEDIDO_MATERIAL) return { error: "Pedido no encontrado." };
+  if (n.descartadoEn) return { error: "Ese pedido ya se descartó." };
+  if (n.avisadoMpEn) return {};
+  await db.transaction(async (tx) => {
+    await tx.update(novedadMaquina).set({ avisadoMpEn: new Date(), avisadoMpPorId: actor.id }).where(eq(novedadMaquina.id, novedadId));
+    const que = n.pedido?.length ? n.pedido.map((x) => x.texto).join(" + ") : (n.detalle ?? "material");
+    await crearAviso(tx, { tipo: "MATERIAL_PIE", destinoRol: "MATERIA_PRIMA", mensaje: `Llevar a la inyectora ${n.inyectora}: ${que}. Lo pidió el operario y el Encargado dio el OK. Está en «Llevar a pie de máquina».`, creadoPorId: actor.id });
+  });
+  return {};
+}
+
+/** El Encargado descarta el pedido (no hace falta): deja de aparecer. */
+export async function descartarPedidoMaterial(actor: Actor, novedadId: number): Promise<Resultado> {
+  if (!puedeCancelarProduccion(actor.rol)) return { error: "El pedido de material lo descarta el Encargado." };
+  const [n] = await db.select().from(novedadMaquina).where(eq(novedadMaquina.id, novedadId));
+  if (!n || n.motivo !== MOTIVO_PEDIDO_MATERIAL) return { error: "Pedido no encontrado." };
+  await db.update(novedadMaquina).set({ descartadoEn: new Date(), descartadoPorId: actor.id }).where(eq(novedadMaquina.id, novedadId));
+  return {};
 }
 
 export async function pausarProduccion(actor: Actor, input: { cicloId: number; motivo: string | null; reanudar?: boolean }): Promise<Resultado> {

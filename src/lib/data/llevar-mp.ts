@@ -39,7 +39,7 @@ export type TandaALlevar = {
   inyectora: string;
   fecha: string | null;
   turno: TandaVista["turno"];
-  dia: "hoy" | "manana" | "sin_dia" | "atrasada";
+  dia: "hoy" | "manana" | "proximos" | "atrasada";
   productoId: number;
   codigo: string;
   colorNombre: string | null;
@@ -54,7 +54,8 @@ export type TandaALlevar = {
 export async function paraLlevarAPie(hoy = hoyISO()): Promise<TandaALlevar[]> {
   const manana = sumarDias(hoy, 1);
   const tandas = (await listarTandas({ hoy }))
-    .filter((t) => t.estado === "PLANIFICADA" && t.inyectora && (!t.fecha || t.fecha <= manana))
+    // Cambios del 23/11/2026: sólo las tandas con máquina, día y turno asignados.
+    .filter((t) => t.estado === "PLANIFICADA" && t.inyectora && t.fecha && t.turno)
     .sort(compararCola);
   if (tandas.length === 0) return [];
   const retiros = await obtenerRetirosMaquina({ estado: "ABIERTO" });
@@ -102,7 +103,7 @@ export async function paraLlevarAPie(hoy = hoyISO()): Promise<TandaALlevar[]> {
         texto: faltaKg <= 1e-6 ? "ya está" : kgPres > 0 && pres ? fmtPresentacion(faltaBolsas, pres.presentacionNombre) : fmtPeso(faltaKg),
       };
     });
-    const dia = !t.fecha ? "sin_dia" : t.fecha < hoy ? "atrasada" : t.fecha === hoy ? "hoy" : "manana";
+    const dia = t.fecha! < hoy ? "atrasada" : t.fecha === hoy ? "hoy" : t.fecha === manana ? "manana" : "proximos";
     return {
       tandaId: t.id,
       inyectora: t.inyectora!,

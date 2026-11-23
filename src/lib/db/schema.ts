@@ -18,6 +18,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  jsonb,
   date,
   index,
   integer,
@@ -150,7 +151,7 @@ export const estadoDespachoEnum = pgEnum("estado_despacho", ["ARMANDO", "CONTROL
 
 export const estadoReclamoEnum = pgEnum("estado_reclamo", ["ABIERTO", "EN_ANALISIS", "CERRADO"]);
 
-export const tipoAvisoEnum = pgEnum("tipo_aviso", ["PEDIDO_LISTO", "RECLAMO_NUEVO", "INFORME_RECLAMO", "ERROR_INFORMADO", "PEDIDO_MODIFICADO", "PEDIDO_MATERIA_PRIMA", "CAMBIO_MATRIZ", "COMPRA_MP"]);
+export const tipoAvisoEnum = pgEnum("tipo_aviso", ["PEDIDO_LISTO", "RECLAMO_NUEVO", "INFORME_RECLAMO", "ERROR_INFORMADO", "PEDIDO_MODIFICADO", "PEDIDO_MATERIA_PRIMA", "CAMBIO_MATRIZ", "COMPRA_MP", "MATERIAL_PIE"]);
 
 /** Retiro de materia prima a pie de máquina: abierto mientras quede material
  *  sin cargar, devolver o justificar (puede durar varios turnos). */
@@ -1446,6 +1447,14 @@ export const novedadMaquina = pgTable(
       .notNull()
       .references(() => usuario.id),
     fecha: timestamp("fecha", { withTimezone: true }).notNull().defaultNow(),
+    /** Pedido de material (cambios del 23/11/2026): qué pide el operario, en
+     *  bolsas de cada presentación. */
+    pedido: jsonb("pedido").$type<{ materiaPrimaId: number; presentacionId: number; cantidad: number; kg: number; texto: string }[]>(),
+    /** El Encargado da el OK y recién ahí le llega a Materia prima; o lo descarta. */
+    avisadoMpEn: timestamp("avisado_mp_en", { withTimezone: true }),
+    avisadoMpPorId: integer("avisado_mp_por_id").references(() => usuario.id),
+    descartadoEn: timestamp("descartado_en", { withTimezone: true }),
+    descartadoPorId: integer("descartado_por_id").references(() => usuario.id),
   },
   (t) => [index("novedad_ciclo_idx").on(t.cicloId)],
 );
