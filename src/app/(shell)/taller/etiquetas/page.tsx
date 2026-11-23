@@ -79,27 +79,28 @@ function Etiqueta({ e }: { e: EtiquetaCaja }) {
   return (
     <article className="etiqueta relative overflow-hidden rounded-lg border border-border bg-white text-black shadow-sm" style={{ width: "100mm", height: "60mm", padding: "3mm 3.5mm" }}>
       <div className="flex h-full flex-col">
+        {/* Código y nombre en una sola línea, arriba a la derecha, a todo el ancho. */}
+        <div className="whitespace-nowrap text-right font-bold leading-none tracking-tight" style={{ fontSize: "16pt" }}>
+          {codigo}-{matrizDe({ familia: e.familia, tipo: e.tipo })}
+        </div>
         <div className="flex flex-1 justify-between gap-2">
           <div className="flex w-[52%] flex-col justify-end pb-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/nexa-logo.png" alt="NEXA Soluciones" style={{ width: "44mm", margin: "-3mm 0 -2mm -2mm" }} />
+            <img src="/nexa-logo.png" alt="NEXA Soluciones" style={{ width: "42mm", margin: "-3mm 0 -2mm -2mm" }} />
             <div className="leading-[1.25]" style={{ fontSize: "5.6pt" }}>
               {CONTACTO.map((l) => (
                 <div key={l}>{l}</div>
               ))}
             </div>
           </div>
-          <div className="text-right leading-none">
-            <div className="font-bold tracking-tight" style={{ fontSize: "17pt", fontStretch: "condensed" }}>
-              {codigo}-{matrizDe({ familia: e.familia, tipo: e.tipo })}
-            </div>
-            <div className="mt-[2mm] font-bold" style={{ fontSize: "10pt" }}>
+          <div className="pt-[1.5mm] text-right leading-none">
+            <div className="font-bold" style={{ fontSize: "10pt" }}>
               {fmtFecha(e.fecha)}
             </div>
             <div className="mt-[1mm]" style={{ fontSize: "8.5pt" }}>
               Partida N°{(e.partida ?? "").slice(-5)}
             </div>
-            <div className="mt-[1.5mm] font-black uppercase" style={{ fontSize: "17pt" }}>
+            <div className="mt-[1.5mm] whitespace-nowrap font-black uppercase" style={{ fontSize: "17pt" }}>
               {e.colorNombre ?? ""}
             </div>
             <div className="mt-[1mm]" style={{ fontSize: "8.5pt" }}>
